@@ -286,12 +286,26 @@ export default function CampaignPage() {
         return;
       }
       lastProgress = status;
+
+      const fetchChunkWithRetry = async (attempt = 0): Promise<Response> => {
+        try {
+          return await fetch("/api/leads/generate", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ batchId: selectedBatchId, campaignId: id, limit: 10, useFastModel, useWebScraping, useLandingPage, useVideo }),
+          });
+        } catch (networkErr) {
+          if (attempt < 3) {
+            // Exponential backoff: 2s, 4s, 8s
+            await new Promise((r) => setTimeout(r, 2000 * Math.pow(2, attempt)));
+            return fetchChunkWithRetry(attempt + 1);
+          }
+          throw networkErr;
+        }
+      };
+
       while (status.generated < status.total) {
-        const res = await fetch("/api/leads/generate", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ batchId: selectedBatchId, campaignId: id, limit: 10, useFastModel, useWebScraping, useLandingPage, useVideo }),
-        });
+        const res = await fetchChunkWithRetry();
         const text = await res.text();
         let data: { error?: string } = {};
         try {
@@ -303,6 +317,8 @@ export default function CampaignPage() {
         status = await fetchGenerateProgress();
         if (status) lastProgress = status;
         if (!status) break;
+        // Small pause between chunks to avoid connection saturation on large batches
+        if (status.generated < status.total) await new Promise((r) => setTimeout(r, 300));
       }
       if (status && status.generated >= status.total) {
         setStep("send");
@@ -310,7 +326,10 @@ export default function CampaignPage() {
       }
     } catch (e) {
       const errMsg = e instanceof Error ? e.message : "Generate failed";
-      setGenerateError(errMsg);
+      const resumeHint = lastProgress && lastProgress.generated > 0 && lastProgress.generated < lastProgress.total
+        ? ` ${lastProgress.generated}/${lastProgress.total} already done — click Generate again to resume from where it stopped.`
+        : "";
+      setGenerateError(errMsg + resumeHint);
       try {
         await fetch("/api/feedback/error", {
           method: "POST",
