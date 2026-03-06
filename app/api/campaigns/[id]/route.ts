@@ -95,6 +95,7 @@ export async function PATCH(
     if (body.icp !== undefined) updates.icp = body.icp;
     if (body.proofPointsJson !== undefined) updates.proofPointsJson = body.proofPointsJson;
     if (body.leadBatchId !== undefined) updates.leadBatchId = body.leadBatchId || null;
+    if (body.ctaUrl !== undefined) updates.ctaUrl = body.ctaUrl || null;
 
     const campaign = await prisma.campaign.update({
       where: { id },
@@ -143,7 +144,7 @@ export async function DELETE(
       try {
         const client = getInstantlyClient(decrypt(workspace.instantlyKey));
         await Promise.allSettled(
-          campaign.sentCampaigns.map((sc) => client.deleteCampaign(sc.instantlyCampaignId))
+          campaign.sentCampaigns.map((sc: { id: string; instantlyCampaignId: string }) => client.deleteCampaign(sc.instantlyCampaignId))
         );
       } catch {
         // Instantly deletion is best-effort — still delete from DB

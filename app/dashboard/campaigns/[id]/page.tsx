@@ -16,6 +16,7 @@ type CampaignData = {
   playbookJson: string | null;
   icp: string | null;
   leadBatchId: string | null;
+  ctaUrl: string | null;
   leadBatch?: {
     id: string;
     name: string | null;
@@ -48,6 +49,7 @@ export default function CampaignPage() {
   const [useFastModel, setUseFastModel] = useState(true);
   const [useWebScraping, setUseWebScraping] = useState(false);
   const [useLandingPage, setUseLandingPage] = useState(false);
+  const [ctaUrl, setCtaUrl] = useState("");
   const [useVideo, setUseVideo] = useState(false);
   const [hasLumaKey, setHasLumaKey] = useState(false);
   const [hasRunwayKey, setHasRunwayKey] = useState(false);
@@ -132,6 +134,9 @@ export default function CampaignPage() {
           }
           if (data.campaign.leadBatchId) {
             setSelectedBatchId(data.campaign.leadBatchId);
+          }
+          if (data.campaign.ctaUrl) {
+            setCtaUrl(data.campaign.ctaUrl);
           }
         }
       })
@@ -896,8 +901,30 @@ export default function CampaignPage() {
                           onChange={(e) => setUseLandingPage(e.target.checked)}
                           className="rounded border-zinc-600 bg-zinc-800 text-emerald-600 focus:ring-emerald-500"
                         />
-                        Personalized landing page — unique link per lead (AI includes it in emails)
+                        Personalized landing page — unique link per lead with AI-generated research brief
                       </label>
+                      {useLandingPage && (
+                        <div className="ml-6 mt-1 space-y-1">
+                          <label className="block text-xs text-zinc-500">
+                            CTA URL <span className="text-zinc-600">(where the page button links — e.g. your Calendly)</span>
+                          </label>
+                          <input
+                            type="url"
+                            value={ctaUrl}
+                            onChange={(e) => setCtaUrl(e.target.value)}
+                            onBlur={() => {
+                              if (!id) return;
+                              fetch(`/api/campaigns/${id}`, {
+                                method: "PATCH",
+                                headers: { "Content-Type": "application/json" },
+                                body: JSON.stringify({ ctaUrl: ctaUrl.trim() }),
+                              }).catch(() => {});
+                            }}
+                            placeholder="https://calendly.com/you/demo"
+                            className="w-full rounded-md border border-zinc-700 bg-zinc-900 px-3 py-1.5 text-sm text-zinc-200 placeholder-zinc-600 focus:border-zinc-500 focus:outline-none"
+                          />
+                        </div>
+                      )}
                       {(hasLumaKey || hasRunwayKey) && (
                         <>
                           <label className="flex items-center gap-2 text-sm text-zinc-300 cursor-pointer">

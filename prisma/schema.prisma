@@ -103,6 +103,7 @@ model Campaign {
   icp             String?
   proofPointsJson String?
   leadBatchId     String?  // set when leads added for this campaign
+  ctaUrl          String?  // CTA URL shown on personalized landing pages
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
@@ -176,6 +177,7 @@ model Lead {
   website            String?   // company URL for web scraping
   industry           String?
   landingPageToken   String?   // token for personalized landing page
+  landingPageContentJson String? // JSON: LandingPageContent generated at sequence-gen time
   videoUrl           String?   // URL of generated personalized video
   videoTaskId        String?   // Luma/Runway task ID for polling
   videoTaskProvider  String?   // "luma" | "runway"

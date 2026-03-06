@@ -7,6 +7,8 @@ import { callAnthropic } from "@/lib/anthropic";
 import { getAggregatedMemory } from "@/lib/performance-memory";
 import { parsePlaybook } from "@/lib/playbook";
 import { scrapeForContext } from "@/lib/scrape";
+import { generateLeadResearch } from "@/lib/research";
+import { generateLandingPageContent, landingPageContentForEmailPrompt } from "@/lib/lp-content-gen";
 import { randomUUID } from "crypto";
 
 // Allow up to 60s so a few Anthropic calls can finish (Vercel Pro; Hobby may still cap at 10s)
@@ -55,15 +57,17 @@ export async function POST(request: Request) {
     let campaignPlaybook: string | null = null;
     let campaignIcp: string | null = null;
     let campaignProofPoints: string | null = null;
+    let campaignCtaUrl: string | null = null;
     if (campaignIdParam) {
       const camp = await prisma.campaign.findFirst({
         where: { id: campaignIdParam, workspaceId: workspace.id },
-        select: { playbookJson: true, icp: true, proofPointsJson: true },
+        select: { playbookJson: true, icp: true, proofPointsJson: true, ctaUrl: true },
       });
       if (camp) {
         campaignPlaybook = camp.playbookJson;
         campaignIcp = camp.icp;
         campaignProofPoints = camp.proofPointsJson;
+        campaignCtaUrl = camp.ctaUrl;
       }
     }
 
@@ -159,11 +163,17 @@ export async function POST(request: Request) {
 
     const processLead = async (lead: (typeof chunk)[0]) => {
       let companyContextBlock = "";
+      let companyContextRaw: string | null = null;
       if (useWebScraping && lead.website?.trim()) {
         const scraped = await scrapeForContext(lead.website.trim());
         if (scraped) {
+          companyContextRaw = scraped;
           companyContextBlock = `\n\nCompany website context (use to personalize — recent news, products, tone):\n${scraped}`;
         }
+      } else if (useLandingPage && lead.website?.trim()) {
+        // Always scrape for LP research even if useWebScraping is off
+        const scraped = await scrapeForContext(lead.website.trim());
+        if (scraped) companyContextRaw = scraped;
       }
 
       let videoBlock = "";
@@ -174,9 +184,61 @@ export async function POST(request: Request) {
       let landingPageBlock = "";
       let landingPageToken: string | null = null;
       if (useLandingPage && baseUrl) {
-        landingPageToken = randomUUID();
+        landingPageToken = lead.landingPageToken ?? randomUUID();
         const lpUrl = `${baseUrl.replace(/\/$/, "")}/lp/${landingPageToken}`;
-        landingPageBlock = `\n\nInclude this personalized landing page link in at least one email (e.g. step 1 or 2): ${lpUrl}. Write a compelling reason for them to click (e.g. "I put together a quick demo for [Company]" or "Here's a resource tailored for your team").`;
+
+        // 1. Research phase — synthesize insights from lead data + scraped content
+        const research = await generateLeadResearch(
+          {
+            name: lead.name,
+            jobTitle: lead.jobTitle,
+            company: lead.company,
+            industry: lead.industry,
+            website: lead.website,
+            websiteText: companyContextRaw ?? null,
+            productSummary,
+            icp,
+          },
+          anthropicKey,
+          model
+        );
+
+        // 2. Landing page content gen — calls Claude + synthetic MCP
+        const senderNameStr = workspace.senderName?.trim() || "The team";
+        const socialProofStr = (() => {
+          try {
+            if (!workspace.socialProofJson) return "";
+            const sp = JSON.parse(workspace.socialProofJson) as { similarCompanies?: string; referralPhrase?: string };
+            return [sp.similarCompanies, sp.referralPhrase].filter(Boolean).join(". ");
+          } catch { return ""; }
+        })();
+        const lpContent = await generateLandingPageContent(
+          {
+            name: lead.name,
+            jobTitle: lead.jobTitle,
+            company: lead.company,
+            industry: lead.industry,
+            research,
+            productSummary,
+            senderName: senderNameStr,
+            socialProof: socialProofStr,
+            ctaUrl: campaignCtaUrl ?? "",
+          },
+          anthropicKey
+        );
+
+        // 3. Build rich email block that references actual page content
+        landingPageBlock = landingPageContentForEmailPrompt(lpContent, lpUrl);
+
+        // Store content on lead for page rendering
+        const lpContentJson = JSON.stringify(lpContent);
+        await prisma.lead.update({
+          where: { id: lead.id },
+          data: {
+            landingPageToken,
+            landingPageContentJson: lpContentJson,
+          },
+        });
       }
 
       let strategyBlock = "";
@@ -251,7 +313,7 @@ Respond with ONLY a valid JSON object with keys ${stepKeys}. Each step: { "subje
         });
         const update: Record<string, string | null> = {
           stepsJson: JSON.stringify(stepsArray),
-          ...(landingPageToken ? { landingPageToken } : {}),
+          // landingPageToken already stored during LP content generation above
         };
         if (stepsArray[0]) {
           update.step1Subject = stepsArray[0].subject || null;
