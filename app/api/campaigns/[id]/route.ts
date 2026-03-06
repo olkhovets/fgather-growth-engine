@@ -139,9 +139,9 @@ export async function DELETE(
     // Best-effort: delete from Instantly for any sent campaigns
     if (workspace.instantlyKey && campaign.sentCampaigns.length > 0) {
       const { decrypt } = await import("@/lib/encryption");
-      const { createInstantlyClient } = await import("@/lib/instantly");
+      const { getInstantlyClient } = await import("@/lib/instantly");
       try {
-        const client = createInstantlyClient(decrypt(workspace.instantlyKey));
+        const client = getInstantlyClient(decrypt(workspace.instantlyKey));
         await Promise.allSettled(
           campaign.sentCampaigns.map((sc) => client.deleteCampaign(sc.instantlyCampaignId))
         );
