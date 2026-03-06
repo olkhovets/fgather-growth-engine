@@ -92,7 +92,7 @@ export async function POST(request: Request) {
       prisma.lead.count({ where: needsWorkWhere }),
       prisma.lead.findMany({
         where: needsWorkWhere,
-        select: { id: true, email: true, name: true, jobTitle: true, company: true, website: true, industry: true, persona: true, vertical: true, videoUrl: true },
+        select: { id: true, email: true, name: true, jobTitle: true, company: true, website: true, industry: true, persona: true, vertical: true, videoUrl: true, landingPageToken: true },
         orderBy: { id: "asc" },
         skip: offset,
         take: limit,
