@@ -24,7 +24,7 @@ export async function POST(request: Request) {
     const body = await request.json().catch(() => ({}));
     const { campaignId, guidelines: bodyGuidelines, customLead } = body as {
       campaignId?: string;
-      guidelines?: { tone?: string; structure?: string; numSteps?: number; stepDelays?: number[] };
+      guidelines?: { context?: string; tone?: string; structure?: string; numSteps?: number; stepDelays?: number[] };
       customLead?: { jobTitle?: string; companyUrl?: string };
     };
 
@@ -47,12 +47,23 @@ export async function POST(request: Request) {
     }
 
     let parsed: ReturnType<typeof parsePlaybook>;
-    if (bodyGuidelines?.structure?.trim()) {
-      const numSteps = Math.min(10, Math.max(1, bodyGuidelines.numSteps ?? 3));
-      const stepDelays = Array.isArray(bodyGuidelines.stepDelays) && bodyGuidelines.stepDelays.length >= numSteps
-        ? bodyGuidelines.stepDelays.slice(0, numSteps)
+    const bodyContext = bodyGuidelines?.context?.trim() || bodyGuidelines?.structure?.trim();
+    if (bodyContext) {
+      const numSteps = Math.min(10, Math.max(1, bodyGuidelines!.numSteps ?? 3));
+      const stepDelays = Array.isArray(bodyGuidelines!.stepDelays) && bodyGuidelines!.stepDelays.length >= numSteps
+        ? bodyGuidelines!.stepDelays.slice(0, numSteps)
         : [1, 3, 5, 7, 10].slice(0, numSteps);
-      parsed = { numSteps, stepDelays, guidelines: { tone: bodyGuidelines.tone ?? "", structure: bodyGuidelines.structure, numSteps, stepDelays } };
+      parsed = {
+        numSteps,
+        stepDelays,
+        guidelines: {
+          context: bodyGuidelines!.context ?? bodyGuidelines!.structure ?? "",
+          tone: bodyGuidelines!.tone ?? "",
+          structure: bodyGuidelines!.structure ?? "",
+          numSteps,
+          stepDelays,
+        },
+      };
     } else {
       let playbookSource = workspace.playbookJson;
       if (campaignId) {
@@ -104,11 +115,13 @@ export async function POST(request: Request) {
       }
     }
 
-    const structureBlock = guidelines?.structure
-      ? `\nStructure: ${guidelines.structure}\nTone: ${guidelines.tone}`
-      : legacySteps?.length
-        ? `\nRough structure (adapt freely): ${legacySteps.map((s, i) => `Step ${i + 1}: ${(s.subject || "").slice(0, 60)}`).join(" | ")}`
-        : "";
+    const structureBlock = guidelines?.context
+      ? `\nCampaign context & guidelines:\n${guidelines.context}`
+      : guidelines?.structure
+        ? `\nStructure: ${guidelines.structure}\nTone: ${guidelines.tone}`
+        : legacySteps?.length
+          ? `\nRough structure (adapt freely): ${legacySteps.map((s, i) => `Step ${i + 1}: ${(s.subject || "").slice(0, 60)}`).join(" | ")}`
+          : "";
 
     const hasCustomLead = customLead && (customLead.jobTitle?.trim() || customLead.companyUrl?.trim());
 

@@ -108,11 +108,13 @@ export async function POST(request: Request) {
     const stepKeys = Array.from({ length: numSteps }, (_, i) => `step${i + 1}`).join(", ");
     const stepExample = Array.from({ length: numSteps }, (_, i) => `"step${i + 1}": {"subject": "...", "body": "..."}`).join(", ");
 
-    const structureBlock = guidelines?.structure
-      ? `\nPlaybook structure (follow this flow, but write completely custom content for this lead):\n${guidelines.structure}\nTone: ${guidelines.tone}`
-      : legacySteps?.length
-        ? `\nRough flow (adapt freely, write custom content): ${legacySteps.map((s, i) => `Step ${i + 1}: ${(s.subject || "").slice(0, 50)}`).join(" → ")}`
-        : "";
+    const structureBlock = guidelines?.context
+      ? `\n\nCampaign context & guidelines (use to shape every email — tone, angles, product framing, any URLs or research notes provided):\n${guidelines.context}`
+      : guidelines?.structure
+        ? `\nPlaybook structure (follow this flow, but write completely custom content for this lead):\n${guidelines.structure}\nTone: ${guidelines.tone}`
+        : legacySteps?.length
+          ? `\nRough flow (adapt freely, write custom content): ${legacySteps.map((s, i) => `Step ${i + 1}: ${(s.subject || "").slice(0, 50)}`).join(" → ")}`
+          : "";
 
     const anthropicKey = decrypt(workspace.anthropicKey);
     const useFastModel = useFastModelParam !== false;

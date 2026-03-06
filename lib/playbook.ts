@@ -5,8 +5,12 @@
  */
 
 export type PlaybookGuidelines = {
-  tone: string;
-  structure: string;
+  /** Free-form campaign context: goals, product angle, URLs, tone notes — anything the AI should use */
+  context?: string;
+  /** @deprecated use context instead */
+  tone?: string;
+  /** @deprecated use context instead */
+  structure?: string;
   numSteps: number;
   stepDelays: number[];
 };
@@ -46,11 +50,17 @@ export function parsePlaybook(playbookJson: string | null): PlaybookParsed | nul
       const stepDelays = Array.isArray(g.stepDelays) && g.stepDelays.length >= numSteps
         ? g.stepDelays.slice(0, numSteps)
         : baseDelays.slice(0, numSteps);
+      // Resolve context: prefer explicit context field, fall back to combining legacy tone+structure
+      const context = g.context
+        ?? (g.tone || g.structure
+          ? [g.tone, g.structure].filter(Boolean).join("\n\n")
+          : undefined);
       return {
         numSteps,
         stepDelays,
         guidelines: {
-          tone: g.tone ?? "direct, consultative",
+          context,
+          tone: g.tone ?? "",
           structure: g.structure ?? "",
           numSteps,
           stepDelays,

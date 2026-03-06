@@ -34,11 +34,10 @@ export default function CampaignPage() {
   const [loading, setLoading] = useState(true);
   const [step, setStep] = useState<Step>("playbook");
   const [editingGuidelines, setEditingGuidelines] = useState<{
-    tone: string;
-    structure: string;
+    context: string;
     numSteps: number;
     stepDelays: number[];
-  }>({ tone: "direct, consultative", structure: "", numSteps: 3, stepDelays: [1, 3, 5] });
+  }>({ context: "", numSteps: 3, stepDelays: [1, 3, 5] });
   const [savingPlaybook, setSavingPlaybook] = useState(false);
   const [playbookError, setPlaybookError] = useState("");
   const [batches, setBatches] = useState<Array<{ id: string; name: string | null; leadCount: number }>>([]);
@@ -83,10 +82,6 @@ export default function CampaignPage() {
   const [testEmail, setTestEmail] = useState("");
   const [testSending, setTestSending] = useState(false);
   const [testMessage, setTestMessage] = useState("");
-  const [playbookExpanded, setPlaybookExpanded] = useState(false);
-  const [playbookAiInput, setPlaybookAiInput] = useState("");
-  const [playbookAiOpen, setPlaybookAiOpen] = useState(false);
-  const [playbookAiLoading, setPlaybookAiLoading] = useState(false);
   const [samples, setSamples] = useState<Array<{
     persona: string;
     exampleLead?: { name: string; company: string; jobTitle: string; industry?: string };
@@ -96,8 +91,6 @@ export default function CampaignPage() {
   const [sampleError, setSampleError] = useState("");
   const [sampleJobTitle, setSampleJobTitle] = useState("");
   const [sampleCompanyUrl, setSampleCompanyUrl] = useState("");
-  const [templates, setTemplates] = useState<Array<{ id: string; name: string; description: string }>>([]);
-  const [defaultPlaybookLoading, setDefaultPlaybookLoading] = useState(false);
 
   useEffect(() => {
     if (!id || !session?.user?.id) return;
@@ -110,14 +103,16 @@ export default function CampaignPage() {
           if (data.campaign.playbookJson) {
             try {
               const pb = JSON.parse(data.campaign.playbookJson) as {
-                guidelines?: { tone?: string; structure?: string; numSteps?: number; stepDelays?: number[] };
+                guidelines?: { context?: string; tone?: string; structure?: string; numSteps?: number; stepDelays?: number[] };
                 steps?: Array<{ stepNumber?: number; subject: string; body: string; delayDays: number }>;
               };
               if (pb?.guidelines) {
-                const g = pb.guidelines as { tone?: string; structure?: string; numSteps?: number; stepDelays?: number[] };
+                const g = pb.guidelines;
+                // Prefer explicit context; fall back to combining legacy tone + structure
+                const context = g.context
+                  ?? (g.tone || g.structure ? [g.tone, g.structure].filter(Boolean).join("\n\n") : "");
                 setEditingGuidelines({
-                  tone: g.tone ?? "direct, consultative",
-                  structure: g.structure ?? "",
+                  context,
                   numSteps: Math.min(10, Math.max(1, g.numSteps ?? 3)),
                   stepDelays: Array.isArray(g.stepDelays) ? g.stepDelays : [1, 3, 5],
                 });
@@ -125,8 +120,7 @@ export default function CampaignPage() {
                 const steps = pb.steps;
                 const delays = steps.map((s) => (typeof s.delayDays === "number" ? s.delayDays : 0));
                 setEditingGuidelines({
-                  tone: "direct, consultative",
-                  structure: steps.map((s, i) => `Step ${i + 1}: ${(s.subject || "").slice(0, 50)}`).join(" → "),
+                  context: steps.map((s, i) => `Step ${i + 1}: ${(s.subject || "").slice(0, 50)}`).join("\n"),
                   numSteps: steps.length,
                   stepDelays: delays,
                 });
@@ -154,14 +148,6 @@ export default function CampaignPage() {
           setHasRunwayKey(Boolean(data.workspace.hasRunwayKey));
         }
       })
-      .catch(() => {});
-  }, [session?.user?.id]);
-
-  useEffect(() => {
-    if (!session?.user?.id) return;
-    fetch("/api/playbook/default")
-      .then((r) => r.json())
-      .then((data) => setTemplates(data.templates ?? []))
       .catch(() => {});
   }, [session?.user?.id]);
 
@@ -236,8 +222,7 @@ export default function CampaignPage() {
     try {
       const playbookJson = JSON.stringify({
         guidelines: {
-          tone: editingGuidelines.tone,
-          structure: editingGuidelines.structure,
+          context: editingGuidelines.context,
           numSteps: editingGuidelines.numSteps,
           stepDelays: editingGuidelines.stepDelays,
         },
@@ -547,242 +532,112 @@ export default function CampaignPage() {
 
               {step === "playbook" && (
                 <div className="space-y-6">
-                  <div className="flex flex-wrap items-center justify-between gap-3">
-                    <button
-                      type="button"
-                      onClick={() => setPlaybookExpanded((v) => !v)}
-                      className="flex items-center gap-2 text-left group"
-                    >
-                      <h2 className="text-lg font-medium text-zinc-200 group-hover:text-zinc-100">
-                        Playbook (guidelines)
-                      </h2>
-                      <span className="text-zinc-500 text-sm">
-                        {playbookExpanded ? "▼" : "▶"}
-                      </span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setPlaybookAiOpen((v) => !v)}
-                      className="rounded-md border border-amber-600 px-3 py-1.5 text-sm font-medium text-amber-200 hover:bg-amber-900/30"
-                    >
-                      Update with AI
-                    </button>
+                  <div>
+                    <h2 className="text-lg font-medium text-zinc-200">Campaign context</h2>
+                    <p className="mt-1 text-sm text-zinc-500">
+                      Tell the AI everything it needs to write great emails for this campaign — product angle, target pain points, tone, what to avoid, relevant URLs, case studies, notes from calls. The more context you give, the better the emails.
+                    </p>
                   </div>
-                  <p className="text-sm text-zinc-500">
-                    Define how to write — not templates. Each lead gets hyper-personalized emails written from these guidelines.
-                  </p>
-                  {(!editingGuidelines.structure.trim() || templates.length > 0) && (
-                    <div className="rounded-lg border border-emerald-900/50 bg-emerald-950/20 p-4">
-                      <h3 className="text-sm font-medium text-emerald-200 mb-2">Quick start</h3>
-                      <p className="text-xs text-zinc-500 mb-3">
-                        No playbook yet? Generate one from your product + ICP, or pick a template.
-                      </p>
-                      <div className="flex flex-wrap gap-2">
-                        <button
-                          type="button"
-                          onClick={async () => {
-                            setDefaultPlaybookLoading(true);
-                            setPlaybookError("");
-                            try {
-                              const res = await fetch("/api/playbook/default", {
-                                method: "POST",
-                                headers: { "Content-Type": "application/json" },
-                                body: JSON.stringify({ campaignId: id }),
-                              });
-                              const data = await res.json();
-                              if (data.error) throw new Error(data.error);
-                              if (data.playbook?.guidelines) {
-                                const g = data.playbook.guidelines;
-                                setEditingGuidelines({
-                                  tone: g.tone ?? "direct, consultative",
-                                  structure: g.structure ?? "",
-                                  numSteps: g.numSteps ?? 3,
-                                  stepDelays: Array.isArray(g.stepDelays) ? g.stepDelays : [1, 3, 5],
-                                });
-                                setCampaign((c) => c ? { ...c, playbookJson: JSON.stringify(data.playbook) } : null);
-                              }
-                            } catch (e) {
-                              setPlaybookError(e instanceof Error ? e.message : "Failed to generate");
-                            } finally {
-                              setDefaultPlaybookLoading(false);
-                            }
+
+                  {playbookError && <div className="rounded-md bg-red-900/20 border border-red-800 px-4 py-2 text-sm text-red-300">{playbookError}</div>}
+
+                  <div>
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="text-sm text-zinc-400">Context &amp; guidelines</label>
+                      <label className="flex items-center gap-1.5 cursor-pointer rounded-md border border-zinc-700 bg-zinc-900 px-2 py-1 text-xs text-zinc-400 hover:text-zinc-200 hover:border-zinc-600">
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
+                        </svg>
+                        Attach file
+                        <input
+                          type="file"
+                          accept=".txt,.md,.csv,.json"
+                          className="sr-only"
+                          onChange={async (e) => {
+                            const file = e.target.files?.[0];
+                            if (!file) return;
+                            const text = await file.text();
+                            setEditingGuidelines((g) => ({
+                              ...g,
+                              context: g.context
+                                ? `${g.context}\n\n--- ${file.name} ---\n${text}`
+                                : `--- ${file.name} ---\n${text}`,
+                            }));
+                            e.target.value = "";
                           }}
-                          disabled={defaultPlaybookLoading}
-                          className="rounded-md bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-500 disabled:opacity-50"
-                        >
-                          {defaultPlaybookLoading ? "Generating…" : "Generate default playbook"}
-                        </button>
-                        {templates.map((t) => (
-                          <button
-                            key={t.id}
-                            type="button"
-                            onClick={async () => {
-                              setDefaultPlaybookLoading(true);
-                              setPlaybookError("");
-                              try {
-                                const res = await fetch("/api/playbook/default", {
-                                  method: "POST",
-                                  headers: { "Content-Type": "application/json" },
-                                  body: JSON.stringify({ campaignId: id, templateId: t.id }),
-                                });
-                                const data = await res.json();
-                                if (data.error) throw new Error(data.error);
-                                if (data.playbook?.guidelines) {
-                                  const g = data.playbook.guidelines;
-                                  setEditingGuidelines({
-                                    tone: g.tone ?? "direct, consultative",
-                                    structure: g.structure ?? "",
-                                    numSteps: g.numSteps ?? 3,
-                                    stepDelays: Array.isArray(g.stepDelays) ? g.stepDelays : [1, 3, 5],
-                                  });
-                                  setCampaign((c) => c ? { ...c, playbookJson: JSON.stringify(data.playbook) } : null);
-                                }
-                              } catch (e) {
-                                setPlaybookError(e instanceof Error ? e.message : "Failed");
-                              } finally {
-                                setDefaultPlaybookLoading(false);
-                              }
-                            }}
-                            disabled={defaultPlaybookLoading}
-                            className="rounded-md border border-zinc-600 px-4 py-2 text-sm font-medium text-zinc-300 hover:bg-zinc-800 disabled:opacity-50"
-                            title={t.description}
-                          >
-                            {t.name}
-                          </button>
+                        />
+                      </label>
+                    </div>
+                    <textarea
+                      value={editingGuidelines.context}
+                      onChange={(e) => setEditingGuidelines((g) => ({ ...g, context: e.target.value }))}
+                      placeholder={`Examples of what to include:\n• Product angle: "We help CMOs run research in days, not weeks"\n• Tone: Direct and confident, no fluff, avoid buzzwords\n• Pain: Teams are stuck waiting months for insights from agencies\n• Step 1: Lead with a sharp question about their research process\n• Step 2: Drop a proof point — Datadog ran 3 studies in a week\n• Step 3: Low-friction CTA — offer a 15-min demo\n• URL: https://gatherhq.com/case-studies (include for context)\n• Avoid: Don't mention price, don't be pushy`}
+                      rows={14}
+                      className="w-full rounded-md border border-zinc-700 bg-zinc-900 px-3 py-2.5 text-zinc-200 text-sm leading-relaxed font-mono resize-y"
+                    />
+                    <p className="mt-1.5 text-xs text-zinc-600">
+                      Tip: Paste URLs and the AI will use them as reference. Attach .txt / .md / .csv files with briefs, case studies, or talking points.
+                    </p>
+                  </div>
+
+                  <div className="flex flex-wrap items-start gap-6">
+                    <div>
+                      <label className="block text-sm text-zinc-400 mb-1">Number of emails in sequence</label>
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="number"
+                          min={1}
+                          max={10}
+                          value={editingGuidelines.numSteps}
+                          onChange={(e) => {
+                            const n = Math.min(10, Math.max(1, parseInt(e.target.value) || 1));
+                            const baseDelays = [1, 3, 5, 7, 10, 14, 21, 28, 35, 42];
+                            const newDelays = Array.from({ length: n }, (_, i) =>
+                              editingGuidelines.stepDelays[i] ?? baseDelays[i] ?? (i * 7)
+                            );
+                            setEditingGuidelines((g) => ({ ...g, numSteps: n, stepDelays: newDelays }));
+                          }}
+                          className="w-20 rounded-md border border-zinc-700 bg-zinc-900 px-3 py-2 text-zinc-200 text-sm text-center"
+                        />
+                        <span className="text-xs text-zinc-500">emails (1–10)</span>
+                      </div>
+                    </div>
+                    <div>
+                      <label className="block text-sm text-zinc-400 mb-1">Days between emails</label>
+                      <div className="flex flex-wrap gap-2">
+                        {editingGuidelines.stepDelays.map((d, i) => (
+                          <div key={i} className="flex flex-col items-center gap-0.5">
+                            <span className="text-xs text-zinc-600">#{i + 1}</span>
+                            <input
+                              type="number"
+                              min={0}
+                              value={d}
+                              onChange={(e) => setEditingGuidelines((g) => {
+                                const arr = [...g.stepDelays];
+                                arr[i] = Math.max(0, parseInt(e.target.value) || 0);
+                                return { ...g, stepDelays: arr };
+                              })}
+                              className="w-14 rounded-md border border-zinc-700 bg-zinc-900 px-2 py-2 text-zinc-200 text-sm text-center"
+                            />
+                          </div>
                         ))}
                       </div>
                     </div>
-                  )}
-                  {playbookAiOpen && (
-                    <div className="flex flex-wrap items-end gap-2">
-                      <input
-                        type="text"
-                        value={playbookAiInput}
-                        onChange={(e) => setPlaybookAiInput(e.target.value)}
-                        placeholder="e.g. Make step 2 more urgent, use shorter subject lines"
-                        className="flex-1 min-w-[200px] rounded-md border border-zinc-700 bg-zinc-900 px-3 py-2 text-zinc-200 text-sm"
-                      />
-                      <button
-                        type="button"
-                        onClick={async () => {
-                          if (!playbookAiInput.trim()) return;
-                          setPlaybookAiLoading(true);
-                          try {
-                            const res = await fetch("/api/chat", {
-                              method: "POST",
-                              headers: { "Content-Type": "application/json" },
-                              body: JSON.stringify({
-                                message: playbookAiInput.trim(),
-                                context: { guidelines: editingGuidelines },
-                              }),
-                            });
-                            const data = await res.json();
-                            if (data.error) throw new Error(data.error);
-                            if (data.edits?.guidelines) {
-                              const g = data.edits.guidelines;
-                              setEditingGuidelines((prev) => ({
-                                tone: g.tone ?? prev.tone,
-                                structure: g.structure ?? prev.structure,
-                                numSteps: g.numSteps ?? prev.numSteps,
-                                stepDelays: Array.isArray(g.stepDelays) ? g.stepDelays : prev.stepDelays,
-                              }));
-                            }
-                            setPlaybookAiInput("");
-                          } catch {
-                            setPlaybookAiInput("Failed. Try again.");
-                          } finally {
-                            setPlaybookAiLoading(false);
-                          }
-                        }}
-                        disabled={playbookAiLoading || !playbookAiInput.trim()}
-                        className="rounded-md bg-amber-600 px-4 py-2 text-sm font-medium text-white hover:bg-amber-500 disabled:opacity-50"
-                      >
-                        {playbookAiLoading ? "Applying…" : "Apply"}
-                      </button>
-                    </div>
-                  )}
-                  {!playbookExpanded ? (
-                    <div className="rounded-lg border border-zinc-800 bg-zinc-900/30 p-4 text-sm text-zinc-400">
-                      <p>Tone: {editingGuidelines.tone}</p>
-                      <p className="mt-1">Steps: {editingGuidelines.numSteps} ({editingGuidelines.stepDelays.join(", ")} days)</p>
-                      {editingGuidelines.structure && (
-                        <p className="mt-1 line-clamp-2">{editingGuidelines.structure}</p>
-                      )}
-                    </div>
-                  ) : (
-                    <>
-                      {playbookError && <div className="rounded-md bg-red-900/20 border border-red-800 px-4 py-2 text-sm text-red-300">{playbookError}</div>}
-                      <div>
-                        <label className="block text-sm text-zinc-400 mb-1">Tone</label>
-                        <input
-                          value={editingGuidelines.tone}
-                          onChange={(e) => setEditingGuidelines((g) => ({ ...g, tone: e.target.value }))}
-                          placeholder="e.g. direct, consultative, friendly"
-                          className="w-full rounded-md border border-zinc-700 bg-zinc-900 px-3 py-2 text-zinc-200 text-sm"
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-sm text-zinc-400 mb-1">Structure (what each step should accomplish)</label>
-                        <textarea
-                          value={editingGuidelines.structure}
-                          onChange={(e) => setEditingGuidelines((g) => ({ ...g, structure: e.target.value }))}
-                          placeholder="Step 1: Hook with sharp question. Step 2: Elaborate on value. Step 3: Soft CTA. Step 4: Break pattern. Step 5: Last touch."
-                          rows={4}
-                          className="w-full rounded-md border border-zinc-700 bg-zinc-900 px-3 py-2 text-zinc-200 text-sm"
-                        />
-                      </div>
-                      <div className="flex flex-wrap items-center gap-4">
-                        <div>
-                          <label className="block text-sm text-zinc-400 mb-1">Number of steps</label>
-                          <select
-                            value={editingGuidelines.numSteps}
-                            onChange={(e) => {
-                              const n = Number(e.target.value);
-                              const base = [1, 3, 5, 7, 10];
-                              setEditingGuidelines((g) => ({ ...g, numSteps: n, stepDelays: base.slice(0, n) }));
-                            }}
-                            className="rounded-md border border-zinc-700 bg-zinc-900 px-3 py-2 text-zinc-200 text-sm"
-                          >
-                            {[3, 4, 5].map((n) => (
-                              <option key={n} value={n}>{n}</option>
-                            ))}
-                          </select>
-                        </div>
-                        <div>
-                          <label className="block text-sm text-zinc-400 mb-1">Delays (days between emails)</label>
-                          <div className="flex gap-2">
-                            {editingGuidelines.stepDelays.map((d, i) => (
-                              <input
-                                key={i}
-                                type="number"
-                                min={0}
-                                value={d}
-                                onChange={(e) => setEditingGuidelines((g) => {
-                                  const arr = [...g.stepDelays];
-                                  arr[i] = Math.max(0, Number(e.target.value) || 0);
-                                  return { ...g, stepDelays: arr };
-                                })}
-                                className="w-14 rounded-md border border-zinc-700 bg-zinc-900 px-2 py-2 text-zinc-200 text-sm"
-                              />
-                            ))}
-                          </div>
-                        </div>
-                      </div>
-                      <button
-                        onClick={savePlaybookAndNext}
-                        disabled={savingPlaybook || !editingGuidelines.structure.trim()}
-                        className="rounded-md bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-500 disabled:opacity-50"
-                      >
-                        {savingPlaybook ? "Saving…" : "Next: Add leads & generate sequences"}
-                      </button>
-                    </>
-                  )}
+                  </div>
 
-                  {/* Sample emails for different ICPs */}
+                  <button
+                    onClick={savePlaybookAndNext}
+                    disabled={savingPlaybook || !editingGuidelines.context.trim()}
+                    className="rounded-md bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-500 disabled:opacity-50"
+                  >
+                    {savingPlaybook ? "Saving…" : "Next: Add leads & generate sequences →"}
+                  </button>
+
+                  {/* Sample emails */}
                   <div className="border-t border-zinc-800 pt-6">
-                    <h3 className="text-sm font-medium text-zinc-300 mb-2">Sample emails</h3>
+                    <h3 className="text-sm font-medium text-zinc-300 mb-1">Preview sample emails</h3>
                     <p className="text-xs text-zinc-500 mb-3">
-                      Generate example sequences for different ICP personas to see what the AI will produce.
+                      Generate example sequences to see what the AI will produce with your context.
                     </p>
                     <div className="flex flex-wrap items-end gap-3 mb-3">
                       <div className="min-w-[140px]">
@@ -837,10 +692,10 @@ export default function CampaignPage() {
                           setSamplesLoading(false);
                         }
                       }}
-                      disabled={samplesLoading || (!editingGuidelines.structure.trim() && !sampleJobTitle.trim() && !sampleCompanyUrl.trim())}
+                      disabled={samplesLoading || !editingGuidelines.context.trim()}
                       className="rounded-md bg-zinc-700 px-4 py-2 text-sm font-medium text-zinc-200 hover:bg-zinc-600 disabled:opacity-50"
                     >
-                      {samplesLoading ? "Generating…" : "Generate samples"}
+                      {samplesLoading ? "Generating…" : "Generate sample emails"}
                     </button>
                     {sampleError && (
                       <p className="mt-2 text-sm text-amber-400">{sampleError}</p>
@@ -874,6 +729,7 @@ export default function CampaignPage() {
                   </div>
                 </div>
               )}
+
 
               {step === "sequences" && (
                 <div className="space-y-4">

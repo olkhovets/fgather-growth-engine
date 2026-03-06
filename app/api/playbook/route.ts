@@ -92,7 +92,7 @@ export async function POST(request: Request) {
 
     // Save playbook: guidelines (new) or steps (legacy)
     if (body.playbook && typeof body.playbook === "object") {
-      const pb = body.playbook as { guidelines?: { tone?: string; structure?: string; numSteps?: number; stepDelays?: number[] }; steps?: Array<{ stepNumber: number; subject: string; body: string; delayDays: number }> };
+      const pb = body.playbook as { guidelines?: { context?: string; tone?: string; structure?: string; numSteps?: number; stepDelays?: number[] }; steps?: Array<{ stepNumber: number; subject: string; body: string; delayDays: number }> };
 
       if (pb.guidelines) {
         const g = pb.guidelines;
@@ -102,8 +102,9 @@ export async function POST(request: Request) {
           : [1, 3, 5, 7, 10].slice(0, numSteps);
         const toStore = {
           guidelines: {
-            tone: typeof g.tone === "string" ? g.tone : "direct, consultative",
-            structure: typeof g.structure === "string" ? g.structure : "",
+            context: typeof g.context === "string" ? g.context : undefined,
+            tone: typeof g.tone === "string" ? g.tone : undefined,
+            structure: typeof g.structure === "string" ? g.structure : undefined,
             numSteps,
             stepDelays,
           },
