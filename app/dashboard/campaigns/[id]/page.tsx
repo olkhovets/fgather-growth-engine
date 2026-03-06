@@ -58,6 +58,7 @@ export default function CampaignPage() {
     if (hasRunwayKey && !hasLumaKey) setVideoProvider("runway");
   }, [hasLumaKey, hasRunwayKey]);
   const [csvInput, setCsvInput] = useState("");
+  const [csvFileName, setCsvFileName] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState("");
   const [sheetUrl, setSheetUrl] = useState("");
@@ -734,34 +735,91 @@ export default function CampaignPage() {
               {step === "sequences" && (
                 <div className="space-y-4">
                   <h2 className="text-lg font-medium text-zinc-200">Leads & sequences</h2>
-                  <p className="text-sm text-zinc-500">Upload a CSV (email, name, company, job title, website), paste a Google Sheets URL, or select an existing list. Then generate personalized email sequences for each lead.</p>
-                  <div>
-                    <label className="block text-sm text-zinc-400 mb-1">Paste CSV</label>
+                  <p className="text-sm text-zinc-500">Import leads from a CSV file, paste raw CSV text, or pull from Google Sheets. Then generate personalized email sequences for each lead.</p>
+
+                  {/* CSV section */}
+                  <div className="rounded-lg border border-zinc-800 bg-zinc-900/30 p-4 space-y-3">
+                    <h3 className="text-sm font-medium text-zinc-300">CSV import</h3>
+                    <p className="text-xs text-zinc-500">Expected columns: email, name, company, job title, website (any order, extra columns ignored).</p>
+
+                    {/* Row 1: file upload + process paste buttons */}
+                    <div className="flex flex-wrap gap-2 items-center">
+                      {/* File upload */}
+                      <label className="flex items-center gap-2 cursor-pointer rounded-md bg-emerald-700 px-3 py-1.5 text-sm font-medium text-white hover:bg-emerald-600">
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
+                        </svg>
+                        Upload CSV
+                        <input
+                          type="file"
+                          accept=".csv,.txt"
+                          className="sr-only"
+                          onChange={async (e) => {
+                            const file = e.target.files?.[0];
+                            if (!file) return;
+                            const text = await file.text();
+                            setCsvFileName(file.name);
+                            setCsvInput(text);
+                            setUploadError("");
+                            e.target.value = "";
+                          }}
+                        />
+                      </label>
+
+                      {/* Process paste button */}
+                      <button
+                        onClick={handleUpload}
+                        disabled={uploading || !csvInput.trim()}
+                        className="rounded-md bg-zinc-700 px-3 py-1.5 text-sm font-medium text-zinc-200 hover:bg-zinc-600 disabled:opacity-50"
+                      >
+                        {uploading ? "Processing…" : "Process CSV"}
+                      </button>
+
+                      {csvFileName && (
+                        <span className="text-xs text-emerald-400 flex items-center gap-1">
+                          <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                          </svg>
+                          {csvFileName} loaded
+                        </span>
+                      )}
+                    </div>
+
+                    {/* Paste area */}
                     <textarea
                       value={csvInput}
-                      onChange={(e) => setCsvInput(e.target.value)}
-                      placeholder="email,name,company,job title,website\njane@acme.com,Jane,Acme,VP Sales,acme.com"
+                      onChange={(e) => { setCsvInput(e.target.value); setCsvFileName(null); }}
+                      placeholder={"email,name,company,job title,website\njane@acme.com,Jane,Acme,VP Sales,acme.com"}
                       rows={3}
-                      className="w-full rounded-md border border-zinc-700 bg-zinc-900 px-3 py-2 text-zinc-200 text-sm"
+                      className="w-full rounded-md border border-zinc-700 bg-zinc-900 px-3 py-2 text-zinc-200 text-sm font-mono"
                     />
-                    <button onClick={handleUpload} disabled={uploading} className="mt-2 rounded-md bg-zinc-700 px-3 py-1.5 text-sm text-zinc-200 hover:bg-zinc-600 disabled:opacity-50">
-                      {uploading ? "Uploading…" : "Upload CSV"}
-                    </button>
-                    {uploadError && <p className="mt-1 text-sm text-red-400">{uploadError}</p>}
+                    <p className="text-xs text-zinc-600">Upload a file to auto-fill above, then hit Process CSV — or paste raw text directly and Process CSV.</p>
+                    {uploadError && <p className="text-sm text-red-400">{uploadError}</p>}
                   </div>
-                  <div>
-                    <label className="block text-sm text-zinc-400 mb-1">Or paste Google Sheets URL</label>
-                    <input
-                      type="url"
-                      value={sheetUrl}
-                      onChange={(e) => setSheetUrl(e.target.value)}
-                      placeholder="https://docs.google.com/spreadsheets/d/..."
-                      className="w-full rounded-md border border-zinc-700 bg-zinc-900 px-3 py-2 text-zinc-200 text-sm"
-                    />
-                    <button onClick={handleSheetImport} disabled={sheetImporting} className="mt-2 rounded-md bg-zinc-700 px-3 py-1.5 text-sm text-zinc-200 hover:bg-zinc-600 disabled:opacity-50">
-                      {sheetImporting ? "Importing…" : "Import from Sheet"}
-                    </button>
-                    {sheetError && <p className="mt-1 text-sm text-red-400">{sheetError}</p>}
+
+                  {/* Google Sheets section */}
+                  <div className="rounded-lg border border-zinc-800 bg-zinc-900/30 p-4 space-y-3">
+                    <h3 className="text-sm font-medium text-zinc-300">Google Sheets import</h3>
+                    <p className="text-xs text-zinc-500">
+                      Sheet must be set to <span className="text-zinc-300">"Anyone with the link can view"</span> — open it, then File → Share → Change to Anyone with the link.
+                    </p>
+                    <div className="flex flex-wrap gap-2 items-center">
+                      <input
+                        type="url"
+                        value={sheetUrl}
+                        onChange={(e) => setSheetUrl(e.target.value)}
+                        placeholder="https://docs.google.com/spreadsheets/d/…"
+                        className="flex-1 min-w-[260px] rounded-md border border-zinc-700 bg-zinc-900 px-3 py-1.5 text-zinc-200 text-sm"
+                      />
+                      <button
+                        onClick={handleSheetImport}
+                        disabled={sheetImporting || !sheetUrl.trim()}
+                        className="rounded-md bg-zinc-700 px-3 py-1.5 text-sm font-medium text-zinc-200 hover:bg-zinc-600 disabled:opacity-50 whitespace-nowrap"
+                      >
+                        {sheetImporting ? "Importing…" : "Import from Sheet"}
+                      </button>
+                    </div>
+                    {sheetError && <p className="text-sm text-red-400">{sheetError}</p>}
                   </div>
                   <div>
                     <label className="block text-sm text-zinc-400 mb-1">Or select existing list</label>

@@ -53,11 +53,27 @@ export async function POST(request: Request) {
 
     // Public CSV export (works when sheet is shared "Anyone with the link can view"). gid=0 = first sheet.
     const exportUrl = `https://docs.google.com/spreadsheets/d/${sheetId}/export?format=csv&gid=0`;
-    const res = await fetch(exportUrl, { cache: "no-store" });
+    const res = await fetch(exportUrl, {
+      cache: "no-store",
+      redirect: "follow",
+      headers: {
+        // Some Google endpoints check this; signals we want raw data not a browser experience
+        "Accept": "text/csv, text/plain, */*",
+      },
+    });
 
     if (!res.ok) {
       return NextResponse.json(
-        { error: "Could not fetch sheet. Ensure it is shared as 'Anyone with the link can view' (File > Share)." },
+        { error: "Could not fetch sheet. Ensure it is shared as 'Anyone with the link can view' (File > Share > Change to Anyone with the link)." },
+        { status: 400 }
+      );
+    }
+
+    // If Google redirected to a login page, the content-type will be text/html, not text/csv
+    const contentType = res.headers.get("content-type") ?? "";
+    if (contentType.includes("text/html")) {
+      return NextResponse.json(
+        { error: "Sheet is not publicly accessible. Open the sheet → File → Share → Change to 'Anyone with the link can view', then try again." },
         { status: 400 }
       );
     }
