@@ -86,11 +86,17 @@ export async function POST(request: Request) {
 
     const { client } = ctx;
 
-    await client.applyRampForUnwarmedAccounts({
-      unwarmedDailyLimit: 5,
-      warmedDailyLimit: 30,
-      ...(selectedEmails != null && selectedEmails.length > 0 && { accountEmails: selectedEmails }),
-    });
+    try {
+      await client.applyRampForUnwarmedAccounts({
+        unwarmedDailyLimit: 5,
+        warmedDailyLimit: 30,
+        ...(selectedEmails != null && selectedEmails.length > 0 && { accountEmails: selectedEmails }),
+      });
+    } catch (rampErr) {
+      // Non-fatal: ramp application failing (e.g. invalid/expired Instantly key for account patch)
+      // should not block campaign creation. Log and continue.
+      console.warn("[send] applyRampForUnwarmedAccounts failed (non-fatal):", rampErr instanceof Error ? rampErr.message : rampErr);
+    }
 
     const baseName = campaignNameTrimmed;
 
@@ -271,6 +277,22 @@ export async function POST(request: Request) {
         }),
       ]);
 
+      const totalUploaded = resA.leads_uploaded + resB.leads_uploaded;
+      if (totalUploaded === 0) {
+        return NextResponse.json(
+          {
+            error: `No leads were uploaded to Instantly — all leads were duplicates or blocklisted. Campaigns were created but not activated. Remove duplicates or use different leads.`,
+            validation: {
+              numSteps,
+              leadsSent: 0,
+              duplicated_leads: resA.duplicated_leads + resB.duplicated_leads,
+              in_blocklist: resA.in_blocklist + resB.in_blocklist,
+            },
+          },
+          { status: 400 }
+        );
+      }
+
       await client.activateCampaign(idA);
       await client.activateCampaign(idB);
 
@@ -350,6 +372,21 @@ export async function POST(request: Request) {
     const addResult = await client.bulkAddLeadsToCampaign(campaignId, leadsPayload, {
       verify_leads_on_import: false,
     });
+
+    if (addResult.leads_uploaded === 0) {
+      return NextResponse.json(
+        {
+          error: `No leads were uploaded to Instantly — all ${leadsPassingAllSteps.length} leads were either duplicates (already in a campaign) or blocklisted. The campaign was created but not activated. Remove duplicates or use different leads.`,
+          validation: {
+            numSteps,
+            leadsSent: 0,
+            duplicated_leads: addResult.duplicated_leads,
+            in_blocklist: addResult.in_blocklist,
+          },
+        },
+        { status: 400 }
+      );
+    }
 
     await client.activateCampaign(campaignId);
 
