@@ -107,3 +107,56 @@ export async function PATCH(
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }
+
+/** DELETE: Remove campaign from DB and delete any linked Instantly campaigns (best-effort). */
+export async function DELETE(
+  _request: Request,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  try {
+    const session = await getServerSession(authOptions);
+    if (!session?.user?.id) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    const { id } = await params;
+    const workspace = await prisma.workspace.findUnique({
+      where: { userId: session.user.id },
+      select: { id: true, instantlyKey: true },
+    });
+    if (!workspace) {
+      return NextResponse.json({ error: "Workspace not found" }, { status: 404 });
+    }
+
+    const campaign = await prisma.campaign.findFirst({
+      where: { id, workspaceId: workspace.id },
+      include: { sentCampaigns: { select: { id: true, instantlyCampaignId: true } } },
+    });
+    if (!campaign) {
+      return NextResponse.json({ error: "Campaign not found" }, { status: 404 });
+    }
+
+    // Best-effort: delete from Instantly for any sent campaigns
+    if (workspace.instantlyKey && campaign.sentCampaigns.length > 0) {
+      const { decrypt } = await import("@/lib/encryption");
+      const { createInstantlyClient } = await import("@/lib/instantly");
+      try {
+        const client = createInstantlyClient(decrypt(workspace.instantlyKey));
+        await Promise.allSettled(
+          campaign.sentCampaigns.map((sc) => client.deleteCampaign(sc.instantlyCampaignId))
+        );
+      } catch {
+        // Instantly deletion is best-effort — still delete from DB
+      }
+    }
+
+    // Delete campaign from DB (cascades to SentCampaign via SetNull on campaignId,
+    // and SentCampaign has onDelete: Cascade for replies)
+    await prisma.campaign.delete({ where: { id } });
+
+    return NextResponse.json({ deleted: true });
+  } catch (error) {
+    console.error("Campaign delete error:", error);
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+  }
+}

@@ -365,6 +365,10 @@ function createInstantlyClient(apiKey: string) {
       return request("POST", `/campaigns/${campaignId}/pause`);
     },
 
+    async deleteCampaign(campaignId: string): Promise<unknown> {
+      return request("DELETE", `/campaigns/${campaignId}`);
+    },
+
     /** Get campaign analytics (opens, clicks, sent, etc.). */
     async getCampaignAnalytics(
       campaignId: string,

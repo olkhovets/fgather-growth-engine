@@ -42,6 +42,8 @@ export default function DashboardPage() {
   const [aggregate, setAggregate] = useState<Aggregate>(null);
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [strategySuggestion, setStrategySuggestion] = useState<string | null>(null);
 
   useEffect(() => {
@@ -91,6 +93,22 @@ export default function DashboardPage() {
       // ignore
     }
     setCreating(false);
+  };
+
+  const handleDelete = async (campaignId: string) => {
+    setDeletingId(campaignId);
+    setConfirmDeleteId(null);
+    try {
+      const res = await fetch(`/api/campaigns/${campaignId}`, { method: "DELETE" });
+      if (res.ok) {
+        setCampaigns((prev) => prev.filter((c) => c.id !== campaignId));
+        setAggregate((prev) => prev ? { ...prev, totalCampaigns: Math.max(0, prev.totalCampaigns - 1) } : prev);
+      }
+    } catch {
+      // ignore
+    } finally {
+      setDeletingId(null);
+    }
   };
 
   if (guardLoading || loading) {
@@ -256,12 +274,44 @@ export default function DashboardPage() {
                             {new Date(c.createdAt).toLocaleDateString()}
                           </td>
                           <td className="px-6 py-4">
-                            <Link
-                              href={`/dashboard/campaigns/${c.id}`}
-                              className="text-emerald-500 hover:text-emerald-400 font-medium"
-                            >
-                              {c.status === "launched" ? "View" : "Continue"} →
-                            </Link>
+                            <div className="flex items-center gap-3">
+                              <Link
+                                href={`/dashboard/campaigns/${c.id}`}
+                                className="text-emerald-500 hover:text-emerald-400 font-medium"
+                              >
+                                {c.status === "launched" ? "View" : "Continue"} →
+                              </Link>
+                              {c.status !== "launched" && (
+                                confirmDeleteId === c.id ? (
+                                  <span className="flex items-center gap-2 text-xs">
+                                    <span className="text-zinc-400">Delete?</span>
+                                    <button
+                                      onClick={() => handleDelete(c.id)}
+                                      disabled={deletingId === c.id}
+                                      className="text-red-400 hover:text-red-300 font-medium disabled:opacity-50"
+                                    >
+                                      {deletingId === c.id ? "Deleting…" : "Yes"}
+                                    </button>
+                                    <button
+                                      onClick={() => setConfirmDeleteId(null)}
+                                      className="text-zinc-500 hover:text-zinc-300"
+                                    >
+                                      No
+                                    </button>
+                                  </span>
+                                ) : (
+                                  <button
+                                    onClick={() => setConfirmDeleteId(c.id)}
+                                    className="text-zinc-600 hover:text-red-400 transition-colors"
+                                    title="Delete campaign"
+                                  >
+                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                      <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                    </svg>
+                                  </button>
+                                )
+                              )}
+                            </div>
                           </td>
                         </tr>
                       ))}
