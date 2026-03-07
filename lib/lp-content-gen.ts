@@ -159,7 +159,7 @@ Then return a JSON object with EXACTLY these keys — no markdown, no preamble:
 
 /** Extract the last {...} block from a string (handles preamble/postamble). */
 function extractLastJson(text: string): string | null {
-  const start = text.lastIndexOf("{");
+  const start = text.indexOf("{");
   const end = text.lastIndexOf("}");
   if (start === -1 || end === -1 || end < start) return null;
   return text.slice(start, end + 1);

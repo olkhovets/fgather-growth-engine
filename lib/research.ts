@@ -74,7 +74,11 @@ RULES:
       maxTokens: 800,
     });
     const clean = text.replace(/```json|```/g, "").trim();
-    const parsed = JSON.parse(clean) as LeadResearch;
+    // Extract the outermost {...} block — handles preamble/postamble Claude sometimes adds
+    const start = clean.indexOf("{");
+    const end = clean.lastIndexOf("}");
+    if (start === -1 || end === -1 || end < start) throw new Error("No JSON object found in response");
+    const parsed = JSON.parse(clean.slice(start, end + 1)) as LeadResearch;
     // Validate and normalise
     return {
       companyContext: parsed.companyContext ?? "",
