@@ -1,12 +1,9 @@
 import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
+import { prisma } from "@/lib/prisma";
 import { sendErrorNotificationEmail } from "@/lib/email";
 
-/**
- * POST: Report an error (e.g. generation failure). Sends email to mayank@gatherhq.com.
- * Body: { context: string, error: string, extra?: object }
- */
 export async function POST(request: Request) {
   try {
     const session = await getServerSession(authOptions);
@@ -17,12 +14,27 @@ export async function POST(request: Request) {
     const body = await request.json().catch(() => ({}));
     const context = typeof body.context === "string" ? body.context.trim() : "Unknown";
     const error = typeof body.error === "string" ? body.error : String(body.error ?? "Unknown error");
-    const extra = body.extra && typeof body.extra === "object" ? body.extra : undefined;
+    const extra = body.extra && typeof body.extra === "object" ? body.extra as Record<string, unknown> : undefined;
 
+    const userEmail = session.user.email ?? "unknown";
+    const userId = session.user.id;
+
+    // Persist to DB so we can follow up when a fix is deployed
+    await prisma.errorReport.create({
+      data: {
+        userId,
+        userEmail,
+        context,
+        error,
+        extraJson: extra ? JSON.stringify(extra) : null,
+      },
+    });
+
+    // Send alert email to mayank@gatherhq.com
     await sendErrorNotificationEmail(context, error, {
       ...extra,
-      userEmail: session.user?.email,
-      userId: session.user?.id,
+      userEmail,
+      userId,
     });
 
     return NextResponse.json({ ok: true });

@@ -197,3 +197,16 @@ model Lead {
 
   leadBatch LeadBatch @relation(fields: [leadBatchId], references: [id], onDelete: Cascade)
 }
+
+model ErrorReport {
+  id          String   @id @default(cuid())
+  userId      String
+  userEmail   String
+  context     String   // e.g. "Sequence generation failed"
+  error       String
+  extraJson   String?  // JSON blob of extra context
+  resolved    Boolean  @default(false)
+  resolvedAt  DateTime?
+  notifiedAt  DateTime? // when fix notification was sent to user
+  createdAt   DateTime @default(now())
+}

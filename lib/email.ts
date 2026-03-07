@@ -190,8 +190,44 @@ export async function sendErrorNotificationEmail(
     return;
   }
 
-  const extraStr = extra ? `\n\nExtra:\n${JSON.stringify(extra, null, 2)}` : "";
-  const body = `${context}\n\nError: ${error}${extraStr}`;
+  const userEmail = extra?.userEmail as string | undefined;
+  const userId = extra?.userId as string | undefined;
+  const progress = extra?.progress as { total?: number; generated?: number } | undefined;
+  const campaignId = extra?.campaignId as string | undefined;
+  const batchId = extra?.batchId as string | undefined;
+
+  const esc = (s: string) => s.replace(/</g, "&lt;").replace(/>/g, "&gt;");
+
+  const html = `
+    <div style="font-family: system-ui, sans-serif; max-width: 600px; margin: 0 auto; background: #0f0f11; color: #e4e4e7; padding: 24px; border-radius: 12px;">
+      <h2 style="margin: 0 0 4px; font-size: 18px; color: #f4f4f5;">⚠️ Error: ${esc(context)}</h2>
+      <p style="margin: 0 0 24px; font-size: 13px; color: #71717a;">${new Date().toISOString()}</p>
+
+      <div style="background: #18181b; border: 1px solid #27272a; border-radius: 8px; padding: 16px; margin-bottom: 16px;">
+        <p style="margin: 0 0 4px; font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: #52525b;">User</p>
+        <p style="margin: 0; font-size: 15px; font-weight: 600; color: #34d399;">${esc(userEmail ?? "unknown")}</p>
+        ${userId ? `<p style="margin: 4px 0 0; font-size: 12px; color: #52525b;">ID: ${esc(userId)}</p>` : ""}
+      </div>
+
+      ${progress ? `
+      <div style="background: #18181b; border: 1px solid #27272a; border-radius: 8px; padding: 16px; margin-bottom: 16px;">
+        <p style="margin: 0 0 4px; font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: #52525b;">Progress</p>
+        <p style="margin: 0; font-size: 15px; font-weight: 600;">${progress.generated ?? "?"} / ${progress.total ?? "?"} leads</p>
+      </div>` : ""}
+
+      <div style="background: #18181b; border: 1px solid #ef4444; border-radius: 8px; padding: 16px; margin-bottom: 16px;">
+        <p style="margin: 0 0 8px; font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: #52525b;">Error</p>
+        <pre style="margin: 0; font-size: 13px; color: #fca5a5; white-space: pre-wrap; word-break: break-all;">${esc(error)}</pre>
+      </div>
+
+      ${campaignId || batchId ? `
+      <div style="background: #18181b; border: 1px solid #27272a; border-radius: 8px; padding: 16px; margin-bottom: 16px;">
+        <p style="margin: 0 0 8px; font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: #52525b;">Context</p>
+        ${campaignId ? `<p style="margin: 0 0 4px; font-size: 12px; color: #a1a1aa;">Campaign: <code style="color:#e4e4e7">${esc(campaignId)}</code></p>` : ""}
+        ${batchId ? `<p style="margin: 0; font-size: 12px; color: #a1a1aa;">Batch: <code style="color:#e4e4e7">${esc(batchId)}</code></p>` : ""}
+      </div>` : ""}
+    </div>
+  `;
 
   const res = await fetch("https://api.resend.com/emails", {
     method: "POST",
@@ -202,19 +238,61 @@ export async function sendErrorNotificationEmail(
     body: JSON.stringify({
       from: RESEND_FROM_HEADER,
       to: ["mayank@gatherhq.com"],
-      subject: `[Outbound Growth Engine] ${context}`,
-      html: `
-        <h2>Error report</h2>
-        <p><strong>Context:</strong> ${context.replace(/</g, "&lt;").replace(/>/g, "&gt;")}</p>
-        <p><strong>Error:</strong></p>
-        <pre style="white-space: pre-wrap; font-family: inherit; background: #1f2937; padding: 1rem; border-radius: 0.5rem;">${error.replace(/</g, "&lt;").replace(/>/g, "&gt;")}</pre>
-        ${extra ? `<p><strong>Extra:</strong></p><pre style="white-space: pre-wrap; font-family: inherit;">${JSON.stringify(extra).replace(/</g, "&lt;").replace(/>/g, "&gt;")}</pre>` : ""}
-      `,
+      subject: `[Error] ${context} — ${userEmail ?? "unknown user"}`,
+      html,
     }),
   });
 
   if (!res.ok) {
     const data = (await res.json().catch(() => ({}))) as { message?: string };
     console.error("[Email] Error notification failed:", data?.message || res.status);
+  }
+}
+
+export async function sendFixNotificationEmail(
+  userEmail: string,
+  context: string,
+  fixNote: string
+): Promise<void> {
+  if (!RESEND_API_KEY?.trim()) return;
+
+  const esc = (s: string) => s.replace(/</g, "&lt;").replace(/>/g, "&gt;");
+
+  const html = `
+    <div style="font-family: system-ui, sans-serif; max-width: 600px; margin: 0 auto; background: #0f0f11; color: #e4e4e7; padding: 24px; border-radius: 12px;">
+      <h2 style="margin: 0 0 4px; font-size: 18px; color: #f4f4f5;">✅ Fix deployed</h2>
+      <p style="margin: 0 0 24px; font-size: 13px; color: #71717a;">Hi — this is Mayank from Gather. We wanted to let you know that an issue you hit has been fixed.</p>
+
+      <div style="background: #18181b; border: 1px solid #27272a; border-radius: 8px; padding: 16px; margin-bottom: 16px;">
+        <p style="margin: 0 0 4px; font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: #52525b;">What happened</p>
+        <p style="margin: 0; font-size: 14px; color: #a1a1aa;">${esc(context)}</p>
+      </div>
+
+      <div style="background: #18181b; border: 1px solid #34d399; border-radius: 8px; padding: 16px; margin-bottom: 24px;">
+        <p style="margin: 0 0 4px; font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: #52525b;">What we fixed</p>
+        <p style="margin: 0; font-size: 14px; color: #d1fae5;">${esc(fixNote)}</p>
+      </div>
+
+      <p style="font-size: 14px; color: #71717a;">You can head back to <a href="https://growth.gatherhq.com" style="color: #34d399;">growth.gatherhq.com</a> and try again — it should work now. Reply to this email if you hit anything else.</p>
+    </div>
+  `;
+
+  const res = await fetch("https://api.resend.com/emails", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${RESEND_API_KEY.trim()}`,
+    },
+    body: JSON.stringify({
+      from: RESEND_FROM_HEADER,
+      to: [userEmail],
+      subject: `Fixed: ${context}`,
+      html,
+    }),
+  });
+
+  if (!res.ok) {
+    const data = (await res.json().catch(() => ({}))) as { message?: string };
+    console.error("[Email] Fix notification failed:", data?.message || res.status);
   }
 }
