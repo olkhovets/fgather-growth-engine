@@ -42,7 +42,7 @@ export async function POST(request: Request) {
   }
 
   // Deduplicate by email — one notification per user even if they hit it multiple times
-  const uniqueEmails = [...new Set(reports.map((r) => r.userEmail))];
+  const uniqueEmails = Array.from(new Set(reports.map((r) => r.userEmail)));
   const reportIds = reports.map((r) => r.id);
 
   // Send fix emails
