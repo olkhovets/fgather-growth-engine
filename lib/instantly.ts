@@ -95,6 +95,8 @@ function createInstantlyClient(apiKey: string) {
     const data = await res.json().catch(() => ({}));
     if (!res.ok) {
       const d = data as Record<string, unknown>;
+      // Log full raw response for debugging
+      console.error(`[instantly] ${method} ${path} -> ${res.status}:`, JSON.stringify(d).slice(0, 500));
       const err =
         typeof d?.message === "string" ? d.message
         : typeof d?.error === "string" ? d.error
@@ -312,12 +314,18 @@ function createInstantlyClient(apiKey: string) {
       }>,
       options?: { skip_if_in_workspace?: boolean; skip_if_in_campaign?: boolean; verify_leads_on_import?: boolean }
     ): Promise<{ leads_uploaded: number; duplicated_leads: number; in_blocklist: number }> {
-      const chunkSize = 1000;
+      const chunkSize = 100; // smaller chunks to avoid payload size limits
       let totalUploaded = 0;
       let totalDuplicated = 0;
       let totalInBlocklist = 0;
       for (let i = 0; i < leads.length; i += chunkSize) {
         const chunk = leads.slice(i, i + chunkSize);
+        // Log payload size for debugging
+        if (i === 0) {
+          const sample = chunk[0];
+          const cvSizes = Object.entries(sample?.custom_variables ?? {}).map(([k, v]) => `${k}:${v.length}`).join(", ");
+          console.log(`[instantly] /leads/add chunk 0: ${chunk.length} leads, cv sizes: ${cvSizes}`);
+        }
         const body = {
           campaign_id: campaignId,
           leads: chunk.map((l) => ({

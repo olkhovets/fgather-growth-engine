@@ -100,11 +100,11 @@ export async function POST(request: Request) {
 
     const baseName = campaignNameTrimmed;
 
-    // Ensure email body line breaks render in Instantly (plain \n -> <br> for HTML)
+    // Ensure email body line breaks render in Instantly (plain \n -> <br>)
     const bodyWithLineBreaks = (text: string) =>
       (text ?? "")
         .replace(/\r\n/g, "\n")
-        .replace(/\n/g, "<br>\n");
+        .replace(/\n/g, "<br>");
 
     const playbookSource = flowCampaign?.playbookJson ?? workspace.playbookJson;
     const parsed = parsePlaybook(playbookSource);
