@@ -1,12 +1,21 @@
 /**
- * Simple CSV parser: first row = headers, rest = rows.
- * Handles quoted fields with commas.
+ * Simple CSV/TSV parser: first row = headers, rest = rows.
+ * Auto-detects tab vs comma delimiter. Handles quoted fields with commas.
  */
 export function parseCSV(text: string): { headers: string[]; rows: Record<string, string>[] } {
   const lines = text.split(/\r?\n/).filter((line) => line.trim());
   if (lines.length === 0) return { headers: [], rows: [] };
 
+  // Auto-detect delimiter: if first line has more tabs than commas, treat as TSV
+  const firstLine = lines[0];
+  const tabCount = (firstLine.match(/\t/g) || []).length;
+  const commaCount = (firstLine.match(/,/g) || []).length;
+  const delimiter = tabCount > commaCount ? "\t" : ",";
+
   const parseLine = (line: string): string[] => {
+    if (delimiter === "\t") {
+      return line.split("\t").map((v) => v.trim().replace(/^"|"$/g, ""));
+    }
     const result: string[] = [];
     let current = "";
     let inQuotes = false;
