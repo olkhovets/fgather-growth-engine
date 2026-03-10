@@ -804,7 +804,7 @@ export default function CampaignPage() {
 
                       {/* Process paste button */}
                       <button
-                        onClick={handleUpload}
+                        onClick={() => handleUpload()}
                         disabled={uploading || !csvInput.trim()}
                         className="rounded-md bg-zinc-700 px-3 py-1.5 text-sm font-medium text-zinc-200 hover:bg-zinc-600 disabled:opacity-50"
                       >
