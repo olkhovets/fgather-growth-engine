@@ -340,17 +340,30 @@ export async function POST(request: Request) {
 
     // Single campaign
     const campaignName = baseName;
-    const created = await client.createCampaign(campaignName, campaignOptionsWithSequence);
-    const campaignId = created.id;
-    if (!campaignId) {
-      return NextResponse.json({ error: "Instantly did not return campaign id" }, { status: 500 });
+    let campaignId: string;
+    try {
+      const created = await client.createCampaign(campaignName, campaignOptionsWithSequence);
+      campaignId = created.id;
+      if (!campaignId) throw new Error("Instantly did not return campaign id");
+      console.log(`[send] created campaign ${campaignId} with ${numSteps} steps`);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "unknown";
+      console.error(`[send] createCampaign failed: ${msg}`);
+      return NextResponse.json({ error: `Failed to create campaign in Instantly: ${msg}` }, { status: 500 });
     }
 
     const stepVariableNames = Array.from({ length: numSteps }, (_, i) => [
       `step${i + 1}_subject`,
       `step${i + 1}_body`,
     ]).flat();
-    await client.addCampaignVariables(campaignId, stepVariableNames);
+    try {
+      await client.addCampaignVariables(campaignId, stepVariableNames);
+      console.log(`[send] registered variables: ${stepVariableNames.join(", ")}`);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "unknown";
+      console.warn(`[send] addCampaignVariables failed (non-fatal): ${msg}`);
+      // non-fatal — continue even if variable registration fails
+    }
 
     const leadsPayload = leadsPassingAllSteps.map((l) => {
       const steps = getLeadSteps(l, numSteps);
@@ -368,14 +381,36 @@ export async function POST(request: Request) {
       };
     });
 
-    const addResult = await client.bulkAddLeadsToCampaign(campaignId, leadsPayload, {
-      verify_leads_on_import: false,
-    });
+    // Filter out any leads with blank email (defensive)
+    const validLeadsPayload = leadsPayload.filter((l) => l.email?.trim());
+    console.log(`[send] uploading ${validLeadsPayload.length} leads to campaign ${campaignId} (${leadsPayload.length - validLeadsPayload.length} filtered for empty email)`);
+    if (validLeadsPayload.length === 0) {
+      return NextResponse.json({ error: "All leads have empty emails — cannot upload to Instantly." }, { status: 400 });
+    }
+
+    // Log sample lead for debugging
+    const sample = validLeadsPayload[0];
+    console.log(`[send] sample lead: ${sample.email}, cv keys: ${Object.keys(sample.custom_variables ?? {}).join(", ")}, step1_subject: "${String(sample.custom_variables?.step1_subject ?? "").slice(0, 60)}"`);
+
+    let addResult: { leads_uploaded: number; duplicated_leads: number; in_blocklist: number };
+    try {
+      addResult = await client.bulkAddLeadsToCampaign(campaignId, validLeadsPayload, {
+        verify_leads_on_import: false,
+      });
+      console.log(`[send] bulkAddLeads result: uploaded=${addResult.leads_uploaded}, dupes=${addResult.duplicated_leads}, blocklist=${addResult.in_blocklist}`);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "unknown";
+      console.error(`[send] bulkAddLeadsToCampaign failed: ${msg}`);
+      return NextResponse.json({
+        error: `Instantly rejected leads: "${msg}". Campaign ${campaignId} was created but leads were not added. Common causes: all leads already in Instantly, blocklisted, or invalid emails.`,
+        debug: { campaignId, leadsCount: validLeadsPayload.length, sampleEmail: sample.email },
+      }, { status: 400 });
+    }
 
     if (addResult.leads_uploaded === 0) {
       return NextResponse.json(
         {
-          error: `No leads were uploaded to Instantly — all ${leadsPassingAllSteps.length} leads were either duplicates (already in a campaign) or blocklisted. The campaign was created but not activated. Remove duplicates or use different leads.`,
+          error: `Instantly accepted the leads but uploaded 0 — all ${validLeadsPayload.length} leads were blocked. Duplicates: ${addResult.duplicated_leads}, blocklisted: ${addResult.in_blocklist}. These leads may already be in another campaign. Try different leads or remove them from existing Instantly campaigns.`,
           validation: {
             numSteps,
             leadsSent: 0,
