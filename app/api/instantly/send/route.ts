@@ -390,7 +390,15 @@ export async function POST(request: Request) {
 
     // Log sample lead for debugging
     const sample = validLeadsPayload[0];
-    console.log(`[send] sample lead: ${sample.email}, cv keys: ${Object.keys(sample.custom_variables ?? {}).join(", ")}, step1_subject: "${String(sample.custom_variables?.step1_subject ?? "").slice(0, 60)}"`);
+    console.log(`[send] sample lead JSON: ${JSON.stringify({ email: sample.email, first_name: sample.first_name, company_name: sample.company_name, cv_keys: Object.keys(sample.custom_variables ?? {}), step1_subject: String(sample.custom_variables?.step1_subject ?? "").slice(0, 80) })}`);
+
+    // Probe: try adding 1 lead without custom_variables to test if bare email is accepted
+    try {
+      const probe = await client.bulkAddLeadsToCampaign(campaignId, [{ email: sample.email, first_name: sample.first_name ?? null }], { verify_leads_on_import: false });
+      console.log(`[send] probe (bare email): uploaded=${probe.leads_uploaded}, dupes=${probe.duplicated_leads}, blocklist=${probe.in_blocklist}`);
+    } catch (probeErr) {
+      console.error(`[send] probe (bare email) FAILED: ${probeErr instanceof Error ? probeErr.message : probeErr}`);
+    }
 
     let addResult: { leads_uploaded: number; duplicated_leads: number; in_blocklist: number };
     try {
