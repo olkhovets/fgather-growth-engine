@@ -82,6 +82,7 @@ export default function CampaignPage() {
     steps: Array<{ step: number; passed: number; failed: number; passedAllLeads: boolean; sampleFailures: string[] }>;
   } | null>(null);
   const [validationLoading, setValidationLoading] = useState(false);
+  const [diagnose, setDiagnose] = useState<{ verdict: string; noSequence: number; total: number; sampleProblems: string[] } | null>(null);
   const [testEmail, setTestEmail] = useState("");
   const [testSending, setTestSending] = useState(false);
   const [testMessage, setTestMessage] = useState("");
@@ -197,6 +198,7 @@ export default function CampaignPage() {
   useEffect(() => {
     if (step !== "send" || !campaign?.leadBatchId || !id) {
       setValidation(null);
+      setDiagnose(null);
       return;
     }
     setValidationLoading(true);
@@ -204,15 +206,25 @@ export default function CampaignPage() {
       .then((r) => r.json())
       .then((data) => {
         if (data.numSteps != null) {
-          setValidation({
+          const v = {
             numSteps: data.numSteps,
             totalLeads: data.totalLeads,
             leadsWithNoContent: data.leadsWithNoContent ?? 0,
             leadsPassingAllSteps: data.leadsPassingAllSteps,
             canSend: data.canSend === true,
             steps: data.steps ?? [],
-          });
+          };
+          setValidation(v);
           if (!testEmail && session?.user?.email) setTestEmail(session.user.email);
+          // If not ready to send, fetch a diagnosis to show specific reason
+          if (!v.canSend) {
+            fetch(`/api/leads/diagnose?batchId=${encodeURIComponent(campaign.leadBatchId!)}`)
+              .then((r) => r.json())
+              .then((d) => setDiagnose({ verdict: d.verdict, noSequence: d.noSequence, total: d.total, sampleProblems: d.sampleProblems ?? [] }))
+              .catch(() => {});
+          } else {
+            setDiagnose(null);
+          }
         } else {
           setValidation(null);
         }
@@ -1068,8 +1080,18 @@ export default function CampaignPage() {
                         <li className="text-zinc-500 text-xs mt-2">
                           {validation.canSend
                             ? `All ${validation.leadsPassingAllSteps} leads ready. Each of ${validation.numSteps} steps goes out as a separate email.`
-                            : `Every lead must pass. ${validation.leadsPassingAllSteps} of ${validation.totalLeads} pass. Run &quot;Generate sequences&quot; until 100% pass.`}
+                            : `Every lead must pass. ${validation.leadsPassingAllSteps} of ${validation.totalLeads} pass. Run "Generate sequences" until 100% pass.`}
                         </li>
+                        {diagnose && !validation.canSend && (
+                          <li className="mt-3 rounded-lg border border-amber-800/50 bg-amber-950/30 p-3 text-xs text-amber-200 space-y-1">
+                            <p className="font-medium">Why: {diagnose.verdict}</p>
+                            {diagnose.sampleProblems.length > 0 && (
+                              <ul className="mt-1 space-y-0.5 text-amber-300/70">
+                                {diagnose.sampleProblems.slice(0, 4).map((p, i) => <li key={i} className="font-mono truncate">• {p}</li>)}
+                              </ul>
+                            )}
+                          </li>
+                        )}
                       </ul>
                     ) : (
                       <p className="text-sm text-zinc-500">Select a lead list and generate sequences to see the check.</p>
@@ -1224,7 +1246,12 @@ export default function CampaignPage() {
                       </div>
                     )}
                   </div>
-                  {sendError && <div className="rounded-md bg-red-900/20 border border-red-800 px-4 py-2 text-sm text-red-300">{sendError}</div>}
+                  {sendError && (
+                    <div className="rounded-md bg-red-900/20 border border-red-800 px-4 py-3 text-sm text-red-300 space-y-2">
+                      <p>{sendError}</p>
+                      {diagnose && <p className="text-xs text-red-400/80 font-medium">Diagnosis: {diagnose.verdict}</p>}
+                    </div>
+                  )}
                   <div className="flex flex-wrap gap-3">
                     <button
                       onClick={() => handleLaunch()}
