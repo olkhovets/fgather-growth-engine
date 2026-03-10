@@ -366,7 +366,7 @@ export default function CampaignPage() {
     }
   };
 
-  const handleUpload = async () => {
+  const handleUpload = async (force = false) => {
     if (!csvInput.trim()) {
       setUploadError("Paste CSV content (headers: email, name, company, job title).");
       return;
@@ -377,7 +377,7 @@ export default function CampaignPage() {
       const res = await fetch("/api/leads/upload", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ csv: csvInput }),
+        body: JSON.stringify({ csv: csvInput, force }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Upload failed");
@@ -830,7 +830,20 @@ export default function CampaignPage() {
                       className="w-full rounded-md border border-zinc-700 bg-zinc-900 px-3 py-2 text-zinc-200 text-sm font-mono"
                     />
                     <p className="text-xs text-zinc-600">Upload a file to auto-fill above, then hit Process CSV — or paste raw text directly and Process CSV.</p>
-                    {uploadError && <p className="text-sm text-red-400">{uploadError}</p>}
+                    {uploadError && (
+                      <div className="space-y-2">
+                        <p className="text-sm text-red-400">{uploadError}</p>
+                        {uploadError.toLowerCase().includes("duplicate") && (
+                          <button
+                            onClick={() => handleUpload(true)}
+                            disabled={uploading}
+                            className="text-xs px-3 py-1.5 rounded-md border border-amber-700 text-amber-300 hover:bg-amber-900/30 disabled:opacity-50"
+                          >
+                            {uploading ? "Uploading…" : "Force re-upload (ignore duplicates)"}
+                          </button>
+                        )}
+                      </div>
+                    )}
                   </div>
 
                   {/* Google Sheets section */}

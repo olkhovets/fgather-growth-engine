@@ -13,7 +13,7 @@ export async function POST(request: Request) {
     }
 
     const body = await request.json();
-    const { csv } = body as { csv: string };
+    const { csv, force } = body as { csv: string; force?: boolean };
 
     if (!csv || typeof csv !== "string") {
       return NextResponse.json(
@@ -46,7 +46,7 @@ export async function POST(request: Request) {
       );
     }
 
-    const { batchId, count, skippedDuplicate } = await createBatchWithLeads(workspace.id, leads);
+    const { batchId, count, skippedDuplicate } = await createBatchWithLeads(workspace.id, leads, { dedupe: !force });
 
     return NextResponse.json({
       batchId,
