@@ -1,15 +1,65 @@
+@import url('https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;1,9..40,400&family=DM+Mono:wght@400;500&display=swap');
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
+:root {
+  --bg: #F7F6F3;
+  --surface: #FFFFFF;
+  --surface-subtle: #F2F1EE;
+  --border: #E5E4E0;
+  --border-strong: #D0CFC9;
+  --text-primary: #1A1916;
+  --text-secondary: #6B6A65;
+  --text-tertiary: #9E9D97;
+  --accent: #1A7A4A;
+  --accent-hover: #166640;
+  --accent-subtle: #EBF5F0;
+  --accent-text: #1A7A4A;
+  --warning-bg: #FFFAEB;
+  --warning-border: #F5D76E;
+  --warning-text: #92640A;
+}
+
+@layer base {
+  * { font-family: 'DM Sans', system-ui, sans-serif; }
+  code, pre { font-family: 'DM Mono', monospace; }
+}
+
 @layer components {
   .card {
-    @apply rounded-2xl border border-zinc-800 bg-zinc-900/80 shadow-sm;
+    @apply rounded-xl border bg-white shadow-sm;
+    border-color: var(--border);
   }
-  .card-accent {
-    @apply rounded-2xl border border-zinc-700 bg-zinc-800 text-zinc-100 shadow-md;
+  .sidebar-link {
+    @apply flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors;
+    color: var(--text-secondary);
   }
-  .card-label {
-    @apply text-xs font-medium uppercase tracking-wider text-zinc-500;
+  .sidebar-link:hover {
+    background: var(--surface-subtle);
+    color: var(--text-primary);
   }
+  .sidebar-link.active {
+    background: var(--accent-subtle);
+    color: var(--accent-text);
+  }
+  .badge-launched {
+    @apply inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-medium;
+    background: #DCFCE7; color: #166534;
+  }
+  .badge-ready {
+    @apply inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-medium;
+    background: #FEF9C3; color: #854D0E;
+  }
+  .badge-draft {
+    @apply inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-medium;
+    background: var(--surface-subtle); color: var(--text-secondary);
+  }
+  .btn-primary {
+    @apply inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium text-white transition-colors disabled:opacity-50;
+    background: var(--accent);
+  }
+  .btn-primary:hover:not(:disabled) { background: var(--accent-hover); }
 }
+

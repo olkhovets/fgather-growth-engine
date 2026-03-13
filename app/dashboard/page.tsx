@@ -33,6 +33,27 @@ type Aggregate = {
   totalReplies: number;
 } | null;
 
+function StatusBadge({ status }: { status: string }) {
+  if (status === "launched") return (
+    <span className="badge-launched">
+      <span className="h-1.5 w-1.5 rounded-full bg-green-500 inline-block" />
+      Active
+    </span>
+  );
+  if (status === "sequences_ready") return (
+    <span className="badge-ready">
+      <span className="h-1.5 w-1.5 rounded-full bg-yellow-400 inline-block" />
+      Ready
+    </span>
+  );
+  return (
+    <span className="badge-draft">
+      <span className="h-1.5 w-1.5 rounded-full bg-gray-400 inline-block" />
+      Draft
+    </span>
+  );
+}
+
 export default function DashboardPage() {
   const { ready, loading: guardLoading, session } = useAuthGuard();
   const router = useRouter();
@@ -62,7 +83,6 @@ export default function DashboardPage() {
       .finally(() => setLoading(false));
   }, [session?.user?.id]);
 
-  // Sync analytics from Instantly and fetch strategy suggestion (runs in background when workspace is ready)
   useEffect(() => {
     if (!session?.user?.id || !workspace?.domain) return;
     fetch("/api/performance-memory/sync", { method: "POST" })
@@ -114,245 +134,225 @@ export default function DashboardPage() {
   if (guardLoading || loading) {
     return (
       <div className="flex min-h-screen items-center justify-center">
-        <p className="text-zinc-400">Loading...</p>
+        <div className="h-5 w-5 animate-spin rounded-full border-2 border-gray-300 border-t-gray-600" />
       </div>
     );
   }
 
-  if (!session) {
-    router.push("/login");
-    return null;
-  }
-
+  if (!session) { router.push("/login"); return null; }
   if (!ready) {
     return (
       <div className="flex min-h-screen items-center justify-center">
-        <p className="text-zinc-400">Loading...</p>
+        <div className="h-5 w-5 animate-spin rounded-full border-2 border-gray-300 border-t-gray-600" />
       </div>
     );
   }
 
   const hasOnboarding = Boolean(workspace?.domain);
+  const allCampaigns = [
+    ...campaigns.map(c => ({ ...c, isLegacy: false as const })),
+    ...legacySentCampaigns,
+  ].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+
+  const launchedCount = campaigns.filter(c => c.status === "launched").length + legacySentCampaigns.length;
+  const draftCount = campaigns.filter(c => c.status !== "launched").length;
 
   return (
-    <div className="min-h-screen flex flex-col">
-      <header className="border-b border-zinc-800/80 bg-zinc-950/95 flex-shrink-0">
-        <div className="max-w-6xl mx-auto px-6 py-4 flex items-center justify-between">
-          <Link href="/dashboard" className="text-lg font-semibold text-zinc-100 tracking-tight">
-            {APP_DISPLAY_NAME}
+    <div className="flex min-h-screen" style={{ background: 'var(--bg)' }}>
+      {/* Sidebar */}
+      <aside className="w-60 flex-shrink-0 flex flex-col border-r" style={{ background: 'var(--surface)', borderColor: 'var(--border)' }}>
+        {/* Logo */}
+        <div className="px-5 py-5 border-b" style={{ borderColor: 'var(--border)' }}>
+          <Link href="/dashboard" className="flex items-center gap-2.5">
+            <div className="h-7 w-7 rounded-lg flex items-center justify-center text-white text-sm font-bold" style={{ background: 'var(--accent)' }}>g</div>
+            <span className="font-semibold text-sm" style={{ color: 'var(--text-primary)' }}>gather</span>
           </Link>
-          <nav className="flex items-center gap-6 text-sm">
-            <Link href="/dashboard" className="font-medium text-zinc-200">
-              Dashboard
-            </Link>
-            <Link href="/dashboard/features" className="text-zinc-500 hover:text-zinc-200">
-              Feature Request
-            </Link>
-            <Link href="/onboarding" className="text-zinc-500 hover:text-zinc-200">
-              Settings
-            </Link>
-            <span className="text-zinc-500">{session.user?.email}</span>
-            <button
-              onClick={() => signOut({ callbackUrl: "/" })}
-              className="text-zinc-500 hover:text-zinc-200"
-            >
-              Log out
-            </button>
-          </nav>
         </div>
-      </header>
 
+        {/* Nav */}
+        <nav className="flex-1 p-3 space-y-0.5">
+          <Link href="/dashboard" className="sidebar-link active">
+            <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" />
+            </svg>
+            Dashboard
+          </Link>
+          <Link href="/dashboard/features" className="sidebar-link">
+            <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
+            </svg>
+            Feature Requests
+          </Link>
+          <Link href="/onboarding" className="sidebar-link">
+            <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+              <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+            </svg>
+            Settings
+          </Link>
+        </nav>
+
+        {/* User */}
+        <div className="p-3 border-t" style={{ borderColor: 'var(--border)' }}>
+          <div className="flex items-center gap-3 rounded-lg px-3 py-2">
+            <div className="h-7 w-7 rounded-full flex items-center justify-center text-xs font-semibold text-white flex-shrink-0" style={{ background: 'var(--accent)' }}>
+              {session.user?.email?.[0]?.toUpperCase() ?? "U"}
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-xs font-medium truncate" style={{ color: 'var(--text-primary)' }}>{session.user?.email}</p>
+            </div>
+            <button onClick={() => signOut({ callbackUrl: "/" })} className="text-xs flex-shrink-0" style={{ color: 'var(--text-tertiary)' }} title="Log out">
+              <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+              </svg>
+            </button>
+          </div>
+        </div>
+      </aside>
+
+      {/* Main */}
       <main className="flex-1 overflow-y-auto">
-        <div className="max-w-6xl mx-auto px-6 py-12">
-          <h1 className="text-2xl font-semibold text-zinc-100">Dashboard</h1>
-          <p className="mt-1 text-sm text-zinc-500">
-            Welcome, {session.user?.name || session.user?.email}
-          </p>
+        <div className="max-w-5xl mx-auto px-8 py-8">
+          {/* Header */}
+          <div className="flex items-center justify-between mb-8">
+            <div>
+              <h1 className="text-xl font-semibold" style={{ color: 'var(--text-primary)' }}>Campaigns</h1>
+              <p className="text-sm mt-0.5" style={{ color: 'var(--text-secondary)' }}>
+                {workspace?.domain ?? "Configure your workspace in Settings"}
+              </p>
+            </div>
+            <button onClick={handleLaunchNew} disabled={creating} className="btn-primary">
+              <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
+              </svg>
+              {creating ? "Creating…" : "New Campaign"}
+            </button>
+          </div>
 
+          {/* Setup warning */}
           {hasOnboarding && workspace && (!workspace.hasAnthropicKey || !workspace.hasInstantlyKey) && (
-            <div className="mt-6 rounded-lg border border-amber-800/60 bg-amber-900/20 px-4 py-3 text-sm text-amber-200">
-              <strong>Complete setup to unlock everything.</strong> Add your Anthropic key to crawl your site and generate playbooks; add your Instantly key to send campaigns. You can add them anytime in{" "}
-              <Link href="/onboarding" className="font-medium text-amber-100 underline hover:no-underline">
-                Settings
-              </Link>
-              .
+            <div className="mb-6 rounded-xl border px-4 py-3 text-sm flex items-start gap-3" style={{ background: 'var(--warning-bg)', borderColor: 'var(--warning-border)', color: 'var(--warning-text)' }}>
+              <svg className="h-4 w-4 mt-0.5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+              </svg>
+              <span>
+                <strong>Complete setup</strong> — add your Anthropic and Instantly keys in{" "}
+                <Link href="/onboarding" className="underline font-medium">Settings</Link> to unlock all features.
+              </span>
             </div>
           )}
 
+          {/* Stats */}
+          {aggregate && (
+            <div className="grid grid-cols-4 gap-4 mb-8">
+              {[
+                { label: "Total Campaigns", value: aggregate.totalCampaigns },
+                { label: "Active", value: launchedCount },
+                { label: "Draft", value: draftCount },
+                { label: "Total Leads", value: aggregate.totalLeads.toLocaleString() },
+              ].map(({ label, value }) => (
+                <div key={label} className="card p-5">
+                  <p className="text-xs font-medium" style={{ color: 'var(--text-tertiary)' }}>{label}</p>
+                  <p className="text-2xl font-semibold mt-1.5 tabular-nums" style={{ color: 'var(--text-primary)' }}>{value}</p>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Strategy suggestion */}
+          {strategySuggestion && (
+            <div className="mb-6 card p-4 border-l-4" style={{ borderLeftColor: 'var(--accent)' }}>
+              <p className="text-xs font-semibold uppercase tracking-wide mb-1" style={{ color: 'var(--accent)' }}>Strategy insight</p>
+              <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>{strategySuggestion}</p>
+            </div>
+          )}
+
+          {/* Get started */}
           {!hasOnboarding ? (
-            <div className="mt-8 rounded-xl border border-zinc-800 bg-zinc-900/50 p-6">
-              <h2 className="text-lg font-medium text-zinc-200">Get started</h2>
-              <p className="mt-2 text-sm text-zinc-400">
-                Enter your company URL (and optionally API keys) in Settings, then come back to launch your first campaign.
-              </p>
-              <Link
-                href="/onboarding"
-                className="mt-4 inline-flex rounded-md bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-500"
-              >
-                Go to Settings →
-              </Link>
+            <div className="card p-8 text-center">
+              <div className="h-12 w-12 rounded-xl mx-auto mb-4 flex items-center justify-center" style={{ background: 'var(--accent-subtle)' }}>
+                <svg className="h-6 w-6" style={{ color: 'var(--accent)' }} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" />
+                </svg>
+              </div>
+              <h2 className="text-base font-semibold mb-1" style={{ color: 'var(--text-primary)' }}>Get started</h2>
+              <p className="text-sm mb-4" style={{ color: 'var(--text-secondary)' }}>Enter your company URL and API keys in Settings to launch your first campaign.</p>
+              <Link href="/onboarding" className="btn-primary">Go to Settings →</Link>
             </div>
           ) : (
-            <>
-              <div className="mt-8 flex flex-wrap items-center gap-4">
-                <button
-                  onClick={handleLaunchNew}
-                  disabled={creating}
-                  className="rounded-lg bg-emerald-600 px-5 py-2.5 font-medium text-white hover:bg-emerald-500 disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  {creating ? "Creating…" : "Launch new campaign"}
-                </button>
+            /* Campaigns table */
+            <div className="card overflow-hidden">
+              <div className="px-6 py-4 border-b flex items-center justify-between" style={{ borderColor: 'var(--border)' }}>
+                <h2 className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>All campaigns</h2>
+                <span className="text-xs" style={{ color: 'var(--text-tertiary)' }}>{allCampaigns.length} total</span>
               </div>
 
-              {strategySuggestion && (
-                <div className="mt-8 rounded-xl border border-amber-800/50 bg-amber-950/20 p-5">
-                  <h2 className="text-sm font-medium text-amber-200 mb-2">Strategy update (from your data)</h2>
-                  <p className="text-sm text-amber-100/90">{strategySuggestion}</p>
-                  <p className="mt-2 text-xs text-amber-200/60">
-                    These learnings are applied when you generate new sequences. Run &quot;Classify&quot; on leads so we can tailor by persona/vertical.
-                  </p>
+              {allCampaigns.length === 0 ? (
+                <div className="px-6 py-12 text-center">
+                  <p className="text-sm" style={{ color: 'var(--text-tertiary)' }}>No campaigns yet. Click "New Campaign" to get started.</p>
                 </div>
-              )}
-
-              {aggregate && (aggregate.totalCampaigns > 0 || aggregate.totalLeads > 0 || aggregate.totalReplies > 0) && (
-                <div className="mt-8 grid grid-cols-2 gap-4 sm:grid-cols-4">
-                  <div className="rounded-xl border border-zinc-800 bg-zinc-900/50 p-5">
-                    <p className="text-xs font-medium uppercase tracking-wider text-zinc-500">Campaigns</p>
-                    <p className="mt-2 text-2xl font-semibold text-zinc-100 tabular-nums">{aggregate.totalCampaigns}</p>
-                  </div>
-                  <div className="rounded-xl border border-zinc-800 bg-zinc-900/50 p-5">
-                    <p className="text-xs font-medium uppercase tracking-wider text-zinc-500">Launched</p>
-                    <p className="mt-2 text-2xl font-semibold text-zinc-100 tabular-nums">{aggregate.launchedCampaigns}</p>
-                  </div>
-                  <div className="rounded-xl border border-zinc-800 bg-zinc-900/50 p-5">
-                    <p className="text-xs font-medium uppercase tracking-wider text-zinc-500">Total leads</p>
-                    <p className="mt-2 text-2xl font-semibold text-zinc-100 tabular-nums">{aggregate.totalLeads}</p>
-                  </div>
-                  <div className="rounded-xl border border-zinc-800 bg-zinc-900/50 p-5">
-                    <p className="text-xs font-medium uppercase tracking-wider text-zinc-500">Replies</p>
-                    <p className="mt-2 text-2xl font-semibold text-zinc-100 tabular-nums">{aggregate.totalReplies}</p>
-                  </div>
-                </div>
-              )}
-
-              <div className="mt-8 rounded-xl border border-zinc-800 bg-zinc-900/50 overflow-hidden">
-                <h2 className="px-6 py-4 text-lg font-medium text-zinc-200 border-b border-zinc-800">
-                  All campaigns
-                </h2>
-                {campaigns.length === 0 && legacySentCampaigns.length === 0 ? (
-                  <p className="px-6 py-8 text-sm text-zinc-500">
-                    No campaigns yet. Click &quot;Launch new campaign&quot; to create one and set up playbook → sequences → send.
-                  </p>
-                ) : (
-                  <table className="w-full">
-                    <thead>
-                      <tr className="border-b border-zinc-800 text-left text-xs text-zinc-500 uppercase tracking-wider">
-                        <th className="px-6 py-3 font-medium">Name</th>
-                        <th className="px-6 py-3 font-medium">Status</th>
-                        <th className="px-6 py-3 font-medium">Leads</th>
-                        <th className="px-6 py-3 font-medium">Created</th>
-                        <th className="px-6 py-3 font-medium"></th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-zinc-800">
-                      {campaigns.map((c) => (
-                        <tr key={`c-${c.id}`} className="text-sm">
-                          <td className="px-6 py-4 text-zinc-200">{c.name}</td>
-                          <td className="px-6 py-4">
-                            <span className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium ${
-                              c.status === "launched" ? "bg-emerald-900/40 text-emerald-300" :
-                              c.status === "sequences_ready" ? "bg-amber-900/40 text-amber-300" :
-                              "bg-zinc-800 text-zinc-400"
-                            }`}>
-                              {c.status}
-                            </span>
-                          </td>
-                          <td className="px-6 py-4 text-zinc-400">
-                            {c.leadBatch?._count?.leads ?? 0}
-                          </td>
-                          <td className="px-6 py-4 text-zinc-500">
-                            {new Date(c.createdAt).toLocaleDateString()}
-                          </td>
-                          <td className="px-6 py-4">
-                            <div className="flex items-center gap-3">
-                              <Link
-                                href={`/dashboard/campaigns/${c.id}`}
-                                className="text-emerald-500 hover:text-emerald-400 font-medium"
-                              >
-                                {c.status === "launched" ? "View" : "Continue"} →
-                              </Link>
-                              {c.status !== "launched" && (
-                                confirmDeleteId === c.id ? (
-                                  <span className="flex items-center gap-2 text-xs">
-                                    <span className="text-zinc-400">Delete?</span>
-                                    <button
-                                      onClick={() => handleDelete(c.id)}
-                                      disabled={deletingId === c.id}
-                                      className="text-red-400 hover:text-red-300 font-medium disabled:opacity-50"
-                                    >
-                                      {deletingId === c.id ? "Deleting…" : "Yes"}
-                                    </button>
-                                    <button
-                                      onClick={() => setConfirmDeleteId(null)}
-                                      className="text-zinc-500 hover:text-zinc-300"
-                                    >
-                                      No
-                                    </button>
-                                  </span>
-                                ) : (
-                                  <button
-                                    onClick={() => setConfirmDeleteId(c.id)}
-                                    className="text-zinc-600 hover:text-red-400 transition-colors"
-                                    title="Delete campaign"
-                                  >
-                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                                      <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                                    </svg>
-                                  </button>
-                                )
-                              )}
-                            </div>
-                          </td>
-                        </tr>
+              ) : (
+                <table className="w-full">
+                  <thead>
+                    <tr className="border-b" style={{ borderColor: 'var(--border)' }}>
+                      {["Campaign", "Status", "Leads", "Created", ""].map((h) => (
+                        <th key={h} className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wide" style={{ color: 'var(--text-tertiary)' }}>{h}</th>
                       ))}
-                      {legacySentCampaigns.map((s) => (
-                        <tr key={`legacy-${s.id}`} className="text-sm">
-                          <td className="px-6 py-4 text-zinc-200">{s.name}</td>
-                          <td className="px-6 py-4">
-                            <span className="inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium bg-emerald-900/40 text-emerald-300">
-                              launched
-                            </span>
-                          </td>
-                          <td className="px-6 py-4 text-zinc-400">{s.leadCount}</td>
-                          <td className="px-6 py-4 text-zinc-500">
-                            {new Date(s.createdAt).toLocaleDateString()}
-                          </td>
-                          <td className="px-6 py-4">
-                            <Link
-                              href={`/dashboard/sent/${s.id}`}
-                              className="text-emerald-500 hover:text-emerald-400 font-medium"
-                            >
-                              View →
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {campaigns.map((c) => (
+                      <tr key={`c-${c.id}`} className="border-b last:border-0 hover:bg-gray-50/50 transition-colors" style={{ borderColor: 'var(--border)' }}>
+                        <td className="px-6 py-3.5">
+                          <span className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>{c.name}</span>
+                        </td>
+                        <td className="px-6 py-3.5"><StatusBadge status={c.status} /></td>
+                        <td className="px-6 py-3.5 text-sm tabular-nums" style={{ color: 'var(--text-secondary)' }}>{c.leadBatch?._count?.leads ?? 0}</td>
+                        <td className="px-6 py-3.5 text-sm" style={{ color: 'var(--text-tertiary)' }}>{new Date(c.createdAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}</td>
+                        <td className="px-6 py-3.5">
+                          <div className="flex items-center gap-3 justify-end">
+                            <Link href={`/dashboard/campaigns/${c.id}`} className="text-sm font-medium" style={{ color: 'var(--accent)' }}>
+                              {c.status === "launched" ? "View" : "Continue"} →
                             </Link>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                )}
-              </div>
-            </>
+                            {c.status !== "launched" && (
+                              confirmDeleteId === c.id ? (
+                                <span className="flex items-center gap-1.5 text-xs">
+                                  <span style={{ color: 'var(--text-tertiary)' }}>Delete?</span>
+                                  <button onClick={() => handleDelete(c.id)} disabled={deletingId === c.id} className="font-medium text-red-500 hover:text-red-600 disabled:opacity-50">
+                                    {deletingId === c.id ? "…" : "Yes"}
+                                  </button>
+                                  <button onClick={() => setConfirmDeleteId(null)} style={{ color: 'var(--text-tertiary)' }} className="hover:text-gray-600">No</button>
+                                </span>
+                              ) : (
+                                <button onClick={() => setConfirmDeleteId(c.id)} style={{ color: 'var(--text-tertiary)' }} className="hover:text-red-500 transition-colors" title="Delete">
+                                  <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}>
+                                    <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                  </svg>
+                                </button>
+                              )
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                    {legacySentCampaigns.map((s) => (
+                      <tr key={`legacy-${s.id}`} className="border-b last:border-0 hover:bg-gray-50/50 transition-colors" style={{ borderColor: 'var(--border)' }}>
+                        <td className="px-6 py-3.5 text-sm font-medium" style={{ color: 'var(--text-primary)' }}>{s.name}</td>
+                        <td className="px-6 py-3.5"><StatusBadge status="launched" /></td>
+                        <td className="px-6 py-3.5 text-sm tabular-nums" style={{ color: 'var(--text-secondary)' }}>{s.leadCount}</td>
+                        <td className="px-6 py-3.5 text-sm" style={{ color: 'var(--text-tertiary)' }}>{new Date(s.createdAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}</td>
+                        <td className="px-6 py-3.5 text-right">
+                          <Link href={`/dashboard/sent/${s.id}`} className="text-sm font-medium" style={{ color: 'var(--accent)' }}>View →</Link>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
           )}
         </div>
       </main>
-
-      <footer className="border-t border-zinc-800 px-6 py-3">
-        <div className="mx-auto max-w-5xl text-center">
-          <a href="https://gatherhq.com" target="_blank" rel="noopener noreferrer" className="text-sm text-zinc-500 hover:text-zinc-400">
-            Visit gatherhq.com
-          </a>
-        </div>
-      </footer>
     </div>
   );
 }
