@@ -45,7 +45,7 @@ export default async function LandingPage({ params }: { params: Promise<{ token:
     <div className="min-h-screen bg-[#0a0a0b] text-zinc-100">
       <div className="h-px bg-gradient-to-r from-transparent via-emerald-500/40 to-transparent" />
 
-      <div className="max-w-2xl mx-auto px-6 py-16 space-y-16">
+      <div className="max-w-4xl mx-auto px-6 py-16 space-y-16">
 
         <header className="space-y-5">
           <div className="inline-flex items-center gap-2 rounded-full border border-zinc-800 bg-zinc-900/60 px-3 py-1 text-xs text-zinc-500">
@@ -67,7 +67,7 @@ export default async function LandingPage({ params }: { params: Promise<{ token:
 
         {content.observations.length > 0 && (
           <section className="space-y-4">
-            <h2 className="text-xs font-semibold uppercase tracking-widest text-zinc-500">What we found</h2>
+            <h2 className="text-xs font-semibold uppercase tracking-widest text-zinc-500">{(content as LandingPageContent & { observationsHeader?: string }).observationsHeader || "What we found"}</h2>
             <ul className="space-y-3">
               {content.observations.map((obs: string, i: number) => (
                 <li key={i} className="flex gap-3 items-start">
@@ -86,7 +86,7 @@ export default async function LandingPage({ params }: { params: Promise<{ token:
         <section className="rounded-xl border border-zinc-800 bg-zinc-900/30 overflow-hidden">
           <div className="border-b border-zinc-800 px-6 py-4 flex items-start justify-between gap-4">
             <div className="space-y-1">
-              <p className="text-xs font-medium uppercase tracking-widest text-emerald-500/80">Research brief</p>
+              <p className="text-xs font-medium uppercase tracking-widest text-emerald-500/80">{(content as LandingPageContent & { researchBriefLabel?: string }).researchBriefLabel || "Research brief"}</p>
               <h3 className="text-base font-semibold text-zinc-100">{content.assetTitle}</h3>
             </div>
             <span className="flex-shrink-0 rounded-md border border-zinc-700 bg-zinc-800 px-2 py-1 text-xs text-zinc-500">Sample</span>
@@ -107,6 +107,16 @@ export default async function LandingPage({ params }: { params: Promise<{ token:
                   <p className="text-xs text-zinc-500 leading-relaxed">{f.insight}</p>
                 </div>
               ))}
+            </div>
+          )}
+
+          {(content as LandingPageContent & { chartUrl?: string }).chartUrl && (
+            <div className="px-6 pb-5">
+              <img
+                src={(content as LandingPageContent & { chartUrl?: string }).chartUrl}
+                alt={content.assetTitle || "Research chart"}
+                className="w-full rounded-lg border border-zinc-700/50"
+              />
             </div>
           )}
 
