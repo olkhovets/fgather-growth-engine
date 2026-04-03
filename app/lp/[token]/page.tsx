@@ -58,12 +58,21 @@ export default async function LandingPage({ params }: { params: Promise<{ token:
           <p className="text-lg text-zinc-400 leading-relaxed">{content.subheadline}</p>
         </header>
 
-        {content.senderIntro && (
-          <section className="rounded-xl border border-zinc-800/80 bg-zinc-900/40 p-6">
-            <p className="text-xs font-semibold uppercase tracking-widest text-zinc-500 mb-3">A note before you read</p>
-            <p className="text-zinc-300 leading-relaxed">{content.senderIntro}</p>
-          </section>
-        )}
+        {content.senderIntro && (() => {
+          const c = content as LandingPageContent & { noteHeader?: string; noteHeaderSize?: string; noteHeaderColor?: string };
+          const hasOverride = c.noteHeaderSize || c.noteHeaderColor;
+          return (
+            <section className="rounded-xl border border-zinc-800/80 bg-zinc-900/40 p-6">
+              <p
+                className={hasOverride ? "font-semibold mb-3" : "text-xs font-semibold uppercase tracking-widest text-zinc-500 mb-3"}
+                style={{ fontSize: c.noteHeaderSize, color: c.noteHeaderColor }}
+              >
+                {c.noteHeader || "A note before you read"}
+              </p>
+              <p className="text-zinc-300 leading-relaxed">{content.senderIntro}</p>
+            </section>
+          );
+        })()}
 
         {content.observations.length > 0 && (
           <section className="space-y-4">
@@ -129,7 +138,22 @@ export default async function LandingPage({ params }: { params: Promise<{ token:
                 <div className="h-2 bg-zinc-700 rounded w-2/3" />
               </div>
               <div className="absolute inset-0 flex items-center justify-center rounded-lg">
-                <p className="text-xs text-zinc-400 bg-zinc-900/80 border border-zinc-700 rounded-full px-3 py-1">Full brief available in demo</p>
+                {(() => {
+                  const c = content as LandingPageContent & { previewLabel?: string; previewLinkUrl?: string };
+                  const label = c.previewLabel || "Full brief available in demo";
+                  return c.previewLinkUrl ? (
+                    <a
+                      href={c.previewLinkUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-xs text-zinc-300 bg-zinc-900/80 border border-zinc-700 rounded-full px-3 py-1 hover:text-white hover:border-zinc-500 transition-colors"
+                    >
+                      {label} →
+                    </a>
+                  ) : (
+                    <p className="text-xs text-zinc-400 bg-zinc-900/80 border border-zinc-700 rounded-full px-3 py-1">{label}</p>
+                  );
+                })()}
               </div>
             </div>
           </div>
