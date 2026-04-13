@@ -17,25 +17,20 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    // Read raw text to avoid JSON body parser 4.5MB limit on Vercel
-    // The client sends { csv: "...", force: bool } but for large files we
-    // fall back to reading the body as text and parsing manually
-    let csv: string;
+    let csv: string | undefined;
     let force = false;
-    const contentType = request.headers.get("content-type") || "";
-    if (contentType.includes("application/json")) {
-      const text = await request.text();
-      let body: { csv?: string; force?: boolean };
-      try {
-        body = JSON.parse(text) as { csv?: string; force?: boolean };
-      } catch {
-        return NextResponse.json({ error: "Invalid JSON body — if your CSV is very large, try Google Sheets import instead." }, { status: 400 });
-      }
-      csv = body.csv ?? "";
-      force = body.force ?? false;
-    } else {
-      return NextResponse.json({ error: "Content-Type must be application/json" }, { status: 400 });
+    let preLeads: Array<{ email: string; name?: string; jobTitle?: string; company?: string; website?: string; industry?: string }> | undefined;
+
+    const text = await request.text();
+    let body: { csv?: string; leads?: typeof preLeads; force?: boolean };
+    try {
+      body = JSON.parse(text) as typeof body;
+    } catch {
+      return NextResponse.json({ error: "Invalid JSON body." }, { status: 400 });
     }
+    csv = body.csv;
+    force = body.force ?? false;
+    preLeads = body.leads;
 
     if (!csv || typeof csv !== "string") {
       return NextResponse.json(
@@ -52,15 +47,24 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Workspace not found. Complete onboarding first." }, { status: 400 });
     }
 
-    const { rows } = parseCSV(csv);
-    if (rows.length === 0) {
-      return NextResponse.json(
-        { error: "No rows found in CSV. Ensure first row is headers (e.g. email, name, company, job title, industry)." },
-        { status: 400 }
-      );
+    let leads: Array<{ email: string; name?: string; jobTitle?: string; company?: string; website?: string; industry?: string }>;
+
+    if (preLeads && preLeads.length > 0) {
+      // Client already parsed the CSV — use directly
+      leads = preLeads.filter((r) => r.email?.trim());
+    } else if (csv) {
+      const { rows } = parseCSV(csv);
+      if (rows.length === 0) {
+        return NextResponse.json(
+          { error: "No rows found in CSV. Ensure first row is headers (e.g. email, name, company, job title, industry)." },
+          { status: 400 }
+        );
+      }
+      leads = rows.map((row) => normalizeRow(row)).filter((r) => r.email);
+    } else {
+      return NextResponse.json({ error: "No CSV content or leads provided." }, { status: 400 });
     }
 
-    const leads = rows.map((row) => normalizeRow(row)).filter((r) => r.email);
     if (leads.length === 0) {
       return NextResponse.json(
         { error: "No valid rows with email. Include an 'email' column (or first column as email)." },

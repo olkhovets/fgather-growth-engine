@@ -374,10 +374,65 @@ export default function CampaignPage() {
     setUploading(true);
     setUploadError("");
     try {
+      // Parse CSV client-side to avoid Vercel's 4.5MB JSON body limit.
+      // Only send normalized lead rows (email, name, company, etc.) — much smaller than raw CSV.
+      const lines = csvInput.split(/\r?\n/).filter((l) => l.trim());
+      if (lines.length < 2) throw new Error("CSV must have a header row and at least one data row.");
+
+      const firstLine = lines[0];
+      const isTab = (firstLine.match(/\t/g) || []).length > (firstLine.match(/,/g) || []).length;
+      const split = (line: string) => isTab
+        ? line.split("\t").map((v) => v.trim().replace(/^"|"$/g, ""))
+        : (() => {
+            const result: string[] = []; let cur = ""; let inQ = false;
+            for (const c of line) {
+              if (c === '"') inQ = !inQ;
+              else if (c === "," && !inQ) { result.push(cur.trim().replace(/^"|"$/g, "")); cur = ""; }
+              else cur += c;
+            }
+            result.push(cur.trim().replace(/^"|"$/g, ""));
+            return result;
+          })();
+
+      const headers = split(lines[0]).map((h) => h.toLowerCase().replace(/\s+/g, "_"));
+      const ALIASES: Record<string, string> = {
+        email: "email", e_mail: "email", work_email: "email",
+        first_name: "name", firstname: "name", name: "name", full_name: "name",
+        job_title: "job_title", jobtitle: "job_title", title: "job_title",
+        company: "company", company_name: "company", organization: "company",
+        website: "website", company_url: "website", company_website: "website",
+        industry: "industry",
+      };
+      const get = (row: Record<string, string>, ...keys: string[]) => {
+        for (const k of keys) { const v = row[k] ?? row[ALIASES[k]]; if (v) return v; }
+        return "";
+      };
+
+      const leads: Array<{ email: string; name?: string; jobTitle?: string; company?: string; website?: string; industry?: string }> = [];
+      for (let i = 1; i < lines.length; i++) {
+        const vals = split(lines[i]);
+        const row: Record<string, string> = {};
+        headers.forEach((h, j) => { row[h] = vals[j]?.trim() ?? ""; });
+        if (!Object.values(row).some((v) => v)) continue;
+        const email = get(row, "email", "e_mail", "work_email") || vals[0] || "";
+        if (!email?.trim()) continue;
+        const rawSite = get(row, "website", "company_url", "company_website");
+        leads.push({
+          email: email.trim(),
+          name: get(row, "name", "first_name", "firstname", "full_name") || undefined,
+          jobTitle: get(row, "job_title", "jobtitle", "title") || undefined,
+          company: get(row, "company", "company_name", "organization") || undefined,
+          website: rawSite ? (rawSite.startsWith("http") ? rawSite : `https://${rawSite.replace(/^www\./, "")}`) : undefined,
+          industry: get(row, "industry") || undefined,
+        });
+      }
+
+      if (leads.length === 0) throw new Error("No valid rows with email found. Check your column headers.");
+
       const res = await fetch("/api/leads/upload", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ csv: csvInput, force }),
+        body: JSON.stringify({ leads, force }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Upload failed");
