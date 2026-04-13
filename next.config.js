@@ -3,12 +3,16 @@ const pkg = require("./package.json");
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
-  // Next 16 uses Turbopack by default; empty config silences webpack/turbopack mismatch
   turbopack: {},
   env: {
     NEXT_PUBLIC_APP_VERSION: process.env.NEXT_PUBLIC_APP_VERSION || pkg.version,
   },
-  // Avoid Terser unicode error in dependency code (minification disabled for prod)
+  // Increase body size limit for large CSV uploads (default 4.5MB is too small for 2000-row files)
+  experimental: {
+    serverActions: {
+      bodySizeLimit: "20mb",
+    },
+  },
   webpack: (config, { dev }) => {
     if (!dev) {
       config.optimization.minimize = false;
