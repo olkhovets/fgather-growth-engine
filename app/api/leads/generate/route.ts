@@ -79,21 +79,12 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Batch not found" }, { status: 404 });
     }
 
+    // A lead needs work if it has no step1Subject (never generated, or failed silently)
     const needsWorkWhere = {
       leadBatchId: batchId,
       OR: [
-        { stepsJson: null },
-        { stepsJson: "" },
-        { stepsJson: "[]" },
-        // Re-process leads where generation failed silently (blank subject saved)
-        {
-          AND: [
-            { stepsJson: { not: null } },
-            { stepsJson: { not: "" } },
-            { stepsJson: { not: "[]" } },
-            { OR: [{ step1Subject: null }, { step1Subject: "" }] },
-          ],
-        },
+        { step1Subject: null },
+        { step1Subject: "" },
       ],
     };
 

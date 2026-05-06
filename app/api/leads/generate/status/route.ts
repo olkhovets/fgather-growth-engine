@@ -6,45 +6,32 @@ import { prisma } from "@/lib/prisma";
 export async function GET(request: Request) {
   try {
     const session = await getServerSession(authOptions);
-    if (!session?.user?.id) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
+    if (!session?.user?.id) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
     const { searchParams } = new URL(request.url);
     const batchId = searchParams.get("batchId");
-    if (!batchId) {
-      return NextResponse.json({ error: "batchId required" }, { status: 400 });
-    }
+    if (!batchId) return NextResponse.json({ error: "batchId required" }, { status: 400 });
 
     const workspace = await prisma.workspace.findUnique({
       where: { userId: session.user.id },
       select: { id: true },
     });
-    if (!workspace) {
-      return NextResponse.json({ error: "Workspace not found" }, { status: 404 });
-    }
+    if (!workspace) return NextResponse.json({ error: "Workspace not found" }, { status: 404 });
 
     const batch = await prisma.leadBatch.findFirst({
       where: { id: batchId, workspaceId: workspace.id },
       include: { _count: { select: { leads: true } } },
     });
-    if (!batch) {
-      return NextResponse.json({ error: "Batch not found" }, { status: 404 });
-    }
+    if (!batch) return NextResponse.json({ error: "Batch not found" }, { status: 404 });
 
     const total = batch._count.leads;
+
+    // Count leads that have a non-empty step1Subject — the simplest reliable signal
     const generated = await prisma.lead.count({
       where: {
         leadBatchId: batchId,
-        NOT: {
-          OR: [
-            { stepsJson: null },
-            { stepsJson: "" },
-            { stepsJson: "[]" },
-            { step1Subject: null },
-            { step1Subject: "" },
-          ],
-        },
+        step1Subject: { not: null },
+        NOT: { step1Subject: "" },
       },
     });
 
