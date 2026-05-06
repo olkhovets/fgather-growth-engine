@@ -341,12 +341,28 @@ export default function CampaignPage() {
       setCampaign((c) => c ? { ...c, status: "sequences_ready", leadBatchId: selectedBatchId } : null);
     } catch (e) {
       const errMsg = e instanceof Error ? e.message : "Generate failed";
+      const isTransient = errMsg.toLowerCase().includes("too many") ||
+        errMsg.toLowerCase().includes("connection") ||
+        errMsg.toLowerCase().includes("timeout") ||
+        errMsg.toLowerCase().includes("could not fetch");
+
       // Fetch real progress from DB so counter shows correct number after error
       const realProgress = await fetchGenerateProgress();
       if (realProgress) {
         lastProgress = realProgress;
         setGenerateProgress(realProgress);
       }
+
+      // Auto-retry transient errors (DB connection limits, timeouts) after a pause
+      if (isTransient && lastProgress && lastProgress.generated < lastProgress.total) {
+        setGenerateError(`Transient error (${errMsg.slice(0, 60)}...) — auto-retrying in 5s...`);
+        await new Promise((r) => setTimeout(r, 5000));
+        setGenerateError("");
+        setGenerating(false);
+        generateAll(); // restart
+        return;
+      }
+
       const resumeHint = lastProgress && lastProgress.generated > 0 && lastProgress.generated < lastProgress.total
         ? ` ${lastProgress.generated}/${lastProgress.total} already done — click Generate again to resume from where it stopped.`
         : "";
