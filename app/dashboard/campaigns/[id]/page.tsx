@@ -321,23 +321,32 @@ export default function CampaignPage() {
         }
       };
 
-      while (status.generated < status.total) {
+      let cumulativeDone = 0;
+      while (status.generated < status.total || cumulativeDone < status.total) {
         const res = await fetchChunkWithRetry();
         const text = await res.text();
-        let data: { error?: string } = {};
+        let data: { error?: string; done?: number; total?: number } = {};
         try {
           data = text ? JSON.parse(text) : {};
         } catch {
           throw new Error(text?.slice(0, 200) || `Generate failed (${res.status})`);
         }
         if (!res.ok) throw new Error(data.error || text?.slice(0, 200) || "Generate failed");
-        status = await fetchGenerateProgress();
-        if (status) lastProgress = status;
-        if (!status) break;
-        // Small pause between chunks to avoid connection saturation on large batches
-        if (status.generated < status.total) await new Promise((r) => setTimeout(r, 300));
+        // Use done count from generate response directly for reliable progress display
+        if (data.done != null) {
+          cumulativeDone += data.done;
+          setGenerateProgress({ total: status.total, generated: cumulativeDone });
+          if (data.done === 0) break; // no more leads to process
+        }
+        status = await fetchGenerateProgress() ?? status;
+        lastProgress = status;
+        // Use whichever count is higher
+        const displayGenerated = Math.max(status.generated, cumulativeDone);
+        setGenerateProgress({ total: status.total, generated: displayGenerated });
+        if (displayGenerated >= status.total) break;
+        await new Promise((r) => setTimeout(r, 300));
       }
-      if (status && status.generated >= status.total) {
+      if (cumulativeDone > 0 || status.generated >= status.total) {
         setStep("send");
         setCampaign((c) => c ? { ...c, status: "sequences_ready", leadBatchId: selectedBatchId } : null);
       }
