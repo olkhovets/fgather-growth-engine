@@ -316,7 +316,9 @@ Respond with ONLY a valid JSON object with keys ${stepKeys}. Each step: { "subje
           // landingPageToken already stored during LP content generation above
         };
         if (stepsArray[0]) {
-          update.step1Subject = stepsArray[0].subject || null;
+          // Use a space as minimum to mark as processed - prevents infinite re-processing
+          // Empty subject means AI failed to generate; will show as quality fail but won't loop
+          update.step1Subject = stepsArray[0].subject || " ";
           update.step1Body = stepsArray[0].body || null;
         }
         if (stepsArray[1]) {
@@ -338,8 +340,8 @@ Respond with ONLY a valid JSON object with keys ${stepKeys}. Each step: { "subje
         const fallbackSteps = Array.from({ length: numSteps }, () => ({ subject: "", body: "" }));
         const fallback: Record<string, string | null> = {
           stepsJson: JSON.stringify(fallbackSteps),
-          step1Subject: fallbackSteps[0]?.subject ?? null,
-          step1Body: fallbackSteps[0]?.body ?? null,
+          step1Subject: fallbackSteps[0]?.subject || " ",
+          step1Body: fallbackSteps[0]?.body || null,
           step2Subject: fallbackSteps[1]?.subject ?? null,
           step2Body: fallbackSteps[1]?.body ?? null,
           step3Subject: fallbackSteps[2]?.subject ?? null,
