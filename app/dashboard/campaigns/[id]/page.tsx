@@ -331,7 +331,10 @@ export default function CampaignPage() {
         const chunkDone = data.done ?? 0;
         if (chunkDone === 0) break; // no more leads need work
         cumulativeDone += chunkDone;
-        setGenerateProgress({ total: status.total, generated: cumulativeDone });
+        // Use total-remaining to show real cumulative count across sessions
+        const remaining = data.total ?? (status.total - cumulativeDone);
+        const realDone = status.total - remaining;
+        setGenerateProgress({ total: status.total, generated: Math.max(realDone, cumulativeDone) });
         await new Promise((r) => setTimeout(r, 300));
       }
       setStep("send");
