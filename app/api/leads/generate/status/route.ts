@@ -26,19 +26,17 @@ export async function GET(request: Request) {
 
     const total = batch._count.leads;
 
-    // Count leads that have a non-empty step1Subject — the simplest reliable signal
-    const generated = await prisma.lead.count({
+    // Two simple counts - no NOT/OR nesting that breaks Prisma
+    const withSteps = await prisma.lead.count({
+      where: { leadBatchId: batchId, stepsJson: { not: null } },
+    });
+    const emptySteps = await prisma.lead.count({
       where: {
         leadBatchId: batchId,
-        NOT: {
-          OR: [
-            { stepsJson: null },
-            { stepsJson: "" },
-            { stepsJson: "[]" },
-          ],
-        },
+        OR: [{ stepsJson: "" }, { stepsJson: "[]" }],
       },
     });
+    const generated = Math.max(0, withSteps - emptySteps);
 
     return NextResponse.json({ total, generated });
   } catch (error) {
