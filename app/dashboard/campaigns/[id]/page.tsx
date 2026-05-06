@@ -339,7 +339,6 @@ export default function CampaignPage() {
       }
       setStep("send");
       setCampaign((c) => c ? { ...c, status: "sequences_ready", leadBatchId: selectedBatchId } : null);
-      }
     } catch (e) {
       const errMsg = e instanceof Error ? e.message : "Generate failed";
       const resumeHint = lastProgress && lastProgress.generated > 0 && lastProgress.generated < lastProgress.total
