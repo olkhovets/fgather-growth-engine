@@ -318,7 +318,8 @@ export default function CampaignPage() {
         }
       };
 
-      let cumulativeDone = 0;
+      let cumulativeDone = status.generated ?? 0;
+      setGenerateProgress({ total: status.total, generated: cumulativeDone });
       // eslint-disable-next-line no-constant-condition
       while (true) {
         const res = await fetchChunkWithRetry();
