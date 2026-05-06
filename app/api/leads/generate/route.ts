@@ -296,7 +296,7 @@ Respond with ONLY a valid JSON object with keys ${stepKeys}. Each step: { "subje
 
       let usage = { input_tokens: 0, output_tokens: 0 };
       try {
-        const { text: raw, usage: u } = await callAnthropic(anthropicKey, prompt, { maxTokens: 2400, model });
+        const { text: raw, usage: u } = await callAnthropic(anthropicKey, prompt, { maxTokens: 4000, model });
         if (u) usage = u;
         let jsonStr = raw.trim();
         const codeBlock = raw.match(/```(?:json)?\s*([\s\S]*?)```/);
@@ -317,6 +317,9 @@ Respond with ONLY a valid JSON object with keys ${stepKeys}. Each step: { "subje
           // landingPageToken already stored during LP content generation above
         };
         if (stepsArray[0]) {
+          if (!stepsArray[0].subject) {
+            console.error(`[generate] Empty step1 subject for ${lead.email}. Raw: ${raw.slice(0, 300)}`);
+          }
           update.step1Subject = stepsArray[0].subject || null;
           update.step1Body = stepsArray[0].body || null;
         }
