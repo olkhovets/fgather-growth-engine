@@ -309,7 +309,7 @@ export default function CampaignPage() {
           return await fetch("/api/leads/generate", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ batchId: selectedBatchId, campaignId: id, limit: 10, useFastModel, useWebScraping, useLandingPage, useVideo }),
+            body: JSON.stringify({ batchId: selectedBatchId, campaignId: id, useFastModel, useWebScraping, useLandingPage, useVideo }),
           });
         } catch (networkErr) {
           if (attempt < 3) {

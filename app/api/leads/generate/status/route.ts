@@ -30,8 +30,13 @@ export async function GET(request: Request) {
     const generated = await prisma.lead.count({
       where: {
         leadBatchId: batchId,
-        step1Subject: { not: null },
-        NOT: { step1Subject: "" },
+        NOT: {
+          OR: [
+            { stepsJson: null },
+            { stepsJson: "" },
+            { stepsJson: "[]" },
+          ],
+        },
       },
     });
 
