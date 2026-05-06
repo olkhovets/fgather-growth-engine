@@ -79,7 +79,6 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Batch not found" }, { status: 404 });
     }
 
-    // A lead needs work if stepsJson is not set or empty
     const needsWorkWhere = {
       leadBatchId: batchId,
       OR: [
@@ -87,6 +86,7 @@ export async function POST(request: Request) {
         { stepsJson: "" },
         { stepsJson: "[]" },
       ],
+      NOT: { stepsJson: "__skipped__" },
     };
 
     const [total, chunk] = await Promise.all([
@@ -339,8 +339,12 @@ Respond with ONLY a valid JSON object with keys ${stepKeys}. Each step: { "subje
         return { leadId: lead.id, usage };
       } catch (err) {
         console.error(`Lead ${lead.id} personalize error:`, err instanceof Error ? err.message : err);
-        // Do NOT save empty stepsJson — leave it null so the lead gets retried on next Generate run
-        // Only save if it's a non-content error (DB error, rate limit) where we want to mark as attempted
+        // Mark lead as permanently skipped with a sentinel so it stops being retried
+        // This prevents infinite loops on leads that Claude can't generate for
+        await prisma.lead.update({
+          where: { id: lead.id },
+          data: { stepsJson: "__skipped__" },
+        }).catch(() => {});
         return { leadId: lead.id, usage };
       }
     };
