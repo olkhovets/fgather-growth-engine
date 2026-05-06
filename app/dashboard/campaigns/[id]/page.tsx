@@ -341,6 +341,12 @@ export default function CampaignPage() {
       setCampaign((c) => c ? { ...c, status: "sequences_ready", leadBatchId: selectedBatchId } : null);
     } catch (e) {
       const errMsg = e instanceof Error ? e.message : "Generate failed";
+      // Fetch real progress from DB so counter shows correct number after error
+      const realProgress = await fetchGenerateProgress();
+      if (realProgress) {
+        lastProgress = realProgress;
+        setGenerateProgress(realProgress);
+      }
       const resumeHint = lastProgress && lastProgress.generated > 0 && lastProgress.generated < lastProgress.total
         ? ` ${lastProgress.generated}/${lastProgress.total} already done — click Generate again to resume from where it stopped.`
         : "";

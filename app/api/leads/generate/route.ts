@@ -41,7 +41,7 @@ export async function POST(request: Request) {
     }
     const offset = Math.max(0, Number(offsetParam) || 0);
     // Haiku + parallel: each lead ~1–2s. 10 parallel ≈ 10–15s total per chunk.
-    const CHUNK_SIZE = 25;
+    const CHUNK_SIZE = 10;
     const limit = Math.min(CHUNK_SIZE, Math.max(1, Number(limitParam) || CHUNK_SIZE));
 
     const workspace = await prisma.workspace.findUnique({
@@ -354,7 +354,15 @@ Respond with ONLY a valid JSON object with keys ${stepKeys}. Each step: { "subje
       }
     };
 
-    const results = await Promise.all(chunk.map(processLead));
+    // Process with limited concurrency to avoid exhausting DB connection pool
+    // Claude API calls can be parallel but DB writes need to be controlled
+    const CONCURRENCY = 5;
+    const results: Array<{ leadId: string; usage: { input_tokens: number; output_tokens: number } }> = [];
+    for (let i = 0; i < chunk.length; i += CONCURRENCY) {
+      const batch = chunk.slice(i, i + CONCURRENCY);
+      const batchResults = await Promise.all(batch.map(processLead));
+      results.push(...batchResults);
+    }
     const leadIds = results.map((r) => r.leadId);
     const usageTotal = results.reduce(
       (acc, r) => ({
