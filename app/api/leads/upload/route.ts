@@ -20,9 +20,10 @@ export async function POST(request: Request) {
     let csv: string | undefined;
     let force = false;
     let preLeads: Array<{ email: string; name?: string; jobTitle?: string; company?: string; website?: string; industry?: string }> | undefined;
+    let existingBatchId: string | undefined;
 
     const text = await request.text();
-    let body: { csv?: string; leads?: typeof preLeads; force?: boolean };
+    let body: { csv?: string; leads?: typeof preLeads; force?: boolean; batchId?: string };
     try {
       body = JSON.parse(text) as typeof body;
     } catch {
@@ -31,10 +32,11 @@ export async function POST(request: Request) {
     csv = body.csv;
     force = body.force ?? false;
     preLeads = body.leads;
+    existingBatchId = body.batchId ?? undefined;
 
-    if (!csv || typeof csv !== "string") {
+    if (!csv && (!preLeads || preLeads.length === 0)) {
       return NextResponse.json(
-        { error: "CSV content is required (send as { csv: \"...\" })" },
+        { error: "No CSV content or leads provided." },
         { status: 400 }
       );
     }
@@ -72,7 +74,7 @@ export async function POST(request: Request) {
       );
     }
 
-    const { batchId, count, skippedDuplicate } = await createBatchWithLeads(workspace.id, leads, { dedupe: !force });
+    const { batchId, count, skippedDuplicate } = await createBatchWithLeads(workspace.id, leads, { dedupe: !force, existingBatchId });
 
     return NextResponse.json({
       batchId,

@@ -16,7 +16,7 @@ export type NormalizedLead = {
 export async function createBatchWithLeads(
   workspaceId: string,
   leads: NormalizedLead[],
-  options?: { batchName?: string; dedupe?: boolean }
+  options?: { batchName?: string; dedupe?: boolean; existingBatchId?: string }
 ): Promise<{ batchId: string; count: number; skippedDuplicate: number }> {
   const valid = leads.filter((r) => r.email?.trim());
   if (valid.length === 0) {
@@ -36,7 +36,7 @@ export async function createBatchWithLeads(
     toInsert = toInsert.filter((l) => {
       const key = l.email.trim().toLowerCase();
       if (seen.has(key)) return false;
-      seen.add(key); // dedupe within same batch
+      seen.add(key);
       return true;
     });
     skippedDuplicate = before - toInsert.length;
@@ -46,16 +46,23 @@ export async function createBatchWithLeads(
     throw new Error(skippedDuplicate > 0 ? "All leads were duplicates (already in workspace)." : "No valid leads with email.");
   }
 
-  const batch = await prisma.leadBatch.create({
-    data: {
-      workspaceId,
-      name: options?.batchName ?? `Import ${new Date().toLocaleDateString()}`,
-    },
-  });
+  // Reuse existing batch for chunked uploads, or create a new one
+  let batchId: string;
+  if (options?.existingBatchId) {
+    batchId = options.existingBatchId;
+  } else {
+    const batch = await prisma.leadBatch.create({
+      data: {
+        workspaceId,
+        name: options?.batchName ?? `Import ${new Date().toLocaleDateString()}`,
+      },
+    });
+    batchId = batch.id;
+  }
 
   await prisma.lead.createMany({
     data: toInsert.map((l) => ({
-      leadBatchId: batch.id,
+      leadBatchId: batchId,
       email: l.email.trim(),
       name: l.name?.trim() || null,
       jobTitle: l.jobTitle?.trim() || null,
@@ -65,5 +72,7 @@ export async function createBatchWithLeads(
     })),
   });
 
-  return { batchId: batch.id, count: toInsert.length, skippedDuplicate };
+  // Return total count in this batch
+  const totalCount = await prisma.lead.count({ where: { leadBatchId: batchId } });
+  return { batchId, count: totalCount, skippedDuplicate };
 }

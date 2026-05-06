@@ -429,15 +429,26 @@ export default function CampaignPage() {
 
       if (leads.length === 0) throw new Error("No valid rows with email found. Check your column headers.");
 
-      const res = await fetch("/api/leads/upload", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ leads, force }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Upload failed");
-      setSelectedBatchId(data.batchId);
-      setBatches((prev) => [{ id: data.batchId, name: null, leadCount: data.count }, ...prev]);
+      // Send in chunks of 500 to stay well under Vercel's 4.5MB body limit
+      const CHUNK = 500;
+      let batchId: string | null = null;
+      let totalCount = 0;
+      for (let i = 0; i < leads.length; i += CHUNK) {
+        const chunk = leads.slice(i, i + CHUNK);
+        const isFirst = i === 0;
+        const res = await fetch("/api/leads/upload", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ leads: chunk, force, batchId }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || "Upload failed");
+        if (isFirst) batchId = data.batchId;
+        totalCount = data.count;
+      }
+
+      setSelectedBatchId(batchId!);
+      setBatches((prev) => [{ id: batchId!, name: null, leadCount: totalCount }, ...prev]);
       setCsvInput("");
     } catch (e) {
       setUploadError(e instanceof Error ? e.message : "Upload failed");
