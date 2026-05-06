@@ -436,7 +436,7 @@ export default function CampaignPage() {
       for (let i = 0; i < leads.length; i += CHUNK) {
         const chunk = leads.slice(i, i + CHUNK);
         const isFirst = i === 0;
-        const res = await fetch("/api/leads/upload", {
+        const res: Response = await fetch("/api/leads/upload", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ leads: chunk, force, batchId }),
