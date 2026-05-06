@@ -312,17 +312,17 @@ Respond with ONLY a valid JSON object with keys ${stepKeys}. Each step: { "subje
             body: (s.body ?? "").trim(),
           };
         });
+
+        // Validate — if step1 subject is empty, throw so catch block retries rather than saving garbage
+        if (!stepsArray[0]?.subject?.trim()) {
+          throw new Error(`Claude returned empty step1 subject. Raw: ${raw.slice(0, 300)}`);
+        }
+
         const update: Record<string, string | null> = {
           stepsJson: JSON.stringify(stepsArray),
-          // landingPageToken already stored during LP content generation above
         };
-        if (stepsArray[0]) {
-          if (!stepsArray[0].subject) {
-            console.error(`[generate] Empty step1 subject for ${lead.email}. Raw: ${raw.slice(0, 300)}`);
-          }
-          update.step1Subject = stepsArray[0].subject || null;
-          update.step1Body = stepsArray[0].body || null;
-        }
+        update.step1Subject = stepsArray[0].subject || null;
+        update.step1Body = stepsArray[0].body || null;
         if (stepsArray[1]) {
           update.step2Subject = stepsArray[1].subject || null;
           update.step2Body = stepsArray[1].body || null;
@@ -338,21 +338,9 @@ Respond with ONLY a valid JSON object with keys ${stepKeys}. Each step: { "subje
         });
         return { leadId: lead.id, usage };
       } catch (err) {
-        console.error(`Lead ${lead.id} personalize error:`, err);
-        const fallbackSteps = Array.from({ length: numSteps }, () => ({ subject: "", body: "" }));
-        const fallback: Record<string, string | null> = {
-          stepsJson: JSON.stringify(fallbackSteps),
-          step1Subject: fallbackSteps[0]?.subject ?? null,
-          step1Body: fallbackSteps[0]?.body ?? null,
-          step2Subject: fallbackSteps[1]?.subject ?? null,
-          step2Body: fallbackSteps[1]?.body ?? null,
-          step3Subject: fallbackSteps[2]?.subject ?? null,
-          step3Body: fallbackSteps[2]?.body ?? null,
-        };
-        await prisma.lead.update({
-          where: { id: lead.id },
-          data: fallback,
-        });
+        console.error(`Lead ${lead.id} personalize error:`, err instanceof Error ? err.message : err);
+        // Do NOT save empty stepsJson — leave it null so the lead gets retried on next Generate run
+        // Only save if it's a non-content error (DB error, rate limit) where we want to mark as attempted
         return { leadId: lead.id, usage };
       }
     };
