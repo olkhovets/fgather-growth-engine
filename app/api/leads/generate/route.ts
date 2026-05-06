@@ -85,9 +85,15 @@ export async function POST(request: Request) {
         { stepsJson: null },
         { stepsJson: "" },
         { stepsJson: "[]" },
-        // Also re-process leads where step 1 subject is blank (fallback from timeout/error)
-        { step1Subject: null },
-        { step1Subject: "" },
+        // Re-process leads where generation failed silently (blank subject saved)
+        {
+          AND: [
+            { stepsJson: { not: null } },
+            { stepsJson: { not: "" } },
+            { stepsJson: { not: "[]" } },
+            { OR: [{ step1Subject: null }, { step1Subject: "" }] },
+          ],
+        },
       ],
     };
 
