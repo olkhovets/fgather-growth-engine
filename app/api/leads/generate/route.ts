@@ -86,7 +86,6 @@ export async function POST(request: Request) {
         { stepsJson: "" },
         { stepsJson: "[]" },
       ],
-      NOT: { stepsJson: "__skipped__" },
     };
 
     const [total, chunk] = await Promise.all([
@@ -339,12 +338,6 @@ Respond with ONLY a valid JSON object with keys ${stepKeys}. Each step: { "subje
         return { leadId: lead.id, usage };
       } catch (err) {
         console.error(`Lead ${lead.id} personalize error:`, err instanceof Error ? err.message : err);
-        // Mark lead as permanently skipped with a sentinel so it stops being retried
-        // This prevents infinite loops on leads that Claude can't generate for
-        await prisma.lead.update({
-          where: { id: lead.id },
-          data: { stepsJson: "__skipped__" },
-        }).catch(() => {});
         return { leadId: lead.id, usage };
       }
     };
