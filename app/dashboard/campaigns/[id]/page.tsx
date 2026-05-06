@@ -181,19 +181,16 @@ export default function CampaignPage() {
   }, [session?.user?.id]);
 
   useEffect(() => {
-    if (step !== "sequences") {
-      setGenerateProgress(null);
-      return;
-    }
-    if (selectedBatchId && !generating) {
-      fetch(`/api/leads/generate/status?batchId=${encodeURIComponent(selectedBatchId)}`)
-        .then((r) => r.json())
-        .then((data) => {
-          if (data.total != null && data.generated != null) setGenerateProgress({ total: data.total, generated: data.generated });
-        })
-        .catch(() => {});
-    }
-  }, [step, selectedBatchId, generating]);
+    if (!selectedBatchId) return;
+    fetch(`/api/leads/generate/status?batchId=${encodeURIComponent(selectedBatchId)}`)
+      .then((r) => r.json())
+      .then((data) => {
+        if (data.total != null && data.generated != null) {
+          setGenerateProgress({ total: data.total, generated: data.generated });
+        }
+      })
+      .catch(() => {});
+  }, [selectedBatchId]);
 
   useEffect(() => {
     if (step !== "send" || !campaign?.leadBatchId || !id) {
