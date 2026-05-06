@@ -1161,8 +1161,18 @@ export default function CampaignPage() {
                     ) : validation?.steps?.length ? (
                       <ul className="space-y-2">
                         {(validation.leadsWithNoContent ?? 0) > 0 && (
-                          <li className="text-amber-600 text-sm">
-                            {validation.leadsWithNoContent} lead(s) have no sequence yet. Go to Sequences and run &quot;Generate sequences&quot; until every lead is done.
+                          <li className="text-amber-600 text-sm flex items-center gap-3">
+                            <span>{validation.leadsWithNoContent} lead(s) have no sequence yet.</span>
+                            <button
+                              onClick={async () => {
+                                await fetch(`/api/leads/clear-failed?batchId=${encodeURIComponent(campaign?.leadBatchId ?? "")}`, { method: "POST" });
+                                setStep("sequences");
+                                setTimeout(() => generateAll(), 500);
+                              }}
+                              className="px-3 py-1 text-xs rounded-md bg-[#1A7A4A] text-white hover:bg-[#166640]"
+                            >
+                              Fix &amp; Regenerate
+                            </button>
                           </li>
                         )}
                         {validation.steps.map((s) => (
@@ -1183,8 +1193,22 @@ export default function CampaignPage() {
                         <li className="text-gray-400 text-xs mt-2">
                           {validation.canSend
                             ? `All ${validation.leadsPassingAllSteps} leads ready. Each of ${validation.numSteps} steps goes out as a separate email.`
-                            : `Every lead must pass. ${validation.leadsPassingAllSteps} of ${validation.totalLeads} pass. Run "Generate sequences" until 100% pass.`}
+                            : `Every lead must pass. ${validation.leadsPassingAllSteps} of ${validation.totalLeads} pass.`}
                         </li>
+                        {!validation.canSend && (
+                          <li className="mt-2">
+                            <button
+                              onClick={async () => {
+                                await fetch(`/api/leads/clear-failed?batchId=${encodeURIComponent(campaign?.leadBatchId ?? "")}`, { method: "POST" });
+                                setStep("sequences");
+                                setTimeout(() => generateAll(), 500);
+                              }}
+                              className="px-3 py-1.5 text-xs rounded-md bg-[#1A7A4A] text-white hover:bg-[#166640]"
+                            >
+                              Fix &amp; Regenerate failed leads
+                            </button>
+                          </li>
+                        )}
                         {diagnose && !validation.canSend && (
                           <li className="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800 space-y-1">
                             <p className="font-medium">Why: {diagnose.verdict}</p>
