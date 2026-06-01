@@ -18,7 +18,7 @@ export async function POST(request: Request) {
     }
 
     const body = await request.json().catch(() => ({}));
-    const { batchId, abTest, subjectLineA, subjectLineB, campaignName: campaignNameInput, accountEmails, campaignId: flowCampaignId, skipFailingLeads, styles } = body as {
+    const { batchId, abTest, subjectLineA, subjectLineB, campaignName: campaignNameInput, accountEmails, campaignId: flowCampaignId, skipFailingLeads, styles, sendLimit } = body as {
       batchId?: string;
       abTest?: boolean;
       subjectLineA?: string;
@@ -28,6 +28,7 @@ export async function POST(request: Request) {
       campaignId?: string;
       skipFailingLeads?: boolean;
       styles?: string[]; // e.g. ["pain-led","insight-hook","social-proof","direct-ask"]
+      sendLimit?: number; // cap how many leads enter this send; undefined = send all
     };
     if (!batchId) {
       return NextResponse.json({ error: "batchId is required" }, { status: 400 });
@@ -76,6 +77,12 @@ export async function POST(request: Request) {
     if (batch.leads.length === 0) {
       return NextResponse.json({ error: "Batch has no leads" }, { status: 400 });
     }
+
+    // Shuffle leads so any sendLimit pulls a random cross-section rather than
+    // the first N by insertion order (avoids segment bias from sorted CSVs)
+    const shuffled = [...batch.leads].sort(() => Math.random() - 0.5);
+    const leadsToSend = sendLimit && sendLimit > 0 ? shuffled.slice(0, sendLimit) : shuffled;
+    batch.leads = leadsToSend as typeof batch.leads;
 
     const ctx = await getInstantlyClientForUserId(session.user.id);
     if (!ctx) {
@@ -293,10 +300,12 @@ export async function POST(request: Request) {
     if (abTest) {
       // A/B: assign leads 50/50, create two campaigns, record with abGroupId
       const abGroupId = `ab-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+      // Randomly assign to A/B rather than alternating by index, so splits are
+      // segment-balanced even if the list happens to be sorted by industry/persona
       const leadsA: typeof leadsPassingAllSteps = [];
       const leadsB: typeof leadsPassingAllSteps = [];
-      leadsPassingAllSteps.forEach((l, i) => {
-        if (i % 2 === 0) leadsA.push(l);
+      leadsPassingAllSteps.forEach((l) => {
+        if (Math.random() < 0.5) leadsA.push(l);
         else leadsB.push(l);
       });
 
