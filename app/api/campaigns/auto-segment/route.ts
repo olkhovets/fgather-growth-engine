@@ -79,7 +79,7 @@ export async function POST(request: Request) {
 
     const created: Array<{ campaignId: string; persona: string; leadCount: number }> = [];
 
-    for (const [persona, verticals] of personaGroups) {
+    for (const [persona, verticals] of Array.from(personaGroups.entries())) {
       const verticalList = Array.from(verticals).join(", ") || "various";
       const leadCount = leads.filter((l) => l.persona === persona).length;
 

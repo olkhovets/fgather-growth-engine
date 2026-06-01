@@ -47,7 +47,7 @@ export async function GET(request: Request) {
   let failed = 0;
   const errors: string[] = [];
 
-  for (const [workspaceId, campaigns] of byWorkspace) {
+  for (const [workspaceId, campaigns] of Array.from(byWorkspace.entries())) {
     const ctx = await getInstantlyClientForWorkspaceId(workspaceId);
     if (!ctx) continue;
     const { client } = ctx;
