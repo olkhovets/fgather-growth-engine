@@ -27,6 +27,7 @@ const STYLE_GUIDES: Record<string, { prompt: string; usePS: boolean }> = {
 Open by naming the exact problem the reader is living right now — before any solution.
 Make them feel understood in sentence 1. Then position the product as the relief.
 Subject line: short, problem-framing, e.g. "The [role] content bottleneck" or "[Company]'s agency spend".
+Closing: relief-framed demo invite — e.g. "If that resonates, happy to show you exactly how we fix it — worth 20 minutes?" or "I can walk you through how we solve this — open to a quick demo?" No link, just the ask.
 Include a P.S. that references something real and specific about them — a recent campaign, a hire, a product launch.`,
   },
 
@@ -36,6 +37,7 @@ Include a P.S. that references something real and specific about them — a rece
 Open with a surprising, specific data point or industry observation they likely haven't seen.
 The insight should connect directly to a problem your product solves.
 Subject line: lead with the data or observation, e.g. "67% of brand teams miss this" or "What Nike changed in Q1".
+Closing: pivot from insight to demo — e.g. "Happy to walk you through how [Company] is applying this — worth 20 minutes?" or "I can show you the full picture on a quick demo — interested?" No link, just the ask.
 No P.S. — the hook should be strong enough on its own. Keep it punchy.`,
   },
 
@@ -45,6 +47,7 @@ No P.S. — the hook should be strong enough on its own. Keep it punchy.`,
 Open by referencing a recognisable brand, result, or name the reader will respect.
 Let the proof do the work — they should think "if it works for them, it could work for us."
 Subject line: name-drop the proof point, e.g. "How [Brand] cut agency spend 40%" or "What [Company] is doing differently".
+Closing: use the proof to earn the demo — e.g. "Happy to show you what we built for them — would 20 minutes be worthwhile?" or "I can walk you through what we did for [Brand] — open to a demo?" No link, just the ask.
 Include a P.S. that reinforces credibility — another proof point, a stat, or a relevant quote.`,
   },
 
@@ -55,6 +58,7 @@ No warm-up. Shortest path to the ask.
 One sentence on what you do. One sentence on why it matters to them specifically. One ask.
 Confident peer-to-peer tone — write like a colleague, not a vendor.
 Subject line: ultra-short and direct, e.g. "Quick question" or "[Company] + Gather".
+Closing: single crisp demo ask — e.g. "Worth a demo?" or "Open to seeing it?" One line, nothing more.
 No P.S. — adding one undermines the directness. Keep the whole email under 80 words.`,
   },
 };
@@ -244,6 +248,13 @@ export async function POST(request: Request) {
       const styleConfig = STYLE_GUIDES[resolvedStyle] ?? STYLE_GUIDES["direct-ask"];
       const usePS = styleConfig.usePS;
 
+      // Style-specific sign-off: direct-ask uses first name only (brevity = credibility);
+      // other styles append the company name for a light authority signal
+      const senderFirstName = workspace.senderName?.trim().split(/\s+/)[0] ?? "Best";
+      const signoff = resolvedStyle === "direct-ask"
+        ? senderFirstName
+        : `${senderFirstName}, Gather`;
+
       // Build stable system prompt per style (cached by Anthropic per unique prompt text)
       const systemPrompt = `You are an expert B2B cold email writer for ${workspace.senderName ?? "the sender"}.
 
@@ -255,13 +266,15 @@ ${icp}${proofPointsText}${socialProofText}${structureBlock}
 
 EMAIL RULES:
 - Subject line: 6–10 words max, no punctuation, no clickbait, no ALL CAPS
-- Step 1 body: 3–5 sentences, under ${MAX_BODY_WORDS} words, end with ONE soft CTA
+- Step 1 body: 3–5 sentences, under ${MAX_BODY_WORDS} words, end with ONE soft CTA pointing to a demo
+- NEVER include links, URLs, or hyperlinks in step 1 — no Calendly, no website, no product links; the ask is enough
+- Steps 2+ may include one booking link if helpful (e.g. a scheduling link)
 ${usePS ? `- Include a P.S. line in step 1 — reference something real and specific about them (recent launch, campaign, hire, news)` : `- Do NOT include a P.S. line — the style requires a clean ending`}
 - Steps 2+ must NOT open with a greeting — they thread as inbox replies (Re: subject)
 - Steps 2+ are short follow-ups: add a new angle, do not repeat step 1 verbatim
 - Never use exclamation marks, jargon, or generic claims like "I came across your profile"
 - Write as a human peer, not a marketer
-- Sign off as: ${workspace.senderName?.trim() ?? "Best, [Sender]"}
+- Sign off every email as: ${signoff}
 
 ${styleConfig.prompt}`;
       let companyContextBlock = "";
