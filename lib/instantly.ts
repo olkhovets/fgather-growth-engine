@@ -434,3 +434,18 @@ export async function getInstantlyClientForUserId(userId: string): Promise<{
   const apiKey = decrypt(workspace.instantlyKey);
   return { client: createInstantlyClient(apiKey) };
 }
+
+/** Get an Instantly client for the given workspace ID. Returns null if no key configured. */
+export async function getInstantlyClientForWorkspaceId(workspaceId: string): Promise<{
+  client: InstantlyClient;
+} | null> {
+  const { prisma } = await import("@/lib/prisma");
+  const { decrypt } = await import("@/lib/encryption");
+  const workspace = await prisma.workspace.findUnique({
+    where: { id: workspaceId },
+    select: { instantlyKey: true },
+  });
+  if (!workspace?.instantlyKey) return null;
+  const apiKey = decrypt(workspace.instantlyKey);
+  return { client: createInstantlyClient(apiKey) };
+}

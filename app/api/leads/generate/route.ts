@@ -14,6 +14,31 @@ import { randomUUID } from "crypto";
 // Allow up to 60s so a few Anthropic calls can finish (Vercel Pro; Hobby may still cap at 10s)
 export const maxDuration = 60;
 
+const MAX_BODY_WORDS = 150;
+
+function wordCount(text: string): number {
+  return text.trim().split(/\s+/).filter(Boolean).length;
+}
+
+const STYLE_GUIDES: Record<string, string> = {
+  "pain-led": `EMAIL STYLE: Pain-Led
+Open by naming the exact problem the reader is living right now — before any solution.
+Make them feel understood in sentence 1. Then position the product as relief.`,
+
+  "insight-hook": `EMAIL STYLE: Insight-Hook
+Open with a surprising, specific data point or industry observation they haven't heard.
+Use the insight to create curiosity, then connect it to what you offer.`,
+
+  "social-proof": `EMAIL STYLE: Social-Proof
+Open by referencing a brand, company, or result the reader will recognise and respect.
+Let the proof do the heavy lifting — the reader should think "if it works for them...".`,
+
+  "direct-ask": `EMAIL STYLE: Direct-Ask
+No warm-up. Shortest possible path to the ask.
+One sentence on what you do, one sentence on why it matters to them, one ask.
+Confident, peer-to-peer tone. Never salesy.`,
+};
+
 export async function POST(request: Request) {
   try {
     const session = await getServerSession(authOptions);
@@ -31,7 +56,8 @@ export async function POST(request: Request) {
       useWebScraping: useWebScrapingParam,
       useLandingPage: useLandingPageParam,
       useVideo: useVideoParam,
-    } = body as { batchId: string; offset?: number; limit?: number; campaignId?: string; useFastModel?: boolean; useWebScraping?: boolean; useLandingPage?: boolean; useVideo?: boolean };
+      style: styleParam,
+    } = body as { batchId: string; offset?: number; limit?: number; campaignId?: string; useFastModel?: boolean; useWebScraping?: boolean; useLandingPage?: boolean; useVideo?: boolean; style?: string };
     const useWebScraping = useWebScrapingParam === true;
     const useLandingPage = useLandingPageParam === true;
     const useVideo = useVideoParam === true;
@@ -125,6 +151,7 @@ export async function POST(request: Request) {
     const model = useFastModel ? "claude-haiku-4-5" : (workspace.anthropicModel ?? "claude-haiku-4-5");
     const productSummary = workspace.productSummary ?? "";
     const icp = (campaignIcp ?? workspace.icp) ?? "";
+    const style = styleParam ?? null;
 
     const proofPointsJsonSource = campaignProofPoints ?? workspace.proofPointsJson;
     let proofPointsText = "";
@@ -160,6 +187,26 @@ export async function POST(request: Request) {
     }
 
     const baseUrl = process.env.NEXTAUTH_URL || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "");
+
+    // Build stable system prompt (cached by Anthropic — saves ~70% on input tokens per lead)
+    const styleGuide = style && STYLE_GUIDES[style] ? `\n\n${STYLE_GUIDES[style]}` : "";
+    const systemPrompt = `You are an expert B2B cold email writer for ${workspace.senderName ?? "the sender"}.
+
+PRODUCT:
+${productSummary}
+
+IDEAL CUSTOMER PROFILE:
+${icp}${proofPointsText}${socialProofText}${structureBlock}
+
+EMAIL RULES:
+- Subject line: 6–10 words, no punctuation, no clickbait, no ALL CAPS
+- Step 1 body: 3–5 sentences max, under ${MAX_BODY_WORDS} words, end with ONE soft CTA
+- Include a P.S. line in step 1 — reference something specific to them (company news, their role, a campaign)
+- Steps 2+ must NOT open with a greeting — they thread as replies (Re: subject)
+- Steps 2+ are short follow-ups: add a new angle, reference step 1 implicitly
+- Never use exclamation marks, jargon, or generic claims
+- Write as a human peer, not a marketer
+- Sign off as: ${workspace.senderName?.trim() ?? "Best, [Sender]"}${styleGuide}`;
 
     const processLead = async (lead: (typeof chunk)[0]) => {
       let companyContextBlock = "";
@@ -273,29 +320,23 @@ export async function POST(request: Request) {
         }
       }
 
-      const prompt = `You are writing a HYPER-PERSONALIZED cold outreach sequence for ONE specific lead. Write COMPLETELY custom emails for this person — not templates. Each email should feel like it was written specifically for them based on their role, company, industry, and how your product helps people like them.
+      const userMessage = `Write a ${numSteps}-step hyper-personalized cold email sequence for this lead. Make it feel 1:1 — completely custom, not a template.${strategyBlock}
 
-Product summary: ${productSummary}
-ICP: ${icp}${proofPointsText}${socialProofText}${structureBlock}${strategyBlock}
-
-THIS LEAD:
-- Email: ${lead.email}
+LEAD:
 - Name: ${lead.name ?? "unknown"}
-- Job title: ${lead.jobTitle ?? "unknown"}
+- Title: ${lead.jobTitle ?? "unknown"}
 - Company: ${lead.company ?? "unknown"}
-- Industry: ${lead.industry ?? "unknown"}${lead.website ? `\n- Company website: ${lead.website}` : ""}${lead.persona || lead.vertical ? `\n- Persona: ${lead.persona ?? ""}\n- Vertical: ${lead.vertical ?? ""}` : ""}${companyContextBlock}
+- Industry: ${lead.industry ?? "unknown"}${lead.website ? `\n- Website: ${lead.website}` : ""}${lead.persona || lead.vertical ? `\n- Persona: ${lead.persona ?? ""} | Vertical: ${lead.vertical ?? ""}` : ""}${companyContextBlock}${videoBlock}${landingPageBlock}
 
-SUBJECT LINES: Write HIGHLY PERSONALIZED subject lines for each email. Use their name, company, or a contextual hook (e.g. "Quick question about [Company]'s growth", "Re: ${(lead.name ?? "").split(/\s+/)[0] || "you"} at ${lead.company ?? "your company"}"). Avoid generic subjects like "Quick question" or "Following up".
+Use their real name/company throughout. Do NOT use {{placeholders}}.
+Greet as: "Hi ${(lead.name ?? "there").split(/\s+/)[0] || "there"},"
+Steps 2+ subject must start with "Re: " + step 1 subject.
 
-Write ${numSteps} emails. JSON keys: ${stepKeys}. Use their real name, company, and context throughout. Do NOT use placeholders like {{firstName}} — write "Hey, ${(lead.name ?? "there").split(/\s+/)[0] || "there"}," etc. Tailor each email to their specific situation. Make it feel 1:1.${socialProofText ? " Weave in social proof (similar companies, referral) where it fits naturally." : ""}${videoBlock}${landingPageBlock}
-
-CRITICAL: Sign off as the SENDER, never as the recipient. Use their name only in the greeting (e.g. "Hey Bo,"). For the signature, use: ${workspace.senderName?.trim() ? workspace.senderName.trim() : "Best, [Your name] or The team at [Company]"}. Never use the recipient's name in the sign-off.
-
-Respond with ONLY a valid JSON object with keys ${stepKeys}. Each step: { "subject": "...", "body": "..." }. Example: {${stepExample}}`;
+Return ONLY valid JSON: { ${stepExample} }`;
 
       let usage = { input_tokens: 0, output_tokens: 0 };
       try {
-        const { text: raw, usage: u } = await callAnthropic(anthropicKey, prompt, { maxTokens: 4000, model });
+        const { text: raw, usage: u } = await callAnthropic(anthropicKey, userMessage, { maxTokens: 4000, model, systemPrompt });
         if (u) usage = u;
         let jsonStr = raw.trim();
         const codeBlock = raw.match(/```(?:json)?\s*([\s\S]*?)```/);
@@ -317,8 +358,25 @@ Respond with ONLY a valid JSON object with keys ${stepKeys}. Each step: { "subje
           throw new Error(`Claude returned empty step1 subject. Raw: ${raw.slice(0, 300)}`);
         }
 
+        // Auto-shorten any step body that exceeds word limit
+        for (const step of stepsArray) {
+          if (wordCount(step.body) > MAX_BODY_WORDS) {
+            try {
+              const { text: shortened } = await callAnthropic(
+                anthropicKey,
+                `Shorten this cold email body to under ${MAX_BODY_WORDS} words. Preserve the key message and CTA. Return only the shortened body text, no commentary:\n\n${step.body}`,
+                { maxTokens: 300, model }
+              );
+              step.body = shortened.trim();
+            } catch {
+              // keep original if shorten fails
+            }
+          }
+        }
+
         const update: Record<string, string | null> = {
           stepsJson: JSON.stringify(stepsArray),
+          ...(style ? { emailStyle: style } : {}),
         };
         update.step1Subject = stepsArray[0].subject || null;
         update.step1Body = stepsArray[0].body || null;

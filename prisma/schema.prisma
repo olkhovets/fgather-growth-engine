@@ -193,6 +193,8 @@ model Lead {
   stepsJson          String?   // JSON: [{ subject, body }] for dynamic N steps (1..10)
   linkedinMessage    String?   // personalized LinkedIn connection request (when playbook includes LinkedIn step)
   abVariant          String?   // "A" | "B" when sent as part of A/B test
+  emailStyle         String?   // "pain-led" | "social-proof" | "direct-ask" | "insight-hook"
+  sentAt             DateTime? // when lead was uploaded to Instantly for sending
   createdAt          DateTime  @default(now())
 
   leadBatch LeadBatch @relation(fields: [leadBatchId], references: [id], onDelete: Cascade)

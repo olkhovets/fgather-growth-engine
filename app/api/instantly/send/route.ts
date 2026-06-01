@@ -18,7 +18,7 @@ export async function POST(request: Request) {
     }
 
     const body = await request.json().catch(() => ({}));
-    const { batchId, abTest, subjectLineA, subjectLineB, campaignName: campaignNameInput, accountEmails, campaignId: flowCampaignId, skipFailingLeads } = body as {
+    const { batchId, abTest, subjectLineA, subjectLineB, campaignName: campaignNameInput, accountEmails, campaignId: flowCampaignId, skipFailingLeads, styles } = body as {
       batchId?: string;
       abTest?: boolean;
       subjectLineA?: string;
@@ -27,6 +27,7 @@ export async function POST(request: Request) {
       accountEmails?: string[];
       campaignId?: string;
       skipFailingLeads?: boolean;
+      styles?: string[]; // e.g. ["pain-led","insight-hook","social-proof","direct-ask"]
     };
     if (!batchId) {
       return NextResponse.json({ error: "batchId is required" }, { status: 400 });
@@ -105,6 +106,33 @@ export async function POST(request: Request) {
       (text ?? "")
         .replace(/\r\n/g, "\n")
         .replace(/\n/g, "<br>");
+
+    // Helper: mark leads as sent and record variant
+    const markAsSent = async (leadIds: string[], variant?: string) => {
+      await prisma.lead.updateMany({
+        where: { id: { in: leadIds } },
+        data: { sentAt: new Date(), ...(variant ? { abVariant: variant } : {}) },
+      });
+    };
+
+    // Helper: build Instantly lead payload from a lead record (with Re: threading for steps 2+)
+    type LeadRecord = typeof batch.leads[0];
+    const toLeadPayload = (l: LeadRecord, stepsOverride?: Array<{ subject: string; body: string }>) => {
+      const steps = stepsOverride ?? getLeadSteps(l as LeadWithSteps, numStepsFromPlaybook);
+      const step1Subject = steps[0]?.subject ?? "";
+      const custom_variables: Record<string, string> = {};
+      steps.forEach((s, i) => {
+        custom_variables[`step${i + 1}_subject`] = i === 0 ? step1Subject : `Re: ${step1Subject}`;
+        custom_variables[`step${i + 1}_body`] = bodyWithLineBreaks(s.body ?? "").trim();
+      });
+      return {
+        email: l.email,
+        first_name: l.name?.split(/\s+/)[0] ?? null,
+        last_name: l.name?.split(/\s+/).slice(1).join(" ") || null,
+        company_name: l.company ?? null,
+        custom_variables,
+      };
+    };
 
     const playbookSource = flowCampaign?.playbookJson ?? workspace.playbookJson;
     const parsed = parsePlaybook(playbookSource);
@@ -210,6 +238,58 @@ export async function POST(request: Request) {
       delayUnit: "days" as const,
     };
 
+    // ── Multi-style A/B/C/D ──────────────────────────────────────────────────
+    // When styles[] is provided, group leads by emailStyle and create one campaign
+    // per style sharing a common abGroupId. The decision agent will pick a winner.
+    if (styles && styles.length > 1) {
+      const abGroupId = `style-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+      const styleResults: Array<{ style: string; campaignId: string; leadsCount: number }> = [];
+
+      for (const s of styles) {
+        const styleLeads = leadsPassingAllSteps.filter((l) => (l as LeadRecord & { emailStyle?: string | null }).emailStyle === s);
+        if (styleLeads.length === 0) continue;
+
+        const styleName = `${baseName} — ${s}`;
+        const created = await client.createCampaign(styleName, campaignOptionsWithSequence);
+        const styleId = created.id;
+        if (!styleId) continue;
+
+        const stepVarNames = Array.from({ length: numSteps }, (_, i) => [`step${i + 1}_subject`, `step${i + 1}_body`]).flat();
+        await client.addCampaignVariables(styleId, stepVarNames).catch(() => {});
+
+        const payload = styleLeads.map((l) => toLeadPayload(l as LeadRecord));
+        const result = await client.bulkAddLeadsToCampaign(styleId, payload, { verify_leads_on_import: false });
+        if (result.leads_uploaded > 0) {
+          await client.activateCampaign(styleId);
+          await markAsSent(styleLeads.map((l) => l.id), s);
+          await prisma.sentCampaign.create({
+            data: {
+              workspaceId: workspace.id,
+              campaignId: flowCampaign?.id ?? null,
+              leadBatchId: batch.id,
+              instantlyCampaignId: styleId,
+              name: styleName,
+              abGroupId,
+              variant: s,
+            },
+          });
+          styleResults.push({ style: s, campaignId: styleId, leadsCount: result.leads_uploaded });
+        }
+      }
+
+      if (flowCampaign?.id) {
+        await prisma.campaign.update({ where: { id: flowCampaign.id }, data: { status: "launched" } });
+      }
+
+      return NextResponse.json({
+        success: true,
+        multiStyle: true,
+        abGroupId,
+        variants: styleResults,
+        message: `${styleResults.length} style campaigns created. Agent will monitor and declare winner automatically.`,
+      });
+    }
+
     if (abTest) {
       // A/B: assign leads 50/50, create two campaigns, record with abGroupId
       const abGroupId = `ab-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
@@ -295,6 +375,9 @@ export async function POST(request: Request) {
 
       await client.activateCampaign(idA);
       await client.activateCampaign(idB);
+
+      await markAsSent(leadsA.map((l) => l.id), "A");
+      await markAsSent(leadsB.map((l) => l.id), "B");
 
       await prisma.sentCampaign.createMany({
         data: [
@@ -431,6 +514,7 @@ export async function POST(request: Request) {
     }
 
     await client.activateCampaign(campaignId);
+    await markAsSent(leadsPassingAllSteps.map((l) => l.id));
 
     await prisma.sentCampaign.create({
       data: {

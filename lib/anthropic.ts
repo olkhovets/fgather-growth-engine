@@ -26,23 +26,37 @@ function resolveModel(model: string): string {
 export async function callAnthropic(
   apiKey: string,
   userMessage: string,
-  options?: { maxTokens?: number; model?: string }
+  options?: { maxTokens?: number; model?: string; systemPrompt?: string }
 ): Promise<{ text: string; usage?: AnthropicUsage }> {
   const maxTokens = options?.maxTokens ?? 2000;
   const requested = options?.model ?? ANTHROPIC_MODELS[0].id;
   const model = resolveModel(requested);
+
+  const reqBody: Record<string, unknown> = {
+    model,
+    max_tokens: maxTokens,
+    messages: [{ role: "user", content: userMessage }],
+  };
+
+  if (options?.systemPrompt) {
+    reqBody.system = [
+      {
+        type: "text",
+        text: options.systemPrompt,
+        cache_control: { type: "ephemeral" },
+      },
+    ];
+  }
+
   const res = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
       "x-api-key": apiKey,
       "anthropic-version": "2023-06-01",
+      ...(options?.systemPrompt ? { "anthropic-beta": "prompt-caching-2024-07-31" } : {}),
     },
-    body: JSON.stringify({
-      model,
-      max_tokens: maxTokens,
-      messages: [{ role: "user", content: userMessage }],
-    }),
+    body: JSON.stringify(reqBody),
   });
 
   if (!res.ok) {
