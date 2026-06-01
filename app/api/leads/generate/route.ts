@@ -273,6 +273,9 @@ ${usePS ? `- Include a P.S. line in step 1 — reference something real and spec
 - Steps 2+ must NOT open with a greeting — they thread as inbox replies (Re: subject)
 - Steps 2+ are short follow-ups: add a new angle, do not repeat step 1 verbatim
 - Never use exclamation marks, jargon, or generic claims like "I came across your profile"
+- NEVER use em dashes (—) or en dashes (–) anywhere in the email
+- Avoid words that signal AI authorship: "delve", "leverage", "utilize", "ensure", "streamline", "game-changer", "seamlessly", "revolutionize", "cutting-edge", "robust", "comprehensive", "holistic", "empower", "unlock", "transformative"
+- Avoid semicolons — use short sentences instead
 - Write as a human peer, not a marketer
 - Sign off every email as: ${signoff}
 
