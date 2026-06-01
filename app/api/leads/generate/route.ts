@@ -20,24 +20,73 @@ function wordCount(text: string): number {
   return text.trim().split(/\s+/).filter(Boolean).length;
 }
 
-const STYLE_GUIDES: Record<string, string> = {
-  "pain-led": `EMAIL STYLE: Pain-Led
+const STYLE_GUIDES: Record<string, { prompt: string; usePS: boolean }> = {
+  "pain-led": {
+    usePS: true,
+    prompt: `EMAIL STYLE: Pain-Led
 Open by naming the exact problem the reader is living right now — before any solution.
-Make them feel understood in sentence 1. Then position the product as relief.`,
+Make them feel understood in sentence 1. Then position the product as the relief.
+Subject line: short, problem-framing, e.g. "The [role] content bottleneck" or "[Company]'s agency spend".
+Include a P.S. that references something real and specific about them — a recent campaign, a hire, a product launch.`,
+  },
 
-  "insight-hook": `EMAIL STYLE: Insight-Hook
-Open with a surprising, specific data point or industry observation they haven't heard.
-Use the insight to create curiosity, then connect it to what you offer.`,
+  "insight-hook": {
+    usePS: false,
+    prompt: `EMAIL STYLE: Insight-Hook
+Open with a surprising, specific data point or industry observation they likely haven't seen.
+The insight should connect directly to a problem your product solves.
+Subject line: lead with the data or observation, e.g. "67% of brand teams miss this" or "What Nike changed in Q1".
+No P.S. — the hook should be strong enough on its own. Keep it punchy.`,
+  },
 
-  "social-proof": `EMAIL STYLE: Social-Proof
-Open by referencing a brand, company, or result the reader will recognise and respect.
-Let the proof do the heavy lifting — the reader should think "if it works for them...".`,
+  "social-proof": {
+    usePS: true,
+    prompt: `EMAIL STYLE: Social-Proof
+Open by referencing a recognisable brand, result, or name the reader will respect.
+Let the proof do the work — they should think "if it works for them, it could work for us."
+Subject line: name-drop the proof point, e.g. "How [Brand] cut agency spend 40%" or "What [Company] is doing differently".
+Include a P.S. that reinforces credibility — another proof point, a stat, or a relevant quote.`,
+  },
 
-  "direct-ask": `EMAIL STYLE: Direct-Ask
-No warm-up. Shortest possible path to the ask.
-One sentence on what you do, one sentence on why it matters to them, one ask.
-Confident, peer-to-peer tone. Never salesy.`,
+  "direct-ask": {
+    usePS: false,
+    prompt: `EMAIL STYLE: Direct-Ask
+No warm-up. Shortest path to the ask.
+One sentence on what you do. One sentence on why it matters to them specifically. One ask.
+Confident peer-to-peer tone — write like a colleague, not a vendor.
+Subject line: ultra-short and direct, e.g. "Quick question" or "[Company] + Gather".
+No P.S. — adding one undermines the directness. Keep the whole email under 80 words.`,
+  },
 };
+
+/**
+ * Auto-assign an email style based on persona + industry when no explicit style is passed.
+ * Logic: analytical roles → insight-hook, exec/brand → social-proof, ops/agency → pain-led, default → direct-ask
+ */
+function inferStyle(persona?: string | null, industry?: string | null, vertical?: string | null): string {
+  const p = (persona ?? "").toLowerCase();
+  const ind = (industry ?? vertical ?? "").toLowerCase();
+
+  // C-suite and VPs respond well to social proof (peer validation)
+  if (/cmo|ceo|cfo|chief|vp |vice president/.test(p)) return "social-proof";
+
+  // Analytical roles (data, product, strategy) respond to insight-hook
+  if (/analyst|data|product|strategy|insight|research/.test(p)) return "insight-hook";
+
+  // Brand/marketing/content managers respond to social proof
+  if (/brand|content|creative|marketing manager|campaign/.test(p)) return "social-proof";
+
+  // Operations, agency, and growth roles respond to pain-led
+  if (/operat|agency|growth|demand|lead gen|sdr|bdr/.test(p)) return "pain-led";
+
+  // Industry signals
+  if (/agency|consult|pr firm/.test(ind)) return "pain-led";
+  if (/tech|saas|software|fintech/.test(ind)) return "insight-hook";
+  if (/retail|consumer|fmcg|cpg|fashion|food/.test(ind)) return "social-proof";
+
+  // Default
+  return "direct-ask";
+}
 
 export async function POST(request: Request) {
   try {
@@ -151,7 +200,8 @@ export async function POST(request: Request) {
     const model = useFastModel ? "claude-haiku-4-5" : (workspace.anthropicModel ?? "claude-haiku-4-5");
     const productSummary = workspace.productSummary ?? "";
     const icp = (campaignIcp ?? workspace.icp) ?? "";
-    const style = styleParam ?? null;
+    // If no explicit style passed, we infer per-lead below (inside processLead)
+    const batchStyle = styleParam ?? null;
 
     const proofPointsJsonSource = campaignProofPoints ?? workspace.proofPointsJson;
     let proofPointsText = "";
@@ -188,9 +238,14 @@ export async function POST(request: Request) {
 
     const baseUrl = process.env.NEXTAUTH_URL || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "");
 
-    // Build stable system prompt (cached by Anthropic — saves ~70% on input tokens per lead)
-    const styleGuide = style && STYLE_GUIDES[style] ? `\n\n${STYLE_GUIDES[style]}` : "";
-    const systemPrompt = `You are an expert B2B cold email writer for ${workspace.senderName ?? "the sender"}.
+    const processLead = async (lead: (typeof chunk)[0]) => {
+      // Resolve style: explicit batch style → inferred from persona/industry → direct-ask fallback
+      const resolvedStyle = batchStyle ?? inferStyle(lead.persona, lead.industry, lead.vertical);
+      const styleConfig = STYLE_GUIDES[resolvedStyle] ?? STYLE_GUIDES["direct-ask"];
+      const usePS = styleConfig.usePS;
+
+      // Build stable system prompt per style (cached by Anthropic per unique prompt text)
+      const systemPrompt = `You are an expert B2B cold email writer for ${workspace.senderName ?? "the sender"}.
 
 PRODUCT:
 ${productSummary}
@@ -199,16 +254,16 @@ IDEAL CUSTOMER PROFILE:
 ${icp}${proofPointsText}${socialProofText}${structureBlock}
 
 EMAIL RULES:
-- Subject line: 6–10 words, no punctuation, no clickbait, no ALL CAPS
-- Step 1 body: 3–5 sentences max, under ${MAX_BODY_WORDS} words, end with ONE soft CTA
-- Include a P.S. line in step 1 — reference something specific to them (company news, their role, a campaign)
-- Steps 2+ must NOT open with a greeting — they thread as replies (Re: subject)
-- Steps 2+ are short follow-ups: add a new angle, reference step 1 implicitly
-- Never use exclamation marks, jargon, or generic claims
+- Subject line: 6–10 words max, no punctuation, no clickbait, no ALL CAPS
+- Step 1 body: 3–5 sentences, under ${MAX_BODY_WORDS} words, end with ONE soft CTA
+${usePS ? `- Include a P.S. line in step 1 — reference something real and specific about them (recent launch, campaign, hire, news)` : `- Do NOT include a P.S. line — the style requires a clean ending`}
+- Steps 2+ must NOT open with a greeting — they thread as inbox replies (Re: subject)
+- Steps 2+ are short follow-ups: add a new angle, do not repeat step 1 verbatim
+- Never use exclamation marks, jargon, or generic claims like "I came across your profile"
 - Write as a human peer, not a marketer
-- Sign off as: ${workspace.senderName?.trim() ?? "Best, [Sender]"}${styleGuide}`;
+- Sign off as: ${workspace.senderName?.trim() ?? "Best, [Sender]"}
 
-    const processLead = async (lead: (typeof chunk)[0]) => {
+${styleConfig.prompt}`;
       let companyContextBlock = "";
       let companyContextRaw: string | null = null;
       if (useWebScraping && lead.website?.trim()) {
@@ -376,7 +431,7 @@ Return ONLY valid JSON: { ${stepExample} }`;
 
         const update: Record<string, string | null> = {
           stepsJson: JSON.stringify(stepsArray),
-          ...(style ? { emailStyle: style } : {}),
+          emailStyle: resolvedStyle, // always save — inferred or explicit
         };
         update.step1Subject = stepsArray[0].subject || null;
         update.step1Body = stepsArray[0].body || null;
