@@ -27,7 +27,7 @@ const STYLE_GUIDES: Record<string, { prompt: string; usePS: boolean }> = {
 Open by naming the exact problem the reader is living right now — before any solution.
 Make them feel understood in sentence 1. Then position the product as the relief.
 Subject line: short, problem-framing, e.g. "The [role] content bottleneck" or "[Company]'s agency spend".
-Closing: relief-framed demo invite — e.g. "If that resonates, happy to show you exactly how we fix it — worth 20 minutes?" or "I can walk you through how we solve this — open to a quick demo?" No link, just the ask.
+Step 1 closing: a question that confirms whether the pain is real for them — e.g. "Is that something you're dealing with right now?" or "Does that sound like where you are?" NO demo ask in step 1.
 Include a P.S. that references something real and specific about them — a recent campaign, a hire, a product launch.`,
   },
 
@@ -37,7 +37,7 @@ Include a P.S. that references something real and specific about them — a rece
 Open with a surprising, specific data point or industry observation they likely haven't seen.
 The insight should connect directly to a problem your product solves.
 Subject line: lead with the data or observation, e.g. "67% of brand teams miss this" or "What Nike changed in Q1".
-Closing: pivot from insight to demo — e.g. "Happy to walk you through how [Company] is applying this — worth 20 minutes?" or "I can show you the full picture on a quick demo — interested?" No link, just the ask.
+Step 1 closing: a question that tests whether the insight resonates — e.g. "Curious if you've seen this in your own work?" or "Is content volume a constraint for you right now?" NO demo ask in step 1.
 No P.S. — the hook should be strong enough on its own. Keep it punchy.`,
   },
 
@@ -47,7 +47,7 @@ No P.S. — the hook should be strong enough on its own. Keep it punchy.`,
 Open by referencing a recognisable brand, result, or name the reader will respect.
 Let the proof do the work — they should think "if it works for them, it could work for us."
 Subject line: name-drop the proof point, e.g. "How [Brand] cut agency spend 40%" or "What [Company] is doing differently".
-Closing: use the proof to earn the demo — e.g. "Happy to show you what we built for them — would 20 minutes be worthwhile?" or "I can walk you through what we did for [Brand] — open to a demo?" No link, just the ask.
+Step 1 closing: a question that checks relevance — e.g. "Is keeping up with content a challenge at [Company] right now?" or "Relevant to where you are?" NO demo ask in step 1.
 Include a P.S. that reinforces credibility — another proof point, a stat, or a relevant quote.`,
   },
 
@@ -58,7 +58,7 @@ No warm-up. Shortest path to the ask.
 One sentence on what you do. One sentence on why it matters to them specifically. One ask.
 Confident peer-to-peer tone — write like a colleague, not a vendor.
 Subject line: ultra-short and direct, e.g. "Quick question" or "[Company] + Gather".
-Closing: single crisp demo ask — e.g. "Worth a demo?" or "Open to seeing it?" One line, nothing more.
+Step 1 closing: a single yes/no question — e.g. "Relevant?" or "Worth a look?" One line, nothing more.
 No P.S. — adding one undermines the directness. Keep the whole email under 80 words.`,
   },
 };
@@ -92,6 +92,21 @@ function inferStyle(persona?: string | null, industry?: string | null, vertical?
   return "direct-ask";
 }
 
+/**
+ * Detect whether the recipient works in a B2C brand context (consumer brands, retail,
+ * creative/marketing roles) vs. a B2B operations context. Used to shift language
+ * register: B2C brand people think in craft, voice, audience — not ROI/efficiency.
+ */
+function inferRegister(persona?: string | null, industry?: string | null, vertical?: string | null): "btoc-brand" | "btob-ops" {
+  const p = (persona ?? "").toLowerCase();
+  const ind = (industry ?? vertical ?? "").toLowerCase();
+  const combined = `${p} ${ind}`;
+  if (/brand|consumer|creative director|cmo|chief marketing|campaign manager|retail|fashion|fmcg|cpg|food|beverage|lifestyle|luxury|apparel/.test(combined)) {
+    return "btoc-brand";
+  }
+  return "btob-ops";
+}
+
 export async function POST(request: Request) {
   try {
     const session = await getServerSession(authOptions);
@@ -109,11 +124,13 @@ export async function POST(request: Request) {
       useWebScraping: useWebScrapingParam,
       useLandingPage: useLandingPageParam,
       useVideo: useVideoParam,
+      useSampleOutput: useSampleOutputParam,
       style: styleParam,
-    } = body as { batchId: string; offset?: number; limit?: number; campaignId?: string; useFastModel?: boolean; useWebScraping?: boolean; useLandingPage?: boolean; useVideo?: boolean; style?: string };
+    } = body as { batchId: string; offset?: number; limit?: number; campaignId?: string; useFastModel?: boolean; useWebScraping?: boolean; useLandingPage?: boolean; useVideo?: boolean; useSampleOutput?: boolean; style?: string };
     const useWebScraping = useWebScrapingParam === true;
     const useLandingPage = useLandingPageParam === true;
     const useVideo = useVideoParam === true;
+    const useSampleOutput = useSampleOutputParam === true;
 
     if (!batchId) {
       return NextResponse.json({ error: "batchId is required" }, { status: 400 });
@@ -255,6 +272,12 @@ export async function POST(request: Request) {
         ? senderFirstName
         : `${senderFirstName}, Gather`;
 
+      // Detect B2C brand register so language can shift from ROI/efficiency to craft/quality
+      const register = inferRegister(lead.persona, lead.industry, lead.vertical);
+      const registerBlock = register === "btoc-brand"
+        ? `\nAUDIENCE REGISTER: This person works on consumer brands. They think in creative quality, brand voice, and audience resonance — NOT efficiency metrics, ROI, or pipeline. Frame everything around craft, creative speed, and brand consistency. Avoid: "scale", "ROI", "pipeline", "workflow", "streamline". Use: "campaign", "brief", "brand voice", "creative direction", "audience".`
+        : "";
+
       // Build stable system prompt per style (cached by Anthropic per unique prompt text)
       const systemPrompt = `You are an expert B2B cold email writer for ${workspace.senderName ?? "the sender"}.
 
@@ -262,16 +285,20 @@ PRODUCT:
 ${productSummary}
 
 IDEAL CUSTOMER PROFILE:
-${icp}${proofPointsText}${socialProofText}${structureBlock}
+${icp}${proofPointsText}${socialProofText}${structureBlock}${registerBlock}
+
+STEP JOBS — each step has one specific job, do not blur them:
+- Step 1: Earn a reply. Stay in their world. Close with a yes/no question about their situation. NO demo ask, NO meeting ask, NO links.
+- Step 2: Earn the meeting. Add a real proof point (customer name + specific result). Close with an explicit demo ask. A booking link is permitted here.
+- Step 3: Pattern interrupt or graceful exit. Either a fresh angle in under 60 words, or a genuine breakup — e.g. "Happy to leave you alone if this isn't the right time — just say the word."
 
 EMAIL RULES:
 - Subject line: 6–10 words max, no punctuation, no clickbait, no ALL CAPS
-- Step 1 body: 3–5 sentences, under ${MAX_BODY_WORDS} words, end with ONE soft CTA pointing to a demo
-- NEVER include links, URLs, or hyperlinks in step 1 — no Calendly, no website, no product links; the ask is enough
-- Steps 2+ may include one booking link if helpful (e.g. a scheduling link)
+- Step 1 body: 3–5 sentences, under ${MAX_BODY_WORDS} words
+- NEVER include links, URLs, or hyperlinks in step 1 — no Calendly, no website, no product links
+- Steps 2+ may include one booking link if helpful
 ${usePS ? `- Include a P.S. line in step 1 — reference something real and specific about them (recent launch, campaign, hire, news)` : `- Do NOT include a P.S. line — the style requires a clean ending`}
 - Steps 2+ must NOT open with a greeting — they thread as inbox replies (Re: subject)
-- Steps 2+ are short follow-ups: add a new angle, do not repeat step 1 verbatim
 - Never use exclamation marks, jargon, or generic claims like "I came across your profile"
 - NEVER use em dashes (—) or en dashes (–) anywhere in the email
 - Avoid words that signal AI authorship: "delve", "leverage", "utilize", "ensure", "streamline", "game-changer", "seamlessly", "revolutionize", "cutting-edge", "robust", "comprehensive", "holistic", "empower", "unlock", "transformative"
@@ -286,7 +313,8 @@ ${styleConfig.prompt}`;
         const scraped = await scrapeForContext(lead.website.trim());
         if (scraped) {
           companyContextRaw = scraped;
-          companyContextBlock = `\n\nCompany website context (use to personalize — recent news, products, tone):\n${scraped}`;
+          // Extract structured trigger signals rather than dumping raw text
+          companyContextBlock = `\n\nCompany context (scraped from their site):\n${scraped}\n\nTRIGGER INSTRUCTION: Before writing step 1, identify the single most specific signal in the company context above — a recent product launch, a new campaign, an expansion, a hiring trend, a press mention, a specific brand positioning statement. Open step 1 by referencing this signal so the email feels timely and researched, not generic. If no clear trigger exists, use the strongest persona pain point instead.`;
         }
       } else if (useLandingPage && lead.website?.trim()) {
         // Always scrape for LP research even if useWebScraping is off
@@ -391,13 +419,28 @@ ${styleConfig.prompt}`;
         }
       }
 
+      // Show-don't-tell: generate a sample Gather output for their brand (optional, adds one Claude call)
+      // Included in step 2 so the product demonstrates itself on their material before the demo ask
+      let sampleOutputBlock = "";
+      if (useSampleOutput && (lead.company || lead.industry)) {
+        try {
+          const samplePrompt = `You are Gather AI. Write ONE example of what you would produce for ${lead.company ?? "this company"} (${lead.jobTitle ? `a ${lead.jobTitle}` : ""} in ${lead.industry ?? "their industry"}): a 2-sentence campaign brief or creative direction note that sounds like it was written by someone who deeply knows their brand. Be specific, confident, and creative — not generic. Return only the sample text, no intro, no explanation.`;
+          const { text: sample } = await callAnthropic(anthropicKey, samplePrompt, { maxTokens: 120, model });
+          if (sample.trim()) {
+            sampleOutputBlock = `\n\nSHOW-DON'T-TELL: In step 2, after the proof point, include this sample of what Gather would produce for their brand — present it naturally, e.g. "Here's an example of how Gather would brief a ${lead.company ?? "your"} campaign:" — then the sample. This demonstrates the product on their material. Sample: "${sample.trim()}"`;
+          }
+        } catch {
+          // non-fatal — skip if the extra call fails
+        }
+      }
+
       const userMessage = `Write a ${numSteps}-step hyper-personalized cold email sequence for this lead. Make it feel 1:1 — completely custom, not a template.${strategyBlock}
 
 LEAD:
 - Name: ${lead.name ?? "unknown"}
 - Title: ${lead.jobTitle ?? "unknown"}
 - Company: ${lead.company ?? "unknown"}
-- Industry: ${lead.industry ?? "unknown"}${lead.website ? `\n- Website: ${lead.website}` : ""}${lead.persona || lead.vertical ? `\n- Persona: ${lead.persona ?? ""} | Vertical: ${lead.vertical ?? ""}` : ""}${companyContextBlock}${videoBlock}${landingPageBlock}
+- Industry: ${lead.industry ?? "unknown"}${lead.website ? `\n- Website: ${lead.website}` : ""}${lead.persona || lead.vertical ? `\n- Persona: ${lead.persona ?? ""} | Vertical: ${lead.vertical ?? ""}` : ""}${companyContextBlock}${videoBlock}${landingPageBlock}${sampleOutputBlock}
 
 Use their real name/company throughout. Do NOT use {{placeholders}}.
 Greet as: "Hi ${(lead.name ?? "there").split(/\s+/)[0] || "there"},"
