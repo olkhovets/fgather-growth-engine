@@ -27,7 +27,7 @@ const STYLE_GUIDES: Record<string, { prompt: string; usePS: boolean }> = {
 Open by naming the exact problem the reader is living right now — before any solution.
 Make them feel understood in sentence 1. Then position the product as the relief.
 Subject line: short, problem-framing, e.g. "The [role] content bottleneck" or "[Company]'s agency spend".
-Step 1 closing: a question that confirms whether the pain is real for them — e.g. "Is that something you're dealing with right now?" or "Does that sound like where you are?" NO demo ask in step 1.
+Step 1 closing: a conditional demo invite tethered to the opening pain — e.g. "If that's where you are, I can show you how we fix it — 15 minutes?" or "Happy to walk you through it if that resonates — 15 minutes?" Short, conditional, no link.
 Include a P.S. that references something real and specific about them — a recent campaign, a hire, a product launch.`,
   },
 
@@ -37,7 +37,7 @@ Include a P.S. that references something real and specific about them — a rece
 Open with a surprising, specific data point or industry observation they likely haven't seen.
 The insight should connect directly to a problem your product solves.
 Subject line: lead with the data or observation, e.g. "67% of brand teams miss this" or "What Nike changed in Q1".
-Step 1 closing: a question that tests whether the insight resonates — e.g. "Curious if you've seen this in your own work?" or "Is content volume a constraint for you right now?" NO demo ask in step 1.
+Step 1 closing: a conditional demo invite that flows from the insight — e.g. "Happy to show you how [Company] applied this — 15 minutes?" or "I can walk you through the full picture if this lands — 15 minutes?" Short, conditional, no link.
 No P.S. — the hook should be strong enough on its own. Keep it punchy.`,
   },
 
@@ -47,7 +47,7 @@ No P.S. — the hook should be strong enough on its own. Keep it punchy.`,
 Open by referencing a recognisable brand, result, or name the reader will respect.
 Let the proof do the work — they should think "if it works for them, it could work for us."
 Subject line: name-drop the proof point, e.g. "How [Brand] cut agency spend 40%" or "What [Company] is doing differently".
-Step 1 closing: a question that checks relevance — e.g. "Is keeping up with content a challenge at [Company] right now?" or "Relevant to where you are?" NO demo ask in step 1.
+Step 1 closing: let the proof earn the demo invite — e.g. "Happy to show you what we built for them — 15 minutes?" or "I can walk you through what we did for [Brand] if relevant — 15 minutes?" Short, conditional, no link.
 Include a P.S. that reinforces credibility — another proof point, a stat, or a relevant quote.`,
   },
 
@@ -58,7 +58,7 @@ No warm-up. Shortest path to the ask.
 One sentence on what you do. One sentence on why it matters to them specifically. One ask.
 Confident peer-to-peer tone — write like a colleague, not a vendor.
 Subject line: ultra-short and direct, e.g. "Quick question" or "[Company] + Gather".
-Step 1 closing: a single yes/no question — e.g. "Relevant?" or "Worth a look?" One line, nothing more.
+Step 1 closing: one crisp conditional demo ask — e.g. "Worth 15 minutes?" or "Open to seeing it?" One line, nothing more. No link.
 No P.S. — adding one undermines the directness. Keep the whole email under 80 words.`,
   },
 };
@@ -288,9 +288,9 @@ IDEAL CUSTOMER PROFILE:
 ${icp}${proofPointsText}${socialProofText}${structureBlock}${registerBlock}
 
 STEP JOBS — each step has one specific job, do not blur them:
-- Step 1: Earn a reply. Stay in their world. Close with a yes/no question about their situation. NO demo ask, NO meeting ask, NO links.
-- Step 2: Earn the meeting. Add a real proof point (customer name + specific result). Close with an explicit demo ask. A booking link is permitted here.
-- Step 3: Pattern interrupt or graceful exit. Either a fresh angle in under 60 words, or a genuine breakup — e.g. "Happy to leave you alone if this isn't the right time — just say the word."
+- Step 1: Earn the demo ask through the email itself. Open in their world (pain, insight, or proof). Close with a short conditional demo invite — the opening should make the ask feel obvious, not pushy. No links.
+- Step 2: Reinforce with proof. Add a real proof point (customer name + specific result) and repeat the demo ask directly. A booking link is permitted here.
+- Step 3: Pattern interrupt or graceful exit. Either a completely fresh angle in under 60 words, or a genuine breakup — e.g. "Happy to leave you alone if the timing isn't right — just say the word."
 
 EMAIL RULES:
 - Subject line: 6–10 words max, no punctuation, no clickbait, no ALL CAPS
