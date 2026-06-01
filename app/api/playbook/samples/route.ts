@@ -6,6 +6,8 @@ import { decrypt } from "@/lib/encryption";
 import { callAnthropic } from "@/lib/anthropic";
 import { parsePlaybook } from "@/lib/playbook";
 
+export const dynamic = "force-dynamic";
+
 export const maxDuration = 60;
 
 /**

@@ -3,6 +3,8 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 
+export const dynamic = "force-dynamic";
+
 function isAdmin(email: string | null | undefined): boolean {
   const list = process.env.ADMIN_EMAILS ?? process.env.ADMIN_EMAIL ?? "";
   const emails = list

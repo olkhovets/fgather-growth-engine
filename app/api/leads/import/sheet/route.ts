@@ -5,6 +5,8 @@ import { prisma } from "@/lib/prisma";
 import { parseCSV, normalizeRow } from "@/lib/csv";
 import { createBatchWithLeads } from "@/lib/leads";
 
+export const dynamic = "force-dynamic";
+
 /** Extract Google Sheet ID from URL (edit or view). */
 function extractSheetId(url: string): string | null {
   const trimmed = url.trim();

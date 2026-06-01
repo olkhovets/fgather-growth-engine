@@ -5,6 +5,8 @@ import { prisma } from "@/lib/prisma";
 import { decrypt } from "@/lib/encryption";
 import { startLumaVideo, startRunwayVideo, getLumaStatus, getRunwayStatus } from "@/lib/video-generate";
 
+export const dynamic = "force-dynamic";
+
 /**
  * POST: Start video generation for a lead.
  * Body: { leadId: string, provider: "luma" | "runway" }

@@ -3,6 +3,8 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 
+export const dynamic = "force-dynamic";
+
 /** GET: Single sent campaign with lead batch and leads (for detail page: emails sent, etc.). */
 export async function GET(
   _request: Request,

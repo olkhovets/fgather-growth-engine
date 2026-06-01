@@ -6,6 +6,8 @@ import { decrypt } from "@/lib/encryption";
 import { callAnthropic } from "@/lib/anthropic";
 import { getAggregatedMemory } from "@/lib/performance-memory";
 
+export const dynamic = "force-dynamic";
+
 export async function GET() {
   try {
     const session = await getServerSession(authOptions);

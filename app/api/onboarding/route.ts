@@ -4,6 +4,8 @@ import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { encrypt } from "@/lib/encryption";
 
+export const dynamic = "force-dynamic";
+
 export async function POST(request: Request) {
   try {
     const session = await getServerSession(authOptions);

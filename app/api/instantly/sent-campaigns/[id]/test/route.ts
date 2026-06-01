@@ -4,6 +4,8 @@ import { authOptions } from "@/lib/auth";
 import { getInstantlyClientForUserId } from "@/lib/instantly";
 import { prisma } from "@/lib/prisma";
 
+export const dynamic = "force-dynamic";
+
 /**
  * POST /api/instantly/sent-campaigns/[id]/test
  * Body: { testEmail: string }

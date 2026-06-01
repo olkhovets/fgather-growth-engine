@@ -6,6 +6,8 @@ import { decrypt } from "@/lib/encryption";
 import { callAnthropic } from "@/lib/anthropic";
 import { recordReplyObservation } from "@/lib/performance-memory";
 
+export const dynamic = "force-dynamic";
+
 const CLASSIFICATIONS = ["positive", "objection", "ooo", "not_interested", "other"] as const;
 
 /** GET: List replies for a sent campaign. */

@@ -5,6 +5,8 @@ import { prisma } from "@/lib/prisma";
 import { decrypt } from "@/lib/encryption";
 import { callAnthropic } from "@/lib/anthropic";
 
+export const dynamic = "force-dynamic";
+
 /**
  * POST { batchId }
  *

@@ -4,6 +4,8 @@ import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { getInstantlyClientForUserId } from "@/lib/instantly";
 
+export const dynamic = "force-dynamic";
+
 /** GET: List campaigns for the current workspace, with basic stats for launched ones. */
 export async function GET() {
   try {

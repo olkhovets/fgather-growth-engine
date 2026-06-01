@@ -5,6 +5,8 @@ import { prisma } from "@/lib/prisma";
 import { getInstantlyClientForUserId } from "@/lib/instantly";
 import { recordCampaignObservations } from "@/lib/performance-memory";
 
+export const dynamic = "force-dynamic";
+
 /** GET: Fetch analytics for a sent campaign (by our SentCampaign id). */
 export async function GET(
   _request: Request,

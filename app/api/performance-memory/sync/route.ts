@@ -5,6 +5,8 @@ import { prisma } from "@/lib/prisma";
 import { getInstantlyClientForUserId } from "@/lib/instantly";
 import { recordCampaignObservations } from "@/lib/performance-memory";
 
+export const dynamic = "force-dynamic";
+
 /**
  * POST: Sync analytics from Instantly for all sent campaigns.
  * Fetches opens/clicks/replies and records into performance memory.

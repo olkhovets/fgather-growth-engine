@@ -6,6 +6,8 @@ import { decrypt } from "@/lib/encryption";
 import { callAnthropic } from "@/lib/anthropic";
 import { getInstantlyClientForWorkspaceId } from "@/lib/instantly";
 
+export const dynamic = "force-dynamic";
+
 /**
  * Decision agent: reads A/B campaign performance and decides whether to
  * wait, declare a winner, or kill underperformers and generate new variants.

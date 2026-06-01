@@ -3,6 +3,8 @@ import { prisma } from "@/lib/prisma";
 import crypto from "crypto";
 import { sendPasswordResetEmail } from "@/lib/email";
 
+export const dynamic = "force-dynamic";
+
 const RESET_TOKEN_EXPIRY_HOURS = 1;
 
 /**

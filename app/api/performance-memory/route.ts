@@ -4,6 +4,8 @@ import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { getAggregatedMemory, getStrategySuggestion } from "@/lib/performance-memory";
 
+export const dynamic = "force-dynamic";
+
 /** GET: Aggregated performance memory (by persona, by vertical) and strategy suggestion. */
 export async function GET() {
   try {

@@ -11,6 +11,8 @@ import { generateLeadResearch } from "@/lib/research";
 import { generateLandingPageContent, landingPageContentForEmailPrompt } from "@/lib/lp-content-gen";
 import { randomUUID } from "crypto";
 
+export const dynamic = "force-dynamic";
+
 // Allow up to 60s so a few Anthropic calls can finish (Vercel Pro; Hobby may still cap at 10s)
 export const maxDuration = 60;
 

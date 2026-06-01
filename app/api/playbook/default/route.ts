@@ -7,6 +7,8 @@ import { callAnthropic } from "@/lib/anthropic";
 import { getAggregatedMemory } from "@/lib/performance-memory";
 import { getTemplateById, PLAYBOOK_TEMPLATES } from "@/lib/playbook-templates";
 
+export const dynamic = "force-dynamic";
+
 /**
  * GET: Return list of pre-built templates.
  */

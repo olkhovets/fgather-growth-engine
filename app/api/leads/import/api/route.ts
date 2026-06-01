@@ -4,6 +4,8 @@ import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { createBatchWithLeads, NormalizedLead } from "@/lib/leads";
 
+export const dynamic = "force-dynamic";
+
 /** Normalize a raw object from API to our lead shape. Accepts snake_case or camelCase. */
 function normalizeApiLead(row: Record<string, unknown>): NormalizedLead | null {
   const email =

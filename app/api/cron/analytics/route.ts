@@ -3,6 +3,8 @@ import { prisma } from "@/lib/prisma";
 import { getInstantlyClientForWorkspaceId } from "@/lib/instantly";
 import { recordCampaignObservations } from "@/lib/performance-memory";
 
+export const dynamic = "force-dynamic";
+
 /**
  * Cron: pull Instantly analytics for all recent campaigns and write PerformanceObservations.
  * Scheduled every 6 hours via vercel.json cron.

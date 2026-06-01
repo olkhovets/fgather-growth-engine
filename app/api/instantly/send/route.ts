@@ -5,6 +5,8 @@ import { getInstantlyClientForUserId } from "@/lib/instantly";
 import { prisma } from "@/lib/prisma";
 import { parsePlaybook, getSequenceSteps } from "@/lib/playbook";
 
+export const dynamic = "force-dynamic";
+
 /**
  * Create campaign(s), apply ramp, add leads, activate.
  * Body: { batchId: string, abTest?: boolean, subjectLineA?: string, subjectLineB?: string }

@@ -4,6 +4,8 @@ import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { sendFixNotificationEmail } from "@/lib/email";
 
+export const dynamic = "force-dynamic";
+
 /**
  * POST: Notify all users who hit a specific error that a fix has been deployed.
  * Body: { context: string, fixNote: string }

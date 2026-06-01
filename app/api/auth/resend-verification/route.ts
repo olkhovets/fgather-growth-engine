@@ -4,6 +4,8 @@ import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { sendVerificationEmail } from "@/lib/email";
 
+export const dynamic = "force-dynamic";
+
 /**
  * POST: Resend the verification email for the current user.
  * User must be logged in and not already verified.

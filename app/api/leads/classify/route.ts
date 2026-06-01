@@ -5,6 +5,8 @@ import { prisma } from "@/lib/prisma";
 import { decrypt } from "@/lib/encryption";
 import { classifyLeads } from "@/lib/classify";
 
+export const dynamic = "force-dynamic";
+
 const CLASSIFY_CHUNK_SIZE = 30;
 
 export async function POST(request: Request) {

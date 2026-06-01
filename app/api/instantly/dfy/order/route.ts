@@ -4,6 +4,8 @@ import { authOptions } from "@/lib/auth";
 import { getInstantlyClientForUserId } from "@/lib/instantly";
 import type { DfyOrderItem, DfyOrderType } from "@/lib/instantly";
 
+export const dynamic = "force-dynamic";
+
 export async function POST(request: Request) {
   try {
     const session = await getServerSession(authOptions);

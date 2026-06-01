@@ -5,6 +5,8 @@ import { getInstantlyClientForUserId } from "@/lib/instantly";
 import { prisma } from "@/lib/prisma";
 import { parsePlaybook } from "@/lib/playbook";
 
+export const dynamic = "force-dynamic";
+
 const MIN_SUBJECT_LENGTH = 10;
 const MIN_BODY_LENGTH = 50;
 

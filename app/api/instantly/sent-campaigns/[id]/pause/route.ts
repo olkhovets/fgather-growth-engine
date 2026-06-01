@@ -4,6 +4,8 @@ import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { getInstantlyClientForUserId } from "@/lib/instantly";
 
+export const dynamic = "force-dynamic";
+
 /** POST: Pause a sent campaign in Instantly. */
 export async function POST(
   _request: Request,

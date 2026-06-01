@@ -5,6 +5,8 @@ import { prisma } from "@/lib/prisma";
 import { decrypt } from "@/lib/encryption";
 import { callAnthropic } from "@/lib/anthropic";
 
+export const dynamic = "force-dynamic";
+
 type Step = { stepNumber: number; subject: string; body: string; delayDays: number };
 
 export async function POST(request: Request) {
