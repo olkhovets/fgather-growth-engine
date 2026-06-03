@@ -61,5 +61,10 @@
     background: var(--accent);
   }
   .btn-primary:hover:not(:disabled) { background: var(--accent-hover); }
+  .btn-secondary {
+    @apply inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition-colors disabled:opacity-50 border;
+    background: var(--surface); color: var(--text-secondary); border-color: var(--border);
+  }
+  .btn-secondary:hover:not(:disabled) { background: var(--surface-subtle); }
 }
 
