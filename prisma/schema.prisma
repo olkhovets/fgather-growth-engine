@@ -89,6 +89,7 @@ model Workspace {
   apolloApiKey     String?  // encrypted — for automated lead ingestion from Apollo
   apolloSearchJson String?  // JSON: saved Apollo search params for the auto-ingest cron
   learningsJson    String?  // JSON: string[] of proven message patterns (promoted experiment winners) injected into all future generation
+  autopilot        Boolean  @default(false) // when true, the daily orchestrator generates AND sends without manual approval
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
