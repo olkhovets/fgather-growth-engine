@@ -88,6 +88,7 @@ model Workspace {
   notifyEmail      String?  // where to send positive-reply alerts (defaults to user email)
   apolloApiKey     String?  // encrypted — for automated lead ingestion from Apollo
   apolloSearchJson String?  // JSON: saved Apollo search params for the auto-ingest cron
+  learningsJson    String?  // JSON: string[] of proven message patterns (promoted experiment winners) injected into all future generation
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
@@ -96,6 +97,7 @@ model Workspace {
   sentCampaigns SentCampaign[]
   campaigns     Campaign[]
   performanceObservations PerformanceObservation[]
+  promptExperiments PromptExperiment[]
 }
 
 model Campaign {
@@ -114,6 +116,27 @@ model Campaign {
   workspace   Workspace     @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   leadBatch   LeadBatch?    @relation(fields: [leadBatchId], references: [id], onDelete: SetNull)
   sentCampaigns SentCampaign[]
+}
+
+// A single self-improving message experiment. The engine generates these as
+// hypotheses, tags generated leads with the variants used, then promotes
+// winners (folded into Workspace.learningsJson) and kills losers based on
+// per-lead positive-reply attribution.
+model PromptExperiment {
+  id            String   @id @default(cuid())
+  workspaceId   String
+  dimension     String   // "subject" | "hook" | "cta" | "incentive"
+  label         String   // short human-readable name
+  instruction   String   // the directive injected into the generation prompt
+  hypothesis    String?  // why we're testing this (1-2 sentences)
+  status        String   @default("testing") // "testing" | "winner" | "killed"
+  generation    Int      @default(1) // which round of generation produced this
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, dimension, status])
 }
 
 model PerformanceObservation {
@@ -203,6 +226,7 @@ model Lead {
   repliedAt          DateTime? // when a reply was received
   requeueAt          DateTime? // for OOO replies: re-contact after this date
   suppressed         Boolean   @default(false) // true = never contact again (negative reply / bounce)
+  experimentIdsJson  String?   // JSON: string[] of PromptExperiment ids used to write this lead (for attribution)
   createdAt          DateTime  @default(now())
 
   leadBatch LeadBatch @relation(fields: [leadBatchId], references: [id], onDelete: Cascade)

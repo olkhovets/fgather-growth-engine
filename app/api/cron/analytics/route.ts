@@ -81,15 +81,19 @@ export async function GET(request: Request) {
     }
   }
 
-  // After pulling analytics, run the A/B decision agent on all active groups
-  try {
-    const baseUrl = process.env.NEXTJS_URL
-      ?? (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "http://localhost:3000");
-    await fetch(`${baseUrl}/api/optimize/step`, {
-      headers: secret ? { Authorization: `Bearer ${secret}` } : {},
-    });
-  } catch {
-    // non-fatal — analytics are recorded even if optimizer fails
+  // After pulling analytics, run the optimization agents on all active workspaces:
+  //  1. A/B decision agent (route remaining leads to winners)
+  //  2. Variant evaluator (promote/kill message experiments, fold winners into learnings, refill)
+  //  3. Variant generator (top up active experiments so there's always something being tested)
+  const baseUrl = process.env.NEXTJS_URL
+    ?? (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "http://localhost:3000");
+  const authHeaders: Record<string, string> = secret ? { Authorization: `Bearer ${secret}` } : {};
+  for (const path of ["/api/optimize/step", "/api/optimize/variants/evaluate", "/api/optimize/variants/generate"]) {
+    try {
+      await fetch(`${baseUrl}${path}`, { headers: authHeaders });
+    } catch {
+      // non-fatal — analytics are recorded even if an optimizer step fails
+    }
   }
 
   return NextResponse.json({

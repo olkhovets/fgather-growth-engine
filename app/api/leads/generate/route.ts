@@ -5,6 +5,7 @@ import { prisma } from "@/lib/prisma";
 import { decrypt } from "@/lib/encryption";
 import { callAnthropic } from "@/lib/anthropic";
 import { getAggregatedMemory } from "@/lib/performance-memory";
+import { loadActiveExperiments, assignExperiments, loadLearnings, learningsBlock } from "@/lib/experiments";
 import { parsePlaybook } from "@/lib/playbook";
 import { scrapeForContext } from "@/lib/scrape";
 import { generateLeadResearch } from "@/lib/research";
@@ -261,11 +262,30 @@ export async function POST(request: Request) {
 
     const baseUrl = process.env.NEXTAUTH_URL || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "");
 
-    const processLead = async (lead: (typeof chunk)[0]) => {
+    // Self-improving engine: load active experiment variants + proven learnings once.
+    // Each lead is assigned a balanced slice of active variants (for attribution) and
+    // every lead inherits the proven patterns.
+    let activeExperiments: Awaited<ReturnType<typeof loadActiveExperiments>> = {};
+    let provenLearnings: string[] = [];
+    try {
+      [activeExperiments, provenLearnings] = await Promise.all([
+        loadActiveExperiments(workspace.id),
+        loadLearnings(workspace.id),
+      ]);
+    } catch {
+      activeExperiments = {};
+      provenLearnings = [];
+    }
+    const learningsText = learningsBlock(provenLearnings);
+
+    const processLead = async (lead: (typeof chunk)[0], leadIndex: number) => {
       // Resolve style: explicit batch style → inferred from persona/industry → direct-ask fallback
       const resolvedStyle = batchStyle ?? inferStyle(lead.persona, lead.industry, lead.vertical);
       const styleConfig = STYLE_GUIDES[resolvedStyle] ?? STYLE_GUIDES["direct-ask"];
       const usePS = styleConfig.usePS;
+
+      // Assign this lead a balanced set of active experiment variants for attribution
+      const { ids: experimentIds, block: experimentBlock } = assignExperiments(activeExperiments, leadIndex);
 
       // Style-specific sign-off: direct-ask uses first name only (brevity = credibility);
       // other styles append the company name for a light authority signal
@@ -308,7 +328,7 @@ ${usePS ? `- Include a P.S. line in step 1 — reference something real and spec
 - Write as a human peer, not a marketer
 - Sign off every email with the SENDER'S name (yours), never the recipient's name. Use exactly: ${signoff}
 
-${styleConfig.prompt}`;
+${styleConfig.prompt}${learningsText}${experimentBlock}`;
       let companyContextBlock = "";
       let companyContextRaw: string | null = null;
       if (useWebScraping && lead.website?.trim()) {
@@ -493,6 +513,7 @@ Return ONLY valid JSON: { ${stepExample} }`;
         const update: Record<string, string | null> = {
           stepsJson: JSON.stringify(stepsArray),
           emailStyle: resolvedStyle, // always save — inferred or explicit
+          experimentIdsJson: experimentIds.length > 0 ? JSON.stringify(experimentIds) : null, // for variant attribution
         };
         update.step1Subject = stepsArray[0].subject || null;
         update.step1Body = stepsArray[0].body || null;
@@ -522,7 +543,8 @@ Return ONLY valid JSON: { ${stepExample} }`;
     const results: Array<{ leadId: string; usage: { input_tokens: number; output_tokens: number } }> = [];
     for (let i = 0; i < chunk.length; i += CONCURRENCY) {
       const batch = chunk.slice(i, i + CONCURRENCY);
-      const batchResults = await Promise.all(batch.map(processLead));
+      // Global index (offset + position) keeps experiment round-robin balanced across chunks
+      const batchResults = await Promise.all(batch.map((lead, j) => processLead(lead, offset + i + j)));
       results.push(...batchResults);
     }
     const leadIds = results.map((r) => r.leadId);
