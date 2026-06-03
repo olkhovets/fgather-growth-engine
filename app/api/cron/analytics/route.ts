@@ -88,7 +88,8 @@ export async function GET(request: Request) {
   const baseUrl = process.env.NEXTJS_URL
     ?? (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "http://localhost:3000");
   const authHeaders: Record<string, string> = secret ? { Authorization: `Bearer ${secret}` } : {};
-  for (const path of ["/api/optimize/step", "/api/optimize/variants/evaluate", "/api/optimize/variants/generate"]) {
+  // Apollo ingest first (fills the funnel), then the optimization agents on what's already sent.
+  for (const path of ["/api/apollo/ingest", "/api/optimize/step", "/api/optimize/variants/evaluate", "/api/optimize/variants/generate"]) {
     try {
       await fetch(`${baseUrl}${path}`, { headers: authHeaders });
     } catch {
