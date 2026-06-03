@@ -56,45 +56,34 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "No lead email in payload" }, { status: 400 });
     }
 
-    // Resolve the workspace. Prefer the campaign mapping; fall back to secret lookup.
-    let workspaceId: string | null = null;
-    let sentCampaignId: string | null = null;
-    let campaignName = "";
-
-    if (instantlyCampaignId) {
-      const sent = await prisma.sentCampaign.findFirst({
-        where: { instantlyCampaignId },
-        select: { id: true, workspaceId: true, name: true },
-      });
-      if (sent) {
-        workspaceId = sent.workspaceId;
-        sentCampaignId = sent.id;
-        campaignName = sent.name;
-      }
+    // Resolve the workspace STRICTLY via the campaign mapping. Instantly fires this
+    // webhook for every reply on the account, including campaigns created by other
+    // tools or teammates. We only ever act on campaigns that were launched through
+    // this engine (i.e. exist in our SentCampaign table). Everything else is ignored.
+    if (!instantlyCampaignId) {
+      return NextResponse.json({ ok: true, ignored: "no campaign id in payload" });
     }
 
-    // Verify the secret against the resolved workspace (or find workspace by secret)
-    if (workspaceId) {
-      const ws = await prisma.workspace.findUnique({
-        where: { id: workspaceId },
-        select: { webhookSecret: true },
-      });
-      if (ws?.webhookSecret && ws.webhookSecret !== secret) {
-        return NextResponse.json({ error: "Invalid webhook secret" }, { status: 401 });
-      }
-    } else if (secret) {
-      const ws = await prisma.workspace.findFirst({
-        where: { webhookSecret: secret },
-        select: { id: true },
-      });
-      if (ws) workspaceId = ws.id;
+    const sent = await prisma.sentCampaign.findFirst({
+      where: { instantlyCampaignId },
+      select: { id: true, workspaceId: true, name: true },
+    });
+    if (!sent) {
+      // Not one of our campaigns — another campaign on the same Instantly account.
+      return NextResponse.json({ ok: true, ignored: "campaign not managed by this app" });
     }
 
-    if (!workspaceId) {
-      return NextResponse.json(
-        { error: "Could not resolve workspace (unknown campaign and no matching secret)" },
-        { status: 404 }
-      );
+    const workspaceId = sent.workspaceId;
+    const sentCampaignId: string | null = sent.id;
+    const campaignName = sent.name;
+
+    // Verify the secret matches the owning workspace (rejects forged posts)
+    const wsSecretRow = await prisma.workspace.findUnique({
+      where: { id: workspaceId },
+      select: { webhookSecret: true },
+    });
+    if (wsSecretRow?.webhookSecret && wsSecretRow.webhookSecret !== secret) {
+      return NextResponse.json({ error: "Invalid webhook secret" }, { status: 401 });
     }
 
     const workspace = await prisma.workspace.findUnique({
