@@ -306,7 +306,7 @@ ${usePS ? `- Include a P.S. line in step 1 — reference something real and spec
 - Avoid words that signal AI authorship: "delve", "leverage", "utilize", "ensure", "streamline", "game-changer", "seamlessly", "revolutionize", "cutting-edge", "robust", "comprehensive", "holistic", "empower", "unlock", "transformative"
 - Avoid semicolons — use short sentences instead
 - Write as a human peer, not a marketer
-- Sign off every email as: ${signoff}
+- Sign off every email with the SENDER'S name (yours), never the recipient's name. Use exactly: ${signoff}
 
 ${styleConfig.prompt}`;
       let companyContextBlock = "";

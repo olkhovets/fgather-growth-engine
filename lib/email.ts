@@ -179,6 +179,38 @@ export async function sendFeatureRequestEmail(
   }
 }
 
+/**
+ * Send a plain notification email to an arbitrary recipient.
+ * Used by the reply webhook to alert the user of positive replies.
+ * Returns silently (logs) if email isn't configured — notifications are non-critical.
+ */
+export async function sendNotificationEmail(
+  to: string,
+  subject: string,
+  html: string
+): Promise<void> {
+  if (!RESEND_API_KEY?.trim()) {
+    console.warn("[Email] RESEND_API_KEY not set — skipping notification:", subject);
+    return;
+  }
+  try {
+    const res = await fetch("https://api.resend.com/emails", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${RESEND_API_KEY.trim()}`,
+      },
+      body: JSON.stringify({ from: RESEND_FROM_HEADER, to: [to], subject, html }),
+    });
+    if (!res.ok) {
+      const data = (await res.json().catch(() => ({}))) as { message?: string };
+      console.warn("[Email] notification send failed:", data?.message ?? res.status);
+    }
+  } catch (err) {
+    console.warn("[Email] notification send threw:", err instanceof Error ? err.message : err);
+  }
+}
+
 /** Send error notification to mayank@gatherhq.com (e.g. generation failures) */
 export async function sendErrorNotificationEmail(
   context: string,

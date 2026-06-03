@@ -80,9 +80,23 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Batch has no leads" }, { status: 400 });
     }
 
+    // Never re-contact leads who said no / bounced (suppressed) or who already replied.
+    // OOO leads with a future requeueAt are also held until that date passes.
+    const now = new Date();
+    const contactable = batch.leads.filter((l) => {
+      const lead = l as typeof l & { suppressed?: boolean; repliedAt?: Date | null; requeueAt?: Date | null };
+      if (lead.suppressed) return false;
+      if (lead.repliedAt) return false; // already in a conversation
+      if (lead.requeueAt && lead.requeueAt > now) return false; // OOO, not back yet
+      return true;
+    });
+    if (contactable.length === 0) {
+      return NextResponse.json({ error: "No contactable leads (all suppressed, replied, or held for OOO)." }, { status: 400 });
+    }
+
     // Shuffle leads so any sendLimit pulls a random cross-section rather than
     // the first N by insertion order (avoids segment bias from sorted CSVs)
-    const shuffled = [...batch.leads].sort(() => Math.random() - 0.5);
+    const shuffled = [...contactable].sort(() => Math.random() - 0.5);
     const leadsToSend = sendLimit && sendLimit > 0 ? shuffled.slice(0, sendLimit) : shuffled;
     batch.leads = leadsToSend as typeof batch.leads;
 

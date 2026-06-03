@@ -84,6 +84,10 @@ model Workspace {
   playbookApproved Boolean @default(false)
   anthropicModel   String?  // e.g. claude-3-5-haiku, claude-3-5-sonnet (defaults to first in list if unset)
   senderName       String?  // e.g. "John Smith, Gather" — used to sign off emails (never use recipient's name)
+  webhookSecret    String?  // shared secret to verify inbound Instantly webhook calls
+  notifyEmail      String?  // where to send positive-reply alerts (defaults to user email)
+  apolloApiKey     String?  // encrypted — for automated lead ingestion from Apollo
+  apolloSearchJson String?  // JSON: saved Apollo search params for the auto-ingest cron
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
@@ -195,6 +199,10 @@ model Lead {
   abVariant          String?   // "A" | "B" when sent as part of A/B test
   emailStyle         String?   // "pain-led" | "social-proof" | "direct-ask" | "insight-hook"
   sentAt             DateTime? // when lead was uploaded to Instantly for sending
+  replyStatus        String?   // positive | objection | ooo | not_interested | other — set by reply webhook
+  repliedAt          DateTime? // when a reply was received
+  requeueAt          DateTime? // for OOO replies: re-contact after this date
+  suppressed         Boolean   @default(false) // true = never contact again (negative reply / bounce)
   createdAt          DateTime  @default(now())
 
   leadBatch LeadBatch @relation(fields: [leadBatchId], references: [id], onDelete: Cascade)
