@@ -82,6 +82,8 @@ export default function ActivityPage() {
   const [activity, setActivity] = useState<Activity[]>([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState("all");
+  const [notifyOnActivity, setNotifyOnActivity] = useState(false);
+  const [notifyEmail, setNotifyEmail] = useState("");
 
   const load = useCallback(() => {
     if (!session?.user?.id) return;
@@ -93,6 +95,26 @@ export default function ActivityPage() {
   }, [session?.user?.id, filter]);
 
   useEffect(() => { load(); }, [load]);
+
+  useEffect(() => {
+    if (!session?.user?.id) return;
+    fetch("/api/activity/notify")
+      .then((r) => r.json())
+      .then((d) => {
+        if (typeof d.notifyOnActivity === "boolean") setNotifyOnActivity(d.notifyOnActivity);
+        if (typeof d.notifyEmail === "string") setNotifyEmail(d.notifyEmail);
+      })
+      .catch(() => {});
+  }, [session?.user?.id]);
+
+  const toggleNotify = async () => {
+    const next = !notifyOnActivity;
+    setNotifyOnActivity(next);
+    await fetch("/api/activity/notify", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ enabled: next, ...(notifyEmail ? { notifyEmail } : {}) }),
+    }).catch(() => {});
+  };
 
   if (!ready || guardLoading || !session) {
     return <div className="flex min-h-screen items-center justify-center" style={{ background: "var(--bg)" }}>
@@ -111,6 +133,21 @@ export default function ActivityPage() {
               <p className="text-sm mt-0.5" style={{ color: "var(--text-secondary)" }}>Everything the engine has done — ingests, generations, sends, experiments, replies.</p>
             </div>
             <button onClick={load} className="btn-secondary">Refresh</button>
+          </div>
+
+          {/* Email-on-every-action toggle */}
+          <div className="mb-5 card p-4 flex items-center justify-between">
+            <div>
+              <p className="text-sm font-medium" style={{ color: "var(--text-primary)" }}>Email me on every action</p>
+              <p className="text-xs mt-0.5" style={{ color: "var(--text-tertiary)" }}>
+                {notifyOnActivity
+                  ? `On — sending to ${notifyEmail || "your account email"} for each event.`
+                  : "Off — events are logged here but no emails are sent."}
+              </p>
+            </div>
+            <button onClick={toggleNotify} className="relative inline-flex h-6 w-11 items-center rounded-full transition-colors" style={{ background: notifyOnActivity ? "var(--accent)" : "var(--border)" }}>
+              <span className="inline-block h-4 w-4 transform rounded-full bg-white transition-transform" style={{ transform: notifyOnActivity ? "translateX(24px)" : "translateX(4px)" }} />
+            </button>
           </div>
 
           <div className="flex gap-1.5 mb-5 flex-wrap">
