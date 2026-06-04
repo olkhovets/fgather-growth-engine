@@ -267,12 +267,33 @@ export default function LaunchPage() {
             </button>
           </div>
 
+          {/* Destination: append new leads into an existing live Instantly campaign */}
+          {instantlyCampaigns.length > 0 && (
+            <div className="mb-6 card p-4">
+              <label className="block text-sm font-medium mb-1.5" style={{ color: "var(--text-primary)" }}>Add the sent leads to</label>
+              <p className="text-xs mb-2.5" style={{ color: "var(--text-tertiary)" }}>
+                Append this batch into a campaign that's already live in Instantly — same inbox, same sequence, no new campaign created. Choosing "new" creates a separate one.
+              </p>
+              <select
+                value={selectedInstantlyId}
+                onChange={(e) => setSelectedInstantlyId(e.target.value)}
+                className="w-full rounded-lg border px-3 py-2 text-sm"
+                style={{ background: "var(--surface)", borderColor: "var(--border)", color: "var(--text-primary)" }}
+              >
+                {instantlyCampaigns.map((ic) => (
+                  <option key={ic.instantlyCampaignId} value={ic.instantlyCampaignId}>{ic.name} (add to this)</option>
+                ))}
+                <option value="">Create a new Instantly campaign</option>
+              </select>
+            </div>
+          )}
+
           {/* Run new leads under an existing campaign's guidelines — no new setup needed */}
           {campaigns.length > 0 ? (
             <div className="mb-6 card p-4">
               <label className="block text-sm font-medium mb-1.5" style={{ color: "var(--text-primary)" }}>Run new leads under campaign</label>
               <p className="text-xs mb-2.5" style={{ color: "var(--text-tertiary)" }}>
-                New leads are generated and sent using this campaign's existing guidelines — same messaging, fed straight into the experiment loop.
+                New leads are generated using this campaign's existing guidelines — same messaging, fed straight into the experiment loop.
               </p>
               <select
                 value={selectedCampaignId}
@@ -284,26 +305,6 @@ export default function LaunchPage() {
                   <option key={c.id} value={c.id}>{c.name}{c.status === "launched" ? " (active)" : ""}</option>
                 ))}
               </select>
-
-              {instantlyCampaigns.length > 0 && (
-                <div className="mt-4 pt-4 border-t" style={{ borderColor: "var(--border)" }}>
-                  <label className="block text-sm font-medium mb-1.5" style={{ color: "var(--text-primary)" }}>Add the sent leads to</label>
-                  <p className="text-xs mb-2.5" style={{ color: "var(--text-tertiary)" }}>
-                    Append this batch into a campaign that's already live in Instantly (same inbox, same sequence), or create a new one.
-                  </p>
-                  <select
-                    value={selectedInstantlyId}
-                    onChange={(e) => setSelectedInstantlyId(e.target.value)}
-                    className="w-full rounded-lg border px-3 py-2 text-sm"
-                    style={{ background: "var(--surface)", borderColor: "var(--border)", color: "var(--text-primary)" }}
-                  >
-                    {instantlyCampaigns.map((ic) => (
-                      <option key={ic.instantlyCampaignId} value={ic.instantlyCampaignId}>{ic.name} (existing)</option>
-                    ))}
-                    <option value="">Create a new Instantly campaign</option>
-                  </select>
-                </div>
-              )}
             </div>
           ) : !hasPlaybook ? (
             <div className="mb-6 rounded-xl border px-4 py-3 flex items-center justify-between gap-4" style={{ background: "var(--warning-bg)", borderColor: "var(--warning-border)", color: "var(--warning-text)" }}>

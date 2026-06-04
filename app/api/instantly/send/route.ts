@@ -96,11 +96,11 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "No contactable leads (all suppressed, replied, or held for OOO)." }, { status: 400 });
     }
 
-    // Shuffle leads so any sendLimit pulls a random cross-section rather than
-    // the first N by insertion order (avoids segment bias from sorted CSVs)
+    // Shuffle so any sendLimit pulls a random cross-section, not the first N by
+    // insertion order. The limit itself is applied AFTER the quality gate (below)
+    // so it caps leads that actually have sequences — not random ungenerated ones.
     const shuffled = [...contactable].sort(() => Math.random() - 0.5);
-    const leadsToSend = sendLimit && sendLimit > 0 ? shuffled.slice(0, sendLimit) : shuffled;
-    batch.leads = leadsToSend as typeof batch.leads;
+    batch.leads = shuffled as typeof batch.leads;
 
     const ctx = await getInstantlyClientForUserId(session.user.id);
     if (!ctx) {
@@ -205,7 +205,7 @@ export async function POST(request: Request) {
     // Quality gate: EVERY step of EVERY lead must pass (no blank emails, no stub content)
     type StepFail = { leadEmail: string; stepIndex: number; reason: string };
     const stepFails: StepFail[] = [];
-    const leadsPassingAllSteps = batch.leads.filter((l) => {
+    let leadsPassingAllSteps = batch.leads.filter((l) => {
       const steps = getLeadSteps(l as LeadWithSteps, numSteps);
       for (let i = 0; i < steps.length; i++) {
         const subj = (steps[i]?.subject ?? "").trim();
@@ -256,6 +256,12 @@ export async function POST(request: Request) {
         },
         { status: 400 }
       );
+    }
+
+    // Apply the send limit to leads that actually have sequences (already shuffled),
+    // so "limit 200" means 200 real emails, not 200 random possibly-ungenerated leads.
+    if (sendLimit && sendLimit > 0 && leadsPassingAllSteps.length > sendLimit) {
+      leadsPassingAllSteps = leadsPassingAllSteps.slice(0, sendLimit);
     }
 
     // ── Append to an existing Instantly campaign ─────────────────────────────
