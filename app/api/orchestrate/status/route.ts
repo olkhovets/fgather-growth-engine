@@ -38,6 +38,16 @@ export async function GET() {
     const hasPlaybook = Boolean(workspace.playbookJson && workspace.playbookJson !== "{}" && workspace.playbookJson !== "null");
     const hasProductContext = Boolean(workspace.productSummary?.trim() && workspace.icp?.trim());
 
+    // Existing campaigns that already carry a playbook — new leads can run under these
+    // with the same guidelines, no new setup required.
+    const campaignRows = await prisma.campaign.findMany({
+      where: { workspaceId: workspace.id, playbookJson: { not: null } },
+      select: { id: true, name: true, status: true },
+      orderBy: { updatedAt: "desc" },
+      take: 50,
+    });
+    const campaigns = campaignRows.map((c) => ({ id: c.id, name: c.name, status: c.status }));
+
     const batches = await prisma.leadBatch.findMany({
       where: { workspaceId: workspace.id },
       select: { id: true, name: true, createdAt: true },
@@ -85,6 +95,7 @@ export async function GET() {
       playbookApproved: workspace.playbookApproved,
       hasPlaybook,
       hasProductContext,
+      campaigns,
       batches: out,
     });
   } catch (err) {

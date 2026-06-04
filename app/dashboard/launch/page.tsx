@@ -75,6 +75,8 @@ export default function LaunchPage() {
   const [hasPlaybook, setHasPlaybook] = useState(true);
   const [hasProductContext, setHasProductContext] = useState(true);
   const [settingUpPlaybook, setSettingUpPlaybook] = useState(false);
+  const [campaigns, setCampaigns] = useState<Array<{ id: string; name: string; status: string }>>([]);
+  const [selectedCampaignId, setSelectedCampaignId] = useState<string>("");
 
   const load = useCallback(() => {
     if (!session?.user?.id) return;
@@ -87,6 +89,10 @@ export default function LaunchPage() {
         setPlaybookApproved(d.playbookApproved !== false);
         setHasPlaybook(d.hasPlaybook !== false);
         setHasProductContext(d.hasProductContext !== false);
+        const camps = d.campaigns ?? [];
+        setCampaigns(camps);
+        // Default to the most recent existing campaign so new leads run under its guidelines
+        setSelectedCampaignId((prev) => prev || (camps[0]?.id ?? ""));
       })
       .finally(() => setLoading(false));
   }, [session?.user?.id]);
@@ -162,7 +168,7 @@ export default function LaunchPage() {
       while (true) {
         const res = await fetch("/api/leads/generate", {
           method: "POST", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ batchId, useFastModel: true }),
+          body: JSON.stringify({ batchId, useFastModel: true, ...(selectedCampaignId ? { campaignId: selectedCampaignId } : {}) }),
         });
         const text = await res.text();
         let data: { error?: string; done?: number; total?: number } = {};
@@ -194,7 +200,7 @@ export default function LaunchPage() {
     try {
       const res = await fetch("/api/instantly/send", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ batchId, campaignName: name, ...(sendLimit ? { sendLimit } : {}) }),
+        body: JSON.stringify({ batchId, campaignName: name, ...(sendLimit ? { sendLimit } : {}), ...(selectedCampaignId ? { campaignId: selectedCampaignId } : {}) }),
       });
       const d = await res.json();
       if (!res.ok || d.error) { setMessage(d.error ?? "Send failed."); }
@@ -242,11 +248,29 @@ export default function LaunchPage() {
             </button>
           </div>
 
-          {!hasPlaybook ? (
+          {/* Run new leads under an existing campaign's guidelines — no new setup needed */}
+          {campaigns.length > 0 ? (
+            <div className="mb-6 card p-4">
+              <label className="block text-sm font-medium mb-1.5" style={{ color: "var(--text-primary)" }}>Run new leads under campaign</label>
+              <p className="text-xs mb-2.5" style={{ color: "var(--text-tertiary)" }}>
+                New leads are generated and sent using this campaign's existing guidelines — same messaging, fed straight into the experiment loop.
+              </p>
+              <select
+                value={selectedCampaignId}
+                onChange={(e) => setSelectedCampaignId(e.target.value)}
+                className="w-full rounded-lg border px-3 py-2 text-sm"
+                style={{ background: "var(--surface)", borderColor: "var(--border)", color: "var(--text-primary)" }}
+              >
+                {campaigns.map((c) => (
+                  <option key={c.id} value={c.id}>{c.name}{c.status === "launched" ? " (active)" : ""}</option>
+                ))}
+              </select>
+            </div>
+          ) : !hasPlaybook ? (
             <div className="mb-6 rounded-xl border px-4 py-3 flex items-center justify-between gap-4" style={{ background: "var(--warning-bg)", borderColor: "var(--warning-border)", color: "var(--warning-text)" }}>
               <span className="text-sm">
-                No messaging guidelines set up yet. {hasProductContext
-                  ? "Generate them from your product & ICP, review, then approve."
+                No campaigns or guidelines yet. {hasProductContext
+                  ? "Generate starter guidelines from your product & ICP."
                   : "Add a product summary and ICP in Settings first — then generate guidelines here."}
               </span>
               <button onClick={setupPlaybook} disabled={settingUpPlaybook || !hasProductContext} className="btn-primary whitespace-nowrap">
@@ -347,13 +371,13 @@ export default function LaunchPage() {
                           </p>
                           {confirmSend === b.id ? (
                             <div className="flex items-center gap-2">
-                              <button onClick={() => approveAndSend(b.id)} disabled={busyBatch === b.id || !playbookApproved} className="btn-primary">
+                              <button onClick={() => approveAndSend(b.id)} disabled={busyBatch === b.id || (!selectedCampaignId && !playbookApproved)} className="btn-primary">
                                 {busyBatch === b.id ? "Sending…" : "Confirm — send now"}
                               </button>
                               <button onClick={() => setConfirmSend(null)} className="btn-secondary">Cancel</button>
                             </div>
                           ) : (
-                            <button onClick={() => setConfirmSend(b.id)} disabled={!playbookApproved} className="btn-primary">
+                            <button onClick={() => setConfirmSend(b.id)} disabled={!selectedCampaignId && !playbookApproved} className="btn-primary">
                               Review done — approve send
                             </button>
                           )}
