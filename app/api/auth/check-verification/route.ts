@@ -13,18 +13,16 @@ export async function GET(request: Request) {
       return NextResponse.json({ verified: false, hasWorkspace: false }, { status: 200 });
     }
 
-    const user = await prisma.user.findUnique({
-      where: { id: session.user.id },
-      select: { emailVerified: true },
-    });
-
     const workspace = await prisma.workspace.findUnique({
       where: { userId: session.user.id },
     });
 
+    // Email verification is not required for this single-operator tool — any
+    // logged-in user is treated as verified so they're never stuck on the
+    // verify-email-pending screen (the link often can't send without Resend).
     return NextResponse.json(
       {
-        verified: !!user?.emailVerified,
+        verified: true,
         hasWorkspace: !!workspace,
       },
       { status: 200 }

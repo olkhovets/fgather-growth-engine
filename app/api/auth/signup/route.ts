@@ -35,38 +35,30 @@ export async function POST(request: Request) {
     // Generate verification token
     const verificationToken = crypto.randomBytes(32).toString("hex");
 
-    // Create user
+    // Create user — auto-verified. Email verification isn't required for this
+    // single-operator tool, so accounts work immediately even without Resend set up.
     const user = await prisma.user.create({
       data: {
         email,
         password: hashedPassword,
         name: name || null,
+        emailVerified: new Date(),
         emailVerificationToken: verificationToken,
       },
     });
 
-    // Send verification email (required for flow; roll back user if email can't be sent)
+    // Best-effort verification email — never block signup if it can't send.
     try {
       await sendVerificationEmail(email, verificationToken, name || email);
     } catch (emailError) {
-      const msg = emailError instanceof Error ? emailError.message : "Failed to send verification email";
-      console.error("Failed to send verification email:", emailError);
-      await prisma.user.delete({ where: { id: user.id } }).catch(() => {});
-      return NextResponse.json(
-        {
-          error: "Verification email could not be sent.",
-          details: msg,
-          hint: "Set RESEND_API_KEY (and optionally RESEND_FROM_EMAIL) in your environment. Use onboarding@resend.dev or a verified domain.",
-        },
-        { status: 503 }
-      );
+      console.warn("[signup] verification email not sent (non-fatal):", emailError instanceof Error ? emailError.message : emailError);
     }
 
     return NextResponse.json(
       {
-        message: "User created successfully. Please check your email to verify your account.",
+        message: "Account created. You can sign in now.",
         userId: user.id,
-        requiresVerification: true,
+        requiresVerification: false,
       },
       { status: 201 }
     );
