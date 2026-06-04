@@ -15,6 +15,7 @@ type BatchStatus = {
   sent: number;
   contactable: number;
   needsGeneration: number;
+  readyToSend: number;
   samples: Sample[];
 };
 
@@ -77,6 +78,9 @@ export default function LaunchPage() {
   const [settingUpPlaybook, setSettingUpPlaybook] = useState(false);
   const [campaigns, setCampaigns] = useState<Array<{ id: string; name: string; status: string }>>([]);
   const [selectedCampaignId, setSelectedCampaignId] = useState<string>("");
+  const [instantlyCampaigns, setInstantlyCampaigns] = useState<Array<{ instantlyCampaignId: string; name: string }>>([]);
+  const [selectedInstantlyId, setSelectedInstantlyId] = useState<string>("");
+  const [genCounts, setGenCounts] = useState<Record<string, string>>({});
 
   const load = useCallback(() => {
     if (!session?.user?.id) return;
@@ -93,6 +97,10 @@ export default function LaunchPage() {
         setCampaigns(camps);
         // Default to the most recent existing campaign so new leads run under its guidelines
         setSelectedCampaignId((prev) => prev || (camps[0]?.id ?? ""));
+        const instCamps = d.instantlyCampaigns ?? [];
+        setInstantlyCampaigns(instCamps);
+        // Default to appending into the most recent live Instantly campaign
+        setSelectedInstantlyId((prev) => prev || (instCamps[0]?.instantlyCampaignId ?? ""));
       })
       .finally(() => setLoading(false));
   }, [session?.user?.id]);
@@ -159,13 +167,16 @@ export default function LaunchPage() {
     });
   };
 
-  // Generate sequences for a batch using the existing chunked endpoint (human stays on the page)
+  // Generate sequences for a batch in a capped batch size (a few hundred at a time).
+  // Stops once `cap` leads have sequences generated, leaving the rest of the batch untouched.
   const generate = async (batchId: string) => {
+    const capRaw = genCounts[batchId];
+    const cap = capRaw ? Math.max(1, parseInt(capRaw, 10)) : 200; // default 200 at a time
     setBusyBatch(batchId);
     setMessage(null);
+    let generatedThisRun = 0;
     try {
-      // eslint-disable-next-line no-constant-condition
-      while (true) {
+      while (generatedThisRun < cap) {
         const res = await fetch("/api/leads/generate", {
           method: "POST", headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ batchId, useFastModel: true, ...(selectedCampaignId ? { campaignId: selectedCampaignId } : {}) }),
@@ -175,12 +186,12 @@ export default function LaunchPage() {
         try { data = text ? JSON.parse(text) : {}; } catch { throw new Error(text?.slice(0, 200) || "Generate failed"); }
         if (!res.ok) throw new Error(data.error || "Generate failed");
         const done = data.done ?? 0;
-        const remaining = data.total ?? 0;
-        setProgress((p) => ({ ...p, [batchId]: { generated: Math.max(0, (p[batchId]?.total ?? remaining) - remaining), total: p[batchId]?.total ?? remaining } }));
-        if (done === 0) break;
+        generatedThisRun += done;
+        setProgress((p) => ({ ...p, [batchId]: { generated: generatedThisRun, total: cap } }));
+        if (done === 0) break; // nothing left needing work
         await new Promise((r) => setTimeout(r, 300));
       }
-      setMessage("Sequences generated. Review the samples below, then approve to send.");
+      setMessage(`Generated ${generatedThisRun} sequence(s). Review the samples below, then approve to send.`);
       load();
     } catch (e) {
       setMessage(e instanceof Error ? e.message : "Generation failed");
@@ -190,8 +201,10 @@ export default function LaunchPage() {
   };
 
   const approveAndSend = async (batchId: string) => {
+    const appending = Boolean(selectedInstantlyId);
     const name = (campaignNames[batchId] ?? "").trim();
-    if (!name) { setMessage("Give the campaign a name before sending."); return; }
+    // Campaign name only required when creating a NEW Instantly campaign
+    if (!appending && !name) { setMessage("Give the campaign a name, or pick an existing Instantly campaign to add to."); return; }
     const limitRaw = sendLimits[batchId];
     const sendLimit = limitRaw ? Math.max(1, parseInt(limitRaw, 10)) : undefined;
     setBusyBatch(batchId);
@@ -200,11 +213,17 @@ export default function LaunchPage() {
     try {
       const res = await fetch("/api/instantly/send", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ batchId, campaignName: name, ...(sendLimit ? { sendLimit } : {}), ...(selectedCampaignId ? { campaignId: selectedCampaignId } : {}) }),
+        body: JSON.stringify({
+          batchId,
+          skipFailingLeads: true, // only the freshly generated leads have sequences; skip the rest of the 10k
+          ...(sendLimit ? { sendLimit } : {}),
+          ...(selectedCampaignId ? { campaignId: selectedCampaignId } : {}),
+          ...(appending ? { addToInstantlyCampaignId: selectedInstantlyId } : { campaignName: name }),
+        }),
       });
       const d = await res.json();
       if (!res.ok || d.error) { setMessage(d.error ?? "Send failed."); }
-      else { setMessage(`Launched “${name}” — ${d.leads_uploaded ?? 0} leads uploaded to Instantly.`); }
+      else { setMessage(d.message ?? `Sent — ${d.leads_uploaded ?? 0} leads to Instantly.`); }
       load();
     } catch {
       setMessage("Send request failed.");
@@ -265,6 +284,26 @@ export default function LaunchPage() {
                   <option key={c.id} value={c.id}>{c.name}{c.status === "launched" ? " (active)" : ""}</option>
                 ))}
               </select>
+
+              {instantlyCampaigns.length > 0 && (
+                <div className="mt-4 pt-4 border-t" style={{ borderColor: "var(--border)" }}>
+                  <label className="block text-sm font-medium mb-1.5" style={{ color: "var(--text-primary)" }}>Add the sent leads to</label>
+                  <p className="text-xs mb-2.5" style={{ color: "var(--text-tertiary)" }}>
+                    Append this batch into a campaign that's already live in Instantly (same inbox, same sequence), or create a new one.
+                  </p>
+                  <select
+                    value={selectedInstantlyId}
+                    onChange={(e) => setSelectedInstantlyId(e.target.value)}
+                    className="w-full rounded-lg border px-3 py-2 text-sm"
+                    style={{ background: "var(--surface)", borderColor: "var(--border)", color: "var(--text-primary)" }}
+                  >
+                    {instantlyCampaigns.map((ic) => (
+                      <option key={ic.instantlyCampaignId} value={ic.instantlyCampaignId}>{ic.name} (existing)</option>
+                    ))}
+                    <option value="">Create a new Instantly campaign</option>
+                  </select>
+                </div>
+              )}
             </div>
           ) : !hasPlaybook ? (
             <div className="mb-6 rounded-xl border px-4 py-3 flex items-center justify-between gap-4" style={{ background: "var(--warning-bg)", borderColor: "var(--warning-border)", color: "var(--warning-text)" }}>
@@ -302,7 +341,7 @@ export default function LaunchPage() {
           ) : (
             <div className="space-y-5">
               {batches.map((b) => {
-                const allGenerated = b.needsGeneration === 0 && b.withSequences > 0;
+                const canSend = b.readyToSend > 0; // has generated-but-unsent, contactable leads
                 const fullySent = b.contactable === 0 && b.sent > 0;
                 return (
                   <div key={b.id} className="card overflow-hidden">
@@ -310,22 +349,33 @@ export default function LaunchPage() {
                       <div>
                         <p className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>{b.name ?? "Untitled batch"}</p>
                         <p className="text-xs mt-0.5" style={{ color: "var(--text-tertiary)" }}>
-                          {b.total} leads · {b.withSequences} generated · {b.sent} sent · {b.contactable} ready to send
+                          {b.total} leads · {b.sent} sent · {b.readyToSend} generated &amp; ready · {b.needsGeneration} not yet generated
                         </p>
                       </div>
                       {fullySent && <span className="badge-launched"><span className="h-1.5 w-1.5 rounded-full bg-green-500 inline-block" />Sent</span>}
                     </div>
 
                     <div className="px-6 py-4 space-y-4">
-                      {/* Generation */}
+                      {/* Generation — in capped batches */}
                       {b.needsGeneration > 0 ? (
-                        <div className="flex items-center justify-between">
+                        <div className="flex items-center justify-between gap-3">
                           <p className="text-sm" style={{ color: "var(--text-secondary)" }}>
-                            {b.needsGeneration} lead{b.needsGeneration === 1 ? "" : "s"} need sequences
+                            {b.withSequences} ready · {b.needsGeneration} still need sequences
                           </p>
-                          <button onClick={() => generate(b.id)} disabled={busyBatch === b.id} className="btn-secondary">
-                            {busyBatch === b.id ? "Generating…" : "Generate sequences"}
-                          </button>
+                          <div className="flex items-center gap-2">
+                            <input
+                              value={genCounts[b.id] ?? "200"}
+                              onChange={(e) => setGenCounts((p) => ({ ...p, [b.id]: e.target.value.replace(/[^0-9]/g, "") }))}
+                              className="w-24 rounded-lg border px-3 py-2 text-sm"
+                              style={{ background: "var(--surface)", borderColor: "var(--border)", color: "var(--text-primary)" }}
+                              title="How many to generate this round"
+                            />
+                            <button onClick={() => generate(b.id)} disabled={busyBatch === b.id} className="btn-secondary whitespace-nowrap">
+                              {busyBatch === b.id
+                                ? `Generating… ${progress[b.id]?.generated ?? 0}`
+                                : "Generate this many"}
+                            </button>
+                          </div>
                         </div>
                       ) : (
                         <p className="text-sm" style={{ color: "#10b981" }}>✓ All contactable leads have sequences</p>
@@ -346,28 +396,33 @@ export default function LaunchPage() {
                         </div>
                       )}
 
-                      {/* Approve & send gate */}
-                      {allGenerated && b.contactable > 0 && (
+                      {/* Approve & send gate — sends the generated-but-unsent leads */}
+                      {canSend && (
                         <div className="rounded-lg border p-4 space-y-3" style={{ borderColor: "var(--border)", background: "var(--surface-subtle)" }}>
-                          <p className="text-sm font-medium" style={{ color: "var(--text-primary)" }}>Approve &amp; send</p>
+                          <p className="text-sm font-medium" style={{ color: "var(--text-primary)" }}>
+                            Approve &amp; send {b.readyToSend} generated lead{b.readyToSend === 1 ? "" : "s"}
+                            {selectedInstantlyId ? " → existing Instantly campaign" : ""}
+                          </p>
                           <div className="flex gap-2">
-                            <input
-                              value={campaignNames[b.id] ?? ""}
-                              onChange={(e) => setCampaignNames((p) => ({ ...p, [b.id]: e.target.value }))}
-                              placeholder="Campaign name"
-                              className="flex-1 rounded-lg border px-3 py-2 text-sm"
-                              style={{ background: "var(--surface)", borderColor: "var(--border)", color: "var(--text-primary)" }}
-                            />
+                            {!selectedInstantlyId && (
+                              <input
+                                value={campaignNames[b.id] ?? ""}
+                                onChange={(e) => setCampaignNames((p) => ({ ...p, [b.id]: e.target.value }))}
+                                placeholder="New campaign name"
+                                className="flex-1 rounded-lg border px-3 py-2 text-sm"
+                                style={{ background: "var(--surface)", borderColor: "var(--border)", color: "var(--text-primary)" }}
+                              />
+                            )}
                             <input
                               value={sendLimits[b.id] ?? ""}
                               onChange={(e) => setSendLimits((p) => ({ ...p, [b.id]: e.target.value.replace(/[^0-9]/g, "") }))}
-                              placeholder={`Limit (max ${b.contactable})`}
+                              placeholder={`Limit (max ${b.readyToSend})`}
                               className="w-36 rounded-lg border px-3 py-2 text-sm"
                               style={{ background: "var(--surface)", borderColor: "var(--border)", color: "var(--text-primary)" }}
                             />
                           </div>
                           <p className="text-xs" style={{ color: "var(--text-tertiary)" }}>
-                            Leave the limit blank to send all {b.contactable}. Suppressed and already-replied leads are excluded automatically.
+                            Leave the limit blank to send all {b.readyToSend} generated. Only generated, contactable leads go — the rest of the batch stays untouched.
                           </p>
                           {confirmSend === b.id ? (
                             <div className="flex items-center gap-2">

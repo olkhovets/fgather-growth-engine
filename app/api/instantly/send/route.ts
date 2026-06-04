@@ -20,7 +20,7 @@ export async function POST(request: Request) {
     }
 
     const body = await request.json().catch(() => ({}));
-    const { batchId, abTest, subjectLineA, subjectLineB, campaignName: campaignNameInput, accountEmails, campaignId: flowCampaignId, skipFailingLeads, styles, sendLimit } = body as {
+    const { batchId, abTest, subjectLineA, subjectLineB, campaignName: campaignNameInput, accountEmails, campaignId: flowCampaignId, skipFailingLeads, styles, sendLimit, addToInstantlyCampaignId } = body as {
       batchId?: string;
       abTest?: boolean;
       subjectLineA?: string;
@@ -31,12 +31,14 @@ export async function POST(request: Request) {
       skipFailingLeads?: boolean;
       styles?: string[]; // e.g. ["pain-led","insight-hook","social-proof","direct-ask"]
       sendLimit?: number; // cap how many leads enter this send; undefined = send all
+      addToInstantlyCampaignId?: string; // append leads into this existing Instantly campaign instead of creating a new one
     };
     if (!batchId) {
       return NextResponse.json({ error: "batchId is required" }, { status: 400 });
     }
     const campaignNameTrimmed = campaignNameInput?.trim();
-    if (!campaignNameTrimmed) {
+    // Campaign name isn't needed when appending to an existing Instantly campaign
+    if (!campaignNameTrimmed && !(addToInstantlyCampaignId && addToInstantlyCampaignId.trim())) {
       return NextResponse.json({ error: "Campaign name is required" }, { status: 400 });
     }
     if (abTest && (!subjectLineA?.trim() || !subjectLineB?.trim())) {
@@ -122,7 +124,8 @@ export async function POST(request: Request) {
       console.warn("[send] applyRampForUnwarmedAccounts failed (non-fatal):", rampErr instanceof Error ? rampErr.message : rampErr);
     }
 
-    const baseName = campaignNameTrimmed;
+    // Non-empty in every path except append-mode, which returns before baseName is used.
+    const baseName = campaignNameTrimmed ?? "Campaign";
 
     // Ensure email body line breaks render in Instantly (plain \n -> <br>)
     const bodyWithLineBreaks = (text: string) =>
@@ -253,6 +256,48 @@ export async function POST(request: Request) {
         },
         { status: 400 }
       );
+    }
+
+    // ── Append to an existing Instantly campaign ─────────────────────────────
+    // Generate-in-small-batches workflow: feed the freshly generated leads into
+    // the campaign that's already running, instead of spinning up a new one.
+    if (addToInstantlyCampaignId && addToInstantlyCampaignId.trim()) {
+      const targetId = addToInstantlyCampaignId.trim();
+      // Verify the target Instantly campaign belongs to this workspace
+      const target = await prisma.sentCampaign.findFirst({
+        where: { workspaceId: workspace.id, instantlyCampaignId: targetId },
+        select: { id: true, name: true },
+      });
+      if (!target) {
+        return NextResponse.json({ error: "That Instantly campaign isn't one this workspace manages." }, { status: 404 });
+      }
+
+      // Ensure the step variables are registered (idempotent)
+      const stepVarNames = Array.from({ length: numSteps }, (_, i) => [`step${i + 1}_subject`, `step${i + 1}_body`]).flat();
+      await client.addCampaignVariables(targetId, stepVarNames).catch(() => {});
+
+      const payload = leadsPassingAllSteps.map((l) => toLeadPayload(l as LeadRecord));
+      let addResult: { leads_uploaded: number; duplicated_leads: number; in_blocklist: number };
+      try {
+        addResult = await client.bulkAddLeadsToCampaign(targetId, payload, { verify_leads_on_import: false });
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : "unknown";
+        return NextResponse.json({ error: `Instantly rejected the leads: ${msg}` }, { status: 400 });
+      }
+
+      if (addResult.leads_uploaded > 0) {
+        await markAsSent(leadsPassingAllSteps.map((l) => l.id));
+      }
+
+      return NextResponse.json({
+        success: true,
+        appendedTo: targetId,
+        campaignName: target.name,
+        leads_uploaded: addResult.leads_uploaded,
+        duplicated_leads: addResult.duplicated_leads,
+        in_blocklist: addResult.in_blocklist,
+        message: `Added ${addResult.leads_uploaded} leads to existing campaign "${target.name}". ${addResult.duplicated_leads} were already in Instantly.`,
+      });
     }
 
     const campaignOptionsWithSequence = {

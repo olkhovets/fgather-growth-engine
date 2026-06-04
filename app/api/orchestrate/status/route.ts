@@ -14,6 +14,7 @@ type BatchStatus = {
   sent: number;
   contactable: number;       // not sent, not suppressed, not replied
   needsGeneration: number;   // contactable leads with no sequence yet
+  readyToSend: number;       // contactable leads that already have a sequence
   samples: Array<{ name: string | null; company: string | null; step1Subject: string | null; step1Body: string | null }>;
 };
 
@@ -48,6 +49,21 @@ export async function GET() {
     });
     const campaigns = campaignRows.map((c) => ({ id: c.id, name: c.name, status: c.status }));
 
+    // Live Instantly campaigns already created — new leads can be appended into one.
+    const sentRows = await prisma.sentCampaign.findMany({
+      where: { workspaceId: workspace.id },
+      select: { instantlyCampaignId: true, name: true, createdAt: true },
+      orderBy: { createdAt: "desc" },
+      take: 50,
+    });
+    // Dedupe by instantlyCampaignId (multi-style sends share names)
+    const seenInstantly = new Set<string>();
+    const instantlyCampaigns = sentRows.filter((s) => {
+      if (seenInstantly.has(s.instantlyCampaignId)) return false;
+      seenInstantly.add(s.instantlyCampaignId);
+      return true;
+    }).map((s) => ({ instantlyCampaignId: s.instantlyCampaignId, name: s.name }));
+
     const batches = await prisma.leadBatch.findMany({
       where: { workspaceId: workspace.id },
       select: { id: true, name: true, createdAt: true },
@@ -57,7 +73,7 @@ export async function GET() {
 
     const out: BatchStatus[] = [];
     for (const b of batches) {
-      const [total, withSequences, sent, contactable, needsGeneration, samples] = await Promise.all([
+      const [total, withSequences, sent, contactable, needsGeneration, readyToSend, samples] = await Promise.all([
         prisma.lead.count({ where: { leadBatchId: b.id } }),
         prisma.lead.count({ where: { leadBatchId: b.id, stepsJson: { not: null } } }),
         prisma.lead.count({ where: { leadBatchId: b.id, sentAt: { not: null } } }),
@@ -68,8 +84,14 @@ export async function GET() {
             OR: [{ stepsJson: null }, { stepsJson: "" }, { stepsJson: "[]" }],
           },
         }),
+        prisma.lead.count({
+          where: {
+            leadBatchId: b.id, sentAt: null, suppressed: false, repliedAt: null,
+            stepsJson: { not: null }, NOT: { stepsJson: { in: ["", "[]"] } },
+          },
+        }),
         prisma.lead.findMany({
-          where: { leadBatchId: b.id, stepsJson: { not: null } },
+          where: { leadBatchId: b.id, stepsJson: { not: null }, sentAt: null },
           select: { name: true, company: true, step1Subject: true, step1Body: true },
           take: 3,
           orderBy: { id: "asc" },
@@ -86,6 +108,7 @@ export async function GET() {
         sent,
         contactable,
         needsGeneration,
+        readyToSend,
         samples,
       });
     }
@@ -96,6 +119,7 @@ export async function GET() {
       hasPlaybook,
       hasProductContext,
       campaigns,
+      instantlyCampaigns,
       batches: out,
     });
   } catch (err) {
