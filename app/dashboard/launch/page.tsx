@@ -71,6 +71,7 @@ export default function LaunchPage() {
   const [campaignNames, setCampaignNames] = useState<Record<string, string>>({});
   const [message, setMessage] = useState<string | null>(null);
   const [confirmSend, setConfirmSend] = useState<string | null>(null);
+  const [approvingPlaybook, setApprovingPlaybook] = useState(false);
 
   const load = useCallback(() => {
     if (!session?.user?.id) return;
@@ -86,6 +87,24 @@ export default function LaunchPage() {
   }, [session?.user?.id]);
 
   useEffect(() => { load(); }, [load]);
+
+  const approvePlaybook = async () => {
+    setApprovingPlaybook(true);
+    setMessage(null);
+    try {
+      const res = await fetch("/api/playbook", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ approve: true }),
+      });
+      const d = await res.json();
+      if (!res.ok || d.error) { setMessage(d.error ?? "Could not approve playbook. Make sure you've set one up in Settings."); }
+      else { setPlaybookApproved(true); setMessage("Playbook approved — you can send now."); }
+    } catch {
+      setMessage("Approve request failed.");
+    } finally {
+      setApprovingPlaybook(false);
+    }
+  };
 
   const toggleAutopilot = async () => {
     const next = !autopilot;
@@ -186,8 +205,11 @@ export default function LaunchPage() {
           </div>
 
           {!playbookApproved && (
-            <div className="mb-6 rounded-xl border px-4 py-3 text-sm" style={{ background: "var(--warning-bg)", borderColor: "var(--warning-border)", color: "var(--warning-text)" }}>
-              Approve your playbook in Settings before sending — it's required to launch.
+            <div className="mb-6 rounded-xl border px-4 py-3 flex items-center justify-between gap-4" style={{ background: "var(--warning-bg)", borderColor: "var(--warning-border)", color: "var(--warning-text)" }}>
+              <span className="text-sm">Your playbook isn't approved yet — required before any send. Review it, then approve here.</span>
+              <button onClick={approvePlaybook} disabled={approvingPlaybook} className="btn-primary whitespace-nowrap">
+                {approvingPlaybook ? "Approving…" : "Approve playbook"}
+              </button>
             </div>
           )}
 
