@@ -72,6 +72,9 @@ export default function LaunchPage() {
   const [message, setMessage] = useState<string | null>(null);
   const [confirmSend, setConfirmSend] = useState<string | null>(null);
   const [approvingPlaybook, setApprovingPlaybook] = useState(false);
+  const [hasPlaybook, setHasPlaybook] = useState(true);
+  const [hasProductContext, setHasProductContext] = useState(true);
+  const [settingUpPlaybook, setSettingUpPlaybook] = useState(false);
 
   const load = useCallback(() => {
     if (!session?.user?.id) return;
@@ -82,11 +85,46 @@ export default function LaunchPage() {
         setBatches(d.batches ?? []);
         setAutopilot(Boolean(d.autopilot));
         setPlaybookApproved(d.playbookApproved !== false);
+        setHasPlaybook(d.hasPlaybook !== false);
+        setHasProductContext(d.hasProductContext !== false);
       })
       .finally(() => setLoading(false));
   }, [session?.user?.id]);
 
   useEffect(() => { load(); }, [load]);
+
+  // Generate workspace guidelines from product + ICP and save them, in one click.
+  const setupPlaybook = async () => {
+    setSettingUpPlaybook(true);
+    setMessage(null);
+    try {
+      // 1. Generate a default playbook from product summary + ICP (or template fallback)
+      const genRes = await fetch("/api/playbook/default", {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({}),
+      });
+      const gen = await genRes.json();
+      if (!genRes.ok || !gen.playbook) {
+        setMessage(gen.error ?? "Could not generate guidelines. Add a product summary and ICP in Settings first.");
+        return;
+      }
+      // 2. Save it to the workspace
+      const saveRes = await fetch("/api/playbook", {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ playbook: gen.playbook }),
+      });
+      const saved = await saveRes.json();
+      if (!saveRes.ok || saved.error) {
+        setMessage(saved.error ?? "Could not save guidelines.");
+        return;
+      }
+      setHasPlaybook(true);
+      setPlaybookApproved(false);
+      setMessage("Guidelines created. Review them, then approve to enable sending.");
+    } catch {
+      setMessage("Setup request failed.");
+    } finally {
+      setSettingUpPlaybook(false);
+    }
+  };
 
   const approvePlaybook = async () => {
     setApprovingPlaybook(true);
@@ -204,14 +242,25 @@ export default function LaunchPage() {
             </button>
           </div>
 
-          {!playbookApproved && (
+          {!hasPlaybook ? (
             <div className="mb-6 rounded-xl border px-4 py-3 flex items-center justify-between gap-4" style={{ background: "var(--warning-bg)", borderColor: "var(--warning-border)", color: "var(--warning-text)" }}>
-              <span className="text-sm">Your playbook isn't approved yet — required before any send. Review it, then approve here.</span>
-              <button onClick={approvePlaybook} disabled={approvingPlaybook} className="btn-primary whitespace-nowrap">
-                {approvingPlaybook ? "Approving…" : "Approve playbook"}
+              <span className="text-sm">
+                No messaging guidelines set up yet. {hasProductContext
+                  ? "Generate them from your product & ICP, review, then approve."
+                  : "Add a product summary and ICP in Settings first — then generate guidelines here."}
+              </span>
+              <button onClick={setupPlaybook} disabled={settingUpPlaybook || !hasProductContext} className="btn-primary whitespace-nowrap">
+                {settingUpPlaybook ? "Generating…" : "Generate guidelines"}
               </button>
             </div>
-          )}
+          ) : !playbookApproved ? (
+            <div className="mb-6 rounded-xl border px-4 py-3 flex items-center justify-between gap-4" style={{ background: "var(--warning-bg)", borderColor: "var(--warning-border)", color: "var(--warning-text)" }}>
+              <span className="text-sm">Your guidelines aren't approved yet — required before any send. Review them, then approve here.</span>
+              <button onClick={approvePlaybook} disabled={approvingPlaybook} className="btn-primary whitespace-nowrap">
+                {approvingPlaybook ? "Approving…" : "Approve guidelines"}
+              </button>
+            </div>
+          ) : null}
 
           {message && (
             <div className="mb-6 card p-4 border-l-4" style={{ borderLeftColor: "var(--accent)" }}>

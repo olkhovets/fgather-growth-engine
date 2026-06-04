@@ -30,11 +30,13 @@ export async function GET() {
     }
     const workspace = await prisma.workspace.findUnique({
       where: { userId: session.user.id },
-      select: { id: true, autopilot: true, playbookApproved: true },
+      select: { id: true, autopilot: true, playbookApproved: true, playbookJson: true, productSummary: true, icp: true },
     });
     if (!workspace) {
       return NextResponse.json({ error: "Workspace not found" }, { status: 404 });
     }
+    const hasPlaybook = Boolean(workspace.playbookJson && workspace.playbookJson !== "{}" && workspace.playbookJson !== "null");
+    const hasProductContext = Boolean(workspace.productSummary?.trim() && workspace.icp?.trim());
 
     const batches = await prisma.leadBatch.findMany({
       where: { workspaceId: workspace.id },
@@ -81,6 +83,8 @@ export async function GET() {
     return NextResponse.json({
       autopilot: workspace.autopilot,
       playbookApproved: workspace.playbookApproved,
+      hasPlaybook,
+      hasProductContext,
       batches: out,
     });
   } catch (err) {
