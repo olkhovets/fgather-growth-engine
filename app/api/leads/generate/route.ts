@@ -145,7 +145,7 @@ export async function POST(request: Request) {
 
     const workspace = await prisma.workspace.findUnique({
       where: { userId: session.user.id },
-      select: { id: true, anthropicKey: true, anthropicModel: true, productSummary: true, icp: true, proofPointsJson: true, socialProofJson: true, playbookJson: true, senderName: true },
+      select: { id: true, anthropicKey: true, anthropicModel: true, productSummary: true, icp: true, proofPointsJson: true, socialProofJson: true, playbookJson: true, senderName: true, customInstructions: true },
     });
 
     if (!workspace?.anthropicKey) {
@@ -278,6 +278,12 @@ export async function POST(request: Request) {
     }
     const learningsText = learningsBlock(provenLearnings);
 
+    // Operator's custom instructions — a free-text addendum applied to every email
+    // (e.g. "offer a $100 Uber Eats card for booked demos"). High priority.
+    const customInstructionsText = workspace.customInstructions?.trim()
+      ? `\n\nIMPORTANT OPERATOR INSTRUCTIONS (apply to every email, these override style defaults where they conflict):\n${workspace.customInstructions.trim()}`
+      : "";
+
     const processLead = async (lead: (typeof chunk)[0], leadIndex: number) => {
       // Resolve style: explicit batch style → inferred from persona/industry → direct-ask fallback
       const resolvedStyle = batchStyle ?? inferStyle(lead.persona, lead.industry, lead.vertical);
@@ -328,7 +334,7 @@ ${usePS ? `- Include a P.S. line in step 1 — reference something real and spec
 - Write as a human peer, not a marketer
 - Sign off every email with the SENDER'S name (yours), never the recipient's name. Use exactly: ${signoff}
 
-${styleConfig.prompt}${learningsText}${experimentBlock}`;
+${styleConfig.prompt}${learningsText}${experimentBlock}${customInstructionsText}`;
       let companyContextBlock = "";
       let companyContextRaw: string | null = null;
       if (useWebScraping && lead.website?.trim()) {

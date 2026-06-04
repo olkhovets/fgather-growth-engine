@@ -82,6 +82,9 @@ export default function LaunchPage() {
   const [instantlyCampaigns, setInstantlyCampaigns] = useState<Array<{ instantlyCampaignId: string; name: string }>>([]);
   const [selectedInstantlyId, setSelectedInstantlyId] = useState<string>("");
   const [genCounts, setGenCounts] = useState<Record<string, string>>({});
+  const [customInstructions, setCustomInstructions] = useState("");
+  const [savingInstructions, setSavingInstructions] = useState(false);
+  const [instructionsOpen, setInstructionsOpen] = useState(false);
 
   const load = useCallback(() => {
     if (!session?.user?.id) return;
@@ -107,6 +110,30 @@ export default function LaunchPage() {
   }, [session?.user?.id]);
 
   useEffect(() => { load(); }, [load]);
+
+  useEffect(() => {
+    if (!session?.user?.id) return;
+    fetch("/api/orchestrate/instructions")
+      .then((r) => r.json())
+      .then((d) => { if (typeof d.customInstructions === "string") setCustomInstructions(d.customInstructions); })
+      .catch(() => {});
+  }, [session?.user?.id]);
+
+  const saveInstructions = async () => {
+    setSavingInstructions(true);
+    try {
+      const res = await fetch("/api/orchestrate/instructions", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ customInstructions }),
+      });
+      const d = await res.json();
+      setMessage(d.error ? d.error : "Saved — applied to all future generation.");
+    } catch {
+      setMessage("Could not save instructions.");
+    } finally {
+      setSavingInstructions(false);
+    }
+  };
 
   // Generate workspace guidelines from product + ICP and save them, in one click.
   const setupPlaybook = async () => {
@@ -266,6 +293,34 @@ export default function LaunchPage() {
             <button onClick={toggleAutopilot} className="relative inline-flex h-6 w-11 items-center rounded-full transition-colors" style={{ background: autopilot ? "var(--accent)" : "var(--border)" }}>
               <span className="inline-block h-4 w-4 transform rounded-full bg-white transition-transform" style={{ transform: autopilot ? "translateX(24px)" : "translateX(4px)" }} />
             </button>
+          </div>
+
+          {/* Custom instructions — quick free-text addendum applied to every email */}
+          <div className="mb-6 card p-4">
+            <button onClick={() => setInstructionsOpen((o) => !o)} className="w-full flex items-center justify-between">
+              <span className="text-sm font-medium" style={{ color: "var(--text-primary)" }}>
+                Extra instructions {customInstructions.trim() ? "(active)" : "(none)"}
+              </span>
+              <span className="text-xs" style={{ color: "var(--text-tertiary)" }}>{instructionsOpen ? "Hide" : "Edit"}</span>
+            </button>
+            {instructionsOpen && (
+              <div className="mt-3 space-y-2">
+                <p className="text-xs" style={{ color: "var(--text-tertiary)" }}>
+                  A line or two added to every email the engine writes from now on. Example: "Offer a $100 Uber Eats card for any booked demo."
+                </p>
+                <textarea
+                  value={customInstructions}
+                  onChange={(e) => setCustomInstructions(e.target.value)}
+                  rows={3}
+                  placeholder="e.g. Offer a $100 Uber Eats card for booked demos."
+                  className="w-full rounded-lg border px-3 py-2 text-sm"
+                  style={{ background: "var(--surface)", borderColor: "var(--border)", color: "var(--text-primary)" }}
+                />
+                <button onClick={saveInstructions} disabled={savingInstructions} className="btn-primary">
+                  {savingInstructions ? "Saving…" : "Save instructions"}
+                </button>
+              </div>
+            )}
           </div>
 
           {/* Destination: append new leads into an existing live Instantly campaign */}
