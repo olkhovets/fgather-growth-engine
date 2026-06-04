@@ -90,6 +90,8 @@ model Workspace {
   apolloSearchJson String?  // JSON: saved Apollo search params for the auto-ingest cron
   learningsJson    String?  // JSON: string[] of proven message patterns (promoted experiment winners) injected into all future generation
   autopilot        Boolean  @default(false) // when true, the daily orchestrator generates AND sends without manual approval
+  customInstructions String? // free-text addendum injected into every generation prompt (e.g. "offer a $100 Uber Eats card for booked demos")
+  autopilotDailyLimit Int    @default(200) // max leads autopilot generates+sends per day
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
@@ -99,6 +101,7 @@ model Workspace {
   campaigns     Campaign[]
   performanceObservations PerformanceObservation[]
   promptExperiments PromptExperiment[]
+  activityLogs   ActivityLog[]
 }
 
 model Campaign {
@@ -117,6 +120,22 @@ model Campaign {
   workspace   Workspace     @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   leadBatch   LeadBatch?    @relation(fields: [leadBatchId], references: [id], onDelete: SetNull)
   sentCampaigns SentCampaign[]
+}
+
+// Append-only audit log of everything the engine does — generation, sends,
+// Apollo ingests, experiment promotions, replies, autopilot runs. Surfaced on
+// the activity dashboard so the operator can see what happened and the stats.
+model ActivityLog {
+  id          String   @id @default(cuid())
+  workspaceId String
+  type        String   // "generate" | "send" | "ingest" | "experiment" | "reply" | "autopilot" | "info"
+  message     String   // human-readable summary
+  metaJson    String?  // JSON: structured stats for the row
+  createdAt   DateTime @default(now())
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, createdAt])
 }
 
 // A single self-improving message experiment. The engine generates these as

@@ -5,6 +5,7 @@ import { prisma } from "@/lib/prisma";
 import { decrypt } from "@/lib/encryption";
 import { computeVariantStats, loadLearnings, EXPERIMENT_DIMENSIONS, type ExperimentDimension } from "@/lib/experiments";
 import { runGenerator, TARGET_ACTIVE_PER_DIMENSION } from "@/lib/experiment-agents";
+import { logActivity } from "@/lib/activity";
 
 export const dynamic = "force-dynamic";
 
@@ -75,6 +76,12 @@ async function runEvaluator(workspaceId: string, anthropicKey: string, model: st
     if (needRefill.length > 0) {
       refill = await runGenerator(workspaceId, anthropicKey, model, { dimensions: needRefill });
     }
+  }
+
+  if (promoted.length > 0 || killed.length > 0) {
+    await logActivity(workspaceId, "experiment",
+      `Optimized experiments: promoted ${promoted.length}, killed ${killed.length}, refilled ${refill?.total ?? 0}`,
+      { promoted, killed, refilled: refill?.total ?? 0, baselinePositiveRate });
   }
 
   return {

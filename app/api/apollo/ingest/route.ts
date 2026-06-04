@@ -6,6 +6,7 @@ import { decrypt } from "@/lib/encryption";
 import { apolloFetchLeads, type ApolloSearch } from "@/lib/apollo";
 import { createBatchWithLeads, type NormalizedLead } from "@/lib/leads";
 import { verifyEmailBatch } from "@/lib/verify-email";
+import { logActivity } from "@/lib/activity";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -100,6 +101,10 @@ async function ingestForWorkspace(
     batchName: `Apollo ${dateLabel}`,
     dedupe: true,
   });
+
+  await logActivity(workspaceId, "ingest",
+    `Ingested ${count} new leads from Apollo`,
+    { ingested: count, fetched: fetched.length, duplicatesSkipped: preDedupSkipped + skippedDuplicate, invalidSkipped: skippedInvalid, lockedSkipped });
 
   return {
     workspaceId,

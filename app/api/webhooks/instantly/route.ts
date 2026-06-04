@@ -127,6 +127,11 @@ export async function POST(request: Request) {
       await recordReplyObservation(workspaceId, replyId, fromEmail.toLowerCase(), classification).catch(() => {});
     }
 
+    const { logActivity } = await import("@/lib/activity");
+    await logActivity(workspaceId, "reply",
+      `Reply from ${fromEmail} classified as ${classification}${matchedLeads > 0 ? "" : " (no matching lead)"}`,
+      { classification, fromEmail, matchedLeads, requeueDate, campaign: campaignName });
+
     return NextResponse.json({
       ok: true,
       classification,

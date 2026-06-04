@@ -4,6 +4,7 @@ import { authOptions } from "@/lib/auth";
 import { getInstantlyClientForUserId } from "@/lib/instantly";
 import { prisma } from "@/lib/prisma";
 import { parsePlaybook, getSequenceSteps } from "@/lib/playbook";
+import { logActivity } from "@/lib/activity";
 
 export const dynamic = "force-dynamic";
 
@@ -294,6 +295,10 @@ export async function POST(request: Request) {
       if (addResult.leads_uploaded > 0) {
         await markAsSent(leadsPassingAllSteps.map((l) => l.id));
       }
+
+      await logActivity(workspace.id, "send",
+        `Appended ${addResult.leads_uploaded} leads to existing campaign "${target.name}"`,
+        { appended: addResult.leads_uploaded, duplicates: addResult.duplicated_leads, blocklisted: addResult.in_blocklist, instantlyCampaignId: targetId });
 
       return NextResponse.json({
         success: true,
@@ -604,6 +609,10 @@ export async function POST(request: Request) {
     if (flowCampaign?.id) {
       await prisma.campaign.update({ where: { id: flowCampaign.id }, data: { status: "launched", name: campaignName } });
     }
+
+    await logActivity(workspace.id, "send",
+      `Launched new campaign "${campaignName}" with ${addResult.leads_uploaded} leads`,
+      { sent: addResult.leads_uploaded, duplicates: addResult.duplicated_leads, blocklisted: addResult.in_blocklist, instantlyCampaignId: campaignId });
 
     return NextResponse.json({
       success: true,
