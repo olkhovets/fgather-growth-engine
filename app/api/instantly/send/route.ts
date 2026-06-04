@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
-import { getInstantlyClientForUserId } from "@/lib/instantly";
+import { getInstantlyClientForUserId, getInstantlyClientForWorkspaceId } from "@/lib/instantly";
 import { prisma } from "@/lib/prisma";
 import { parsePlaybook, getSequenceSteps } from "@/lib/playbook";
 import { logActivity } from "@/lib/activity";
@@ -15,13 +15,8 @@ export const dynamic = "force-dynamic";
  */
 export async function POST(request: Request) {
   try {
-    const session = await getServerSession(authOptions);
-    if (!session?.user?.id) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
-
     const body = await request.json().catch(() => ({}));
-    const { batchId, abTest, subjectLineA, subjectLineB, campaignName: campaignNameInput, accountEmails, campaignId: flowCampaignId, skipFailingLeads, styles, sendLimit, addToInstantlyCampaignId } = body as {
+    const { batchId, abTest, subjectLineA, subjectLineB, campaignName: campaignNameInput, accountEmails, campaignId: flowCampaignId, skipFailingLeads, styles, sendLimit, addToInstantlyCampaignId, workspaceId: workspaceIdParam } = body as {
       batchId?: string;
       abTest?: boolean;
       subjectLineA?: string;
@@ -33,7 +28,20 @@ export async function POST(request: Request) {
       styles?: string[]; // e.g. ["pain-led","insight-hook","social-proof","direct-ask"]
       sendLimit?: number; // cap how many leads enter this send; undefined = send all
       addToInstantlyCampaignId?: string; // append leads into this existing Instantly campaign instead of creating a new one
+      workspaceId?: string; // autopilot orchestrator (with CRON_SECRET) targets a workspace directly
     };
+
+    // Auth: session for users, or CRON_SECRET + workspaceId for the autopilot orchestrator
+    const cronSecret = process.env.CRON_SECRET;
+    const isCron = Boolean(cronSecret && request.headers.get("x-cron-secret") === cronSecret && workspaceIdParam);
+    let sessionUserId: string | null = null;
+    if (!isCron) {
+      const session = await getServerSession(authOptions);
+      if (!session?.user?.id) {
+        return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+      }
+      sessionUserId = session.user.id;
+    }
     if (!batchId) {
       return NextResponse.json({ error: "batchId is required" }, { status: 400 });
     }
@@ -51,7 +59,7 @@ export async function POST(request: Request) {
     const selectedEmails = Array.isArray(accountEmails) ? accountEmails.filter((e): e is string => typeof e === "string" && e.trim().length > 0).map((e) => e.trim()) : undefined;
 
     const workspace = await prisma.workspace.findUnique({
-      where: { userId: session.user.id },
+      where: isCron ? { id: workspaceIdParam } : { userId: sessionUserId! },
       select: { id: true, playbookApproved: true, playbookJson: true },
     });
     if (!workspace) {
@@ -103,7 +111,9 @@ export async function POST(request: Request) {
     const shuffled = [...contactable].sort(() => Math.random() - 0.5);
     batch.leads = shuffled as typeof batch.leads;
 
-    const ctx = await getInstantlyClientForUserId(session.user.id);
+    const ctx = isCron
+      ? await getInstantlyClientForWorkspaceId(workspace.id)
+      : await getInstantlyClientForUserId(sessionUserId!);
     if (!ctx) {
       return NextResponse.json(
         { error: "Instantly API key not configured. Add it in onboarding." },

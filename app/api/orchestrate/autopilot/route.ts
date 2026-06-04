@@ -6,11 +6,11 @@ import { prisma } from "@/lib/prisma";
 export const dynamic = "force-dynamic";
 
 /**
- * POST { enabled: boolean } — set the workspace autopilot preference.
+ * POST { enabled: boolean } — toggle the workspace autopilot.
  *
- * NOTE: autopilot governs future hands-off sending. While the orchestrator's
- * automatic send step is not yet wired, this stores intent only — every send
- * still goes through the manual approval gate on the Launch page.
+ * When ON, the daily cron (/api/orchestrate/run) generates and sends
+ * automatically for this workspace, up to autopilotDailyLimit, appending into
+ * the most recent live Instantly campaign. Manual sending still works anytime.
  */
 export async function POST(request: Request) {
   try {

@@ -112,11 +112,6 @@ function inferRegister(persona?: string | null, industry?: string | null, vertic
 
 export async function POST(request: Request) {
   try {
-    const session = await getServerSession(authOptions);
-    if (!session?.user?.id) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
-
     const body = await request.json();
     const {
       batchId,
@@ -129,7 +124,20 @@ export async function POST(request: Request) {
       useVideo: useVideoParam,
       useSampleOutput: useSampleOutputParam,
       style: styleParam,
-    } = body as { batchId: string; offset?: number; limit?: number; campaignId?: string; useFastModel?: boolean; useWebScraping?: boolean; useLandingPage?: boolean; useVideo?: boolean; useSampleOutput?: boolean; style?: string };
+      workspaceId: workspaceIdParam,
+    } = body as { batchId: string; offset?: number; limit?: number; campaignId?: string; useFastModel?: boolean; useWebScraping?: boolean; useLandingPage?: boolean; useVideo?: boolean; useSampleOutput?: boolean; style?: string; workspaceId?: string };
+
+    // Auth: session for users, or CRON_SECRET + workspaceId for the autopilot orchestrator
+    const cronSecret = process.env.CRON_SECRET;
+    const isCron = Boolean(cronSecret && request.headers.get("x-cron-secret") === cronSecret && workspaceIdParam);
+    let sessionUserId: string | null = null;
+    if (!isCron) {
+      const session = await getServerSession(authOptions);
+      if (!session?.user?.id) {
+        return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+      }
+      sessionUserId = session.user.id;
+    }
     const useWebScraping = useWebScrapingParam === true;
     const useLandingPage = useLandingPageParam === true;
     const useVideo = useVideoParam === true;
@@ -144,7 +152,7 @@ export async function POST(request: Request) {
     const limit = Math.min(CHUNK_SIZE, Math.max(1, Number(limitParam) || CHUNK_SIZE));
 
     const workspace = await prisma.workspace.findUnique({
-      where: { userId: session.user.id },
+      where: isCron ? { id: workspaceIdParam } : { userId: sessionUserId! },
       select: { id: true, anthropicKey: true, anthropicModel: true, productSummary: true, icp: true, proofPointsJson: true, socialProofJson: true, playbookJson: true, senderName: true, customInstructions: true },
     });
 

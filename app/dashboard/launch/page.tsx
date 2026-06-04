@@ -286,7 +286,7 @@ export default function LaunchPage() {
               </p>
               <p className="text-xs mt-0.5" style={{ color: "var(--text-tertiary)" }}>
                 {autopilot
-                  ? "Hands-off sending isn't wired yet — sends still require your approval below until that's enabled."
+                  ? "The daily job generates and sends automatically (into your latest campaign), up to your daily limit. You can still send manually below anytime."
                   : "Every batch waits for your review and approval before any email is sent."}
               </p>
             </div>
