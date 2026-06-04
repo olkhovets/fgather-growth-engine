@@ -23,6 +23,9 @@ export async function POST(request: Request) {
     const senderName = typeof body.senderName === "string" ? body.senderName.trim() || null : null;
     const similarCompanies = typeof body.similarCompanies === "string" ? body.similarCompanies.trim() || null : null;
     const referralPhrase = typeof body.referralPhrase === "string" ? body.referralPhrase.trim() || null : null;
+    // Optional manual product summary + ICP (otherwise productSummary comes from the domain crawl)
+    const productSummary = typeof body.productSummary === "string" ? body.productSummary.trim() : undefined;
+    const icp = typeof body.icp === "string" ? body.icp.trim() : undefined;
 
     if (!domain) {
       return NextResponse.json(
@@ -58,6 +61,8 @@ export async function POST(request: Request) {
         domain,
         ...(senderName !== undefined && { senderName }),
         socialProofJson,
+        ...(productSummary !== undefined && productSummary !== "" && { productSummary }),
+        ...(icp !== undefined && icp !== "" && { icp }),
         ...(anthropicKey && { anthropicKey: encryptedAnthropicKey }),
         ...(instantlyKey && { instantlyKey: encryptedInstantlyKey }),
         ...(lumaApiKey && { lumaApiKey: encryptedLumaKey }),
@@ -68,6 +73,8 @@ export async function POST(request: Request) {
         domain,
         senderName: senderName ?? null,
         socialProofJson,
+        ...(productSummary ? { productSummary } : {}),
+        ...(icp ? { icp } : {}),
         anthropicKey: encryptedAnthropicKey,
         instantlyKey: encryptedInstantlyKey,
         lumaApiKey: encryptedLumaKey,
@@ -102,6 +109,7 @@ export async function GET(request: Request) {
         id: true,
         domain: true,
         productSummary: true,
+        icp: true,
         anthropicModel: true,
         senderName: true,
         socialProofJson: true,

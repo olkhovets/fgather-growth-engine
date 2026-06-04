@@ -11,6 +11,8 @@ export default function OnboardingPage() {
   const { ready, loading: guardLoading, session } = useAuthGuard();
   const router = useRouter();
   const [domain, setDomain] = useState("");
+  const [productSummary, setProductSummary] = useState("");
+  const [icp, setIcp] = useState("");
   const [senderName, setSenderName] = useState("");
   const [similarCompanies, setSimilarCompanies] = useState("");
   const [referralPhrase, setReferralPhrase] = useState("");
@@ -30,6 +32,8 @@ export default function OnboardingPage() {
           if (data.workspace) {
             setExistingData(data.workspace);
             setDomain(data.workspace.domain || "");
+            setProductSummary(data.workspace.productSummary || "");
+            setIcp(data.workspace.icp || "");
             setSenderName(data.workspace.senderName || "");
             if (data.workspace.socialProofJson) {
               try {
@@ -78,6 +82,8 @@ export default function OnboardingPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           domain,
+          productSummary: productSummary.trim() || null,
+          icp: icp.trim() || null,
           senderName: senderName.trim() || null,
           similarCompanies: similarCompanies.trim() || null,
           referralPhrase: referralPhrase.trim() || null,
@@ -173,6 +179,42 @@ export default function OnboardingPage() {
             />
             <p className="mt-1 text-xs text-zinc-500">
               We'll crawl the home page of this domain to understand your product.
+            </p>
+          </div>
+
+          <div>
+            <label htmlFor="product_summary" className="block text-sm font-medium text-zinc-300">
+              Product summary
+            </label>
+            <textarea
+              id="product_summary"
+              name="product_summary"
+              rows={4}
+              placeholder="What your product does, who it's for, and the core value. 2–4 sentences."
+              value={productSummary}
+              onChange={(e) => setProductSummary(e.target.value)}
+              className="mt-2 w-full rounded-md border border-zinc-700 bg-zinc-900 px-4 py-3 text-zinc-100 placeholder-zinc-500 focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+            />
+            <p className="mt-1 text-xs text-zinc-500">
+              Used to write emails and generate guidelines. Auto-filled from the domain crawl, but you can edit it here.
+            </p>
+          </div>
+
+          <div>
+            <label htmlFor="icp" className="block text-sm font-medium text-zinc-300">
+              Ideal Customer Profile (ICP)
+            </label>
+            <textarea
+              id="icp"
+              name="icp"
+              rows={4}
+              placeholder="Who you target: roles, company type, size, industry, and the pain they feel. Be specific."
+              value={icp}
+              onChange={(e) => setIcp(e.target.value)}
+              className="mt-2 w-full rounded-md border border-zinc-700 bg-zinc-900 px-4 py-3 text-zinc-100 placeholder-zinc-500 focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+            />
+            <p className="mt-1 text-xs text-zinc-500">
+              Required to generate messaging guidelines. The more specific, the better the emails.
             </p>
           </div>
 
