@@ -31,7 +31,7 @@ export async function GET() {
     }
     const workspace = await prisma.workspace.findUnique({
       where: { userId: session.user.id },
-      select: { id: true, autopilot: true, playbookApproved: true, playbookJson: true, productSummary: true, icp: true },
+      select: { id: true, autopilot: true, autopilotDailyLimit: true, inboxDailyLimit: true, playbookApproved: true, playbookJson: true, productSummary: true, icp: true },
     });
     if (!workspace) {
       return NextResponse.json({ error: "Workspace not found" }, { status: 404 });
@@ -113,8 +113,38 @@ export async function GET() {
       });
     }
 
+    // Most recent autopilot run (for the "last run" indicator on the launch page)
+    const lastRunLog = await prisma.activityLog.findFirst({
+      where: { workspaceId: workspace.id, type: "autopilot" },
+      orderBy: { createdAt: "desc" },
+      select: { createdAt: true, metaJson: true },
+    });
+    let lastAutopilotRun: { at: string; generated: number; sent: number } | null = null;
+    if (lastRunLog) {
+      let generated = 0, sent = 0;
+      try {
+        const m = lastRunLog.metaJson ? JSON.parse(lastRunLog.metaJson) : {};
+        generated = Number(m.generated) || 0;
+        sent = Number(m.sent) || 0;
+      } catch {
+        //
+      }
+      lastAutopilotRun = { at: lastRunLog.createdAt.toISOString(), generated, sent };
+    }
+
+    // Leads added to Instantly today (UTC) — a quick "are we actually sending?" number.
+    const startOfDay = new Date();
+    startOfDay.setUTCHours(0, 0, 0, 0);
+    const sentToday = await prisma.lead.count({
+      where: { leadBatch: { workspaceId: workspace.id }, sentAt: { gte: startOfDay } },
+    });
+
     return NextResponse.json({
       autopilot: workspace.autopilot,
+      autopilotDailyLimit: workspace.autopilotDailyLimit ?? 200,
+      inboxDailyLimit: workspace.inboxDailyLimit ?? 30,
+      sentToday,
+      lastAutopilotRun,
       playbookApproved: workspace.playbookApproved,
       hasPlaybook,
       hasProductContext,

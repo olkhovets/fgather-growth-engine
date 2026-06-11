@@ -6,10 +6,13 @@ import { decrypt } from "@/lib/encryption";
 import { callAnthropic } from "@/lib/anthropic";
 import { getAggregatedMemory } from "@/lib/performance-memory";
 import { loadActiveExperiments, assignExperiments, loadLearnings, learningsBlock } from "@/lib/experiments";
+import { pickWildcard } from "@/lib/wildcard-approaches";
 import { parsePlaybook } from "@/lib/playbook";
 import { scrapeForContext } from "@/lib/scrape";
 import { generateLeadResearch } from "@/lib/research";
 import { generateLandingPageContent, landingPageContentForEmailPrompt } from "@/lib/lp-content-gen";
+import { logActivity } from "@/lib/activity";
+import { validateEmailSteps, autoFixEmailContent } from "@/lib/email-validator";
 import { randomUUID } from "crypto";
 
 export const dynamic = "force-dynamic";
@@ -153,7 +156,7 @@ export async function POST(request: Request) {
 
     const workspace = await prisma.workspace.findUnique({
       where: isCron ? { id: workspaceIdParam } : { userId: sessionUserId! },
-      select: { id: true, anthropicKey: true, anthropicModel: true, productSummary: true, icp: true, proofPointsJson: true, socialProofJson: true, playbookJson: true, senderName: true, customInstructions: true },
+      select: { id: true, anthropicKey: true, anthropicModel: true, productSummary: true, icp: true, proofPointsJson: true, socialProofJson: true, playbookJson: true, senderName: true, customInstructions: true, schedulingLink: true },
     });
 
     if (!workspace?.anthropicKey) {
@@ -292,6 +295,13 @@ export async function POST(request: Request) {
       ? `\n\nIMPORTANT OPERATOR INSTRUCTIONS (apply to every email, these override style defaults where they conflict):\n${workspace.customInstructions.trim()}`
       : "";
 
+    // Link policy. Blank scheduling link = NEVER any link (stops the model inventing fake
+    // Calendly URLs). Set = use that EXACT link, follow-up steps only, never step 1.
+    const schedulingLink = workspace.schedulingLink?.trim() || "";
+    const linkPolicy = schedulingLink
+      ? `- LINK POLICY: Step 1 must contain NO links of any kind. In step 2 or later you MAY include this EXACT booking link, unchanged, and no other URL: ${schedulingLink}\n- Never invent, guess, shorten, or alter any link. Do not fabricate a Calendly or any other URL — only the exact link above is allowed.`
+      : `- LINK POLICY: Reply-first. NEVER include any link, URL, or scheduling link in ANY step. Do not write or invent a Calendly, website, or booking URL anywhere. The only call to action is to reply.`;
+
     const processLead = async (lead: (typeof chunk)[0], leadIndex: number) => {
       // Resolve style: explicit batch style → inferred from persona/industry → direct-ask fallback
       const resolvedStyle = batchStyle ?? inferStyle(lead.persona, lead.industry, lead.vertical);
@@ -300,6 +310,14 @@ export async function POST(request: Request) {
 
       // Assign this lead a balanced set of active experiment variants for attribution
       const { ids: experimentIds, block: experimentBlock } = assignExperiments(activeExperiments, leadIndex);
+
+      // ~10% of leads get a deliberately RADICAL wildcard approach (spread across many
+      // styles) to discover whether any unconventional angle breaks through when the
+      // standard approach is getting near-zero replies. Recorded per-lead for tracking.
+      const wildcard = pickWildcard(lead.email);
+      const wildcardBlock = wildcard
+        ? `\n\n=== RADICAL APPROACH OVERRIDE (highest priority — follow this over the standard structure above) ===\nWe are testing bold, unconventional emails to find what breaks through. For THIS email, use this approach:\n${wildcard.instruction}\nStill obey the hard rules: no links in step 1, no em dashes, no AI-sounding words, prose only, keep the sign-off rule below. Each step still needs a real subject (>=10 chars) and a body of at least 2 short sentences. But otherwise be genuinely bold and different from a normal cold email.`
+        : "";
 
       // Style-specific sign-off: direct-ask uses first name only (brevity = credibility);
       // other styles append the company name for a light authority signal
@@ -323,16 +341,20 @@ ${productSummary}
 IDEAL CUSTOMER PROFILE:
 ${icp}${proofPointsText}${socialProofText}${structureBlock}${registerBlock}
 
+MAKE THEM CARE (most important — this decides whether the email works):
+- Lead with THEIR world, not the product. Open on a real tension this person feels in their job right now, then show the specific shift the product makes possible. Sell the outcome and the speed, never a feature list.
+- Be concrete with proof. Every proof point is a real customer name plus a specific, tangible result. Never "companies like yours", never vague claims. Name-drop a recognizable customer when it fits the recipient (a consumer brand for a B2C marketer, an enterprise for a tech marketer).
+- One idea per email. If they remember one sentence, it should be the transformation, not your company name.
+
 STEP JOBS — each step has one specific job, do not blur them:
-- Step 1: Earn the demo ask through the email itself. Open in their world (pain, insight, or proof). Close with a short conditional demo invite — the opening should make the ask feel obvious, not pushy. No links.
-- Step 2: Reinforce with proof. Add a real proof point (customer name + specific result) and repeat the demo ask directly. A booking link is permitted here.
+- Step 1: Earn the demo ask through the email itself. Open in their world (a pain or a sharp insight), then make the transformation obvious. Close with a short conditional demo invite that feels like the natural next step, not a pitch. No links.
+- Step 2: Reinforce with proof. Lead with one real proof point (customer name + specific result), then repeat the demo ask directly. Follow the LINK POLICY below for whether a booking link is allowed.
 - Step 3: Pattern interrupt or graceful exit. Either a completely fresh angle in under 60 words, or a genuine breakup — e.g. "Happy to leave you alone if the timing isn't right — just say the word."
 
 EMAIL RULES:
 - Subject line: 6–10 words max, no punctuation, no clickbait, no ALL CAPS
 - Step 1 body: 3–5 sentences, under ${MAX_BODY_WORDS} words
-- NEVER include links, URLs, or hyperlinks in step 1 — no Calendly, no website, no product links
-- Steps 2+ may include one booking link if helpful
+${linkPolicy}
 ${usePS ? `- Include a P.S. line in step 1 — reference something real and specific about them (recent launch, campaign, hire, news)` : `- Do NOT include a P.S. line — the style requires a clean ending`}
 - Steps 2+ must NOT open with a greeting — they thread as inbox replies (Re: subject)
 - Never use exclamation marks, jargon, or generic claims like "I came across your profile"
@@ -342,7 +364,7 @@ ${usePS ? `- Include a P.S. line in step 1 — reference something real and spec
 - Write as a human peer, not a marketer
 - Sign off every email with the SENDER'S name (yours), never the recipient's name. Use exactly: ${signoff}
 
-${styleConfig.prompt}${learningsText}${experimentBlock}${customInstructionsText}`;
+${styleConfig.prompt}${learningsText}${experimentBlock}${customInstructionsText}${wildcardBlock}`;
       let companyContextBlock = "";
       let companyContextRaw: string | null = null;
       if (useWebScraping && lead.website?.trim()) {
@@ -429,20 +451,22 @@ ${styleConfig.prompt}${learningsText}${experimentBlock}${customInstructionsText}
         const instructions: string[] = [];
         if (lead.persona && memory.byPersona[lead.persona]) {
           const p = memory.byPersona[lead.persona];
+          const posReplies = p.positive_reply_count ?? 0;
+          const objections = p.objection_count ?? 0;
           const openRate = p.open_rate_pct_avg ?? 0;
-          parts.push(`Persona "${lead.persona}": open rate ${openRate}%, click rate ${p.click_rate_pct_avg ?? "?"}%, ${p.positive_reply_count ?? 0} positive replies`);
-          if (openRate > 0 && openRate < 15) {
-            instructions.push(`For "${lead.persona}" (low ${openRate}% open rate): write SHORTER subject lines (under 50 chars), use curiosity hooks or questions.`);
-          } else if (openRate >= 25) {
-            instructions.push(`For "${lead.persona}" (strong ${openRate}% open rate): keep similar subject style that worked.`);
+          parts.push(`Persona "${lead.persona}": ${posReplies} positive replies, ${objections} objections (open rate ${openRate}% — weak signal, no links so opens are unreliable)`);
+          if (posReplies > 0) {
+            instructions.push(`"${lead.persona}" is converting (${posReplies} positive replies) — reuse the angles and proof that have worked for this persona.`);
+          } else if (objections >= 3) {
+            instructions.push(`"${lead.persona}" replies but objects (${objections} objections, 0 positives) — change the offer or reason-to-reply, not just the subject line.`);
           }
         }
         if (lead.vertical && memory.byVertical[lead.vertical]) {
           const v = memory.byVertical[lead.vertical];
           const posReplies = v.positive_reply_count ?? 0;
-          parts.push(`Vertical "${lead.vertical}": open rate ${v.open_rate_pct_avg ?? "?"}%, ${posReplies} positive replies`);
+          parts.push(`Vertical "${lead.vertical}": ${posReplies} positive replies`);
           if (posReplies > 0) {
-            instructions.push(`Vertical "${lead.vertical}" converts — emphasize value and proof that resonate with this segment.`);
+            instructions.push(`Vertical "${lead.vertical}" converts — emphasize the value and proof that resonate with this segment.`);
           }
         }
         if (parts.length > 0) {
@@ -508,6 +532,24 @@ Return ONLY valid JSON: { ${stepExample} }`;
           throw new Error(`Claude returned empty step1 subject. Raw: ${raw.slice(0, 300)}`);
         }
 
+        // Auto-fix em dashes (hard rule — always clean)
+        for (const step of stepsArray) {
+          step.subject = autoFixEmailContent(step.subject);
+          step.body = autoFixEmailContent(step.body);
+        }
+
+        // Quality check — log violations but do not block (auto-fix handles the worst offenders)
+        const { violations, hasViolations } = validateEmailSteps(stepsArray);
+        if (hasViolations) {
+          const summary = violations.map((v) => `step${v.step} ${v.field}: ${v.issues.map((i) => i.detail).join(", ")}`).join(" | ");
+          console.warn(`[generate] Email quality violations for lead ${lead.id}: ${summary}`);
+          // Log as activity so operator can see it on the activity page
+          logActivity(workspace.id, "info",
+            `Quality warning: ${violations.length} issue(s) in generated email for ${lead.company ?? lead.email}`,
+            { leadId: lead.id, violations: summary.slice(0, 500) }
+          ).catch(() => {});
+        }
+
         // Auto-shorten any step body that exceeds word limit
         for (const step of stepsArray) {
           if (wordCount(step.body) > MAX_BODY_WORDS) {
@@ -528,6 +570,7 @@ Return ONLY valid JSON: { ${stepExample} }`;
           stepsJson: JSON.stringify(stepsArray),
           emailStyle: resolvedStyle, // always save — inferred or explicit
           experimentIdsJson: experimentIds.length > 0 ? JSON.stringify(experimentIds) : null, // for variant attribution
+          wildcardApproach: wildcard?.label ?? null, // radical-approach tracking (null = standard)
         };
         update.step1Subject = stepsArray[0].subject || null;
         update.step1Body = stepsArray[0].body || null;
@@ -568,6 +611,17 @@ Return ONLY valid JSON: { ${stepExample} }`;
         output_tokens: acc.output_tokens + r.usage.output_tokens,
       }),
       { input_tokens: 0, output_tokens: 0 }
+    );
+
+    await logActivity(workspace.id, "generate",
+      `Generated ${chunk.length} email sequence${chunk.length === 1 ? "" : "s"} (${numSteps} steps each) — ${total - chunk.length} remain`,
+      {
+        generated: chunk.length,
+        remaining: Math.max(0, total - chunk.length),
+        steps: numSteps,
+        batchId,
+        ...(usageTotal.input_tokens > 0 ? { input_tokens: usageTotal.input_tokens, output_tokens: usageTotal.output_tokens } : {}),
+      }
     );
 
     return NextResponse.json({

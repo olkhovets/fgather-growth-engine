@@ -7,6 +7,7 @@ export type NormalizedLead = {
   company?: string;
   website?: string;
   industry?: string;
+  emailProvider?: string;
 };
 
 /**
@@ -69,6 +70,7 @@ export async function createBatchWithLeads(
       company: l.company?.trim() || null,
       website: l.website?.trim() || null,
       industry: l.industry?.trim() || null,
+      emailProvider: l.emailProvider ?? null,
     })),
   });
 

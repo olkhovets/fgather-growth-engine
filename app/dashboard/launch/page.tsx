@@ -1,4 +1,5 @@
 "use client";
+import DashboardSidebar from "@/components/DashboardSidebar";
 
 import Link from "next/link";
 import { useSession, signOut } from "next-auth/react";
@@ -20,51 +21,28 @@ type BatchStatus = {
 };
 
 function Sidebar({ email, active }: { email?: string | null; active: string }) {
-  const link = (href: string, label: string, path: string, isActive: boolean) => (
-    <Link href={href} className={`sidebar-link${isActive ? " active" : ""}`}>
-      <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}>
-        <path strokeLinecap="round" strokeLinejoin="round" d={path} />
-      </svg>
-      {label}
-    </Link>
-  );
-  return (
-    <aside className="w-60 flex-shrink-0 flex flex-col border-r" style={{ background: "var(--surface)", borderColor: "var(--border)" }}>
-      <div className="px-5 py-5 border-b" style={{ borderColor: "var(--border)" }}>
-        <Link href="/dashboard" className="flex items-center gap-2.5">
-          <div className="h-7 w-7 rounded-lg flex items-center justify-center text-white text-sm font-bold" style={{ background: "var(--accent)" }}>g</div>
-          <span className="font-semibold text-sm" style={{ color: "var(--text-primary)" }}>gather</span>
-        </Link>
-      </div>
-      <nav className="flex-1 p-3 space-y-0.5">
-        {link("/dashboard", "Dashboard", "M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6", active === "dashboard")}
-        {link("/dashboard/apollo", "Lead source", "M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4", active === "apollo")}
-        {link("/dashboard/launch", "Launch control", "M13 10V3L4 14h7v7l9-11h-7z", active === "launch")}
-        {link("/dashboard/experiments", "Experiments", "M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z", active === "experiments")}
-        {link("/dashboard/activity", "Activity log", "M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01", active === "activity")}
-        {link("/onboarding", "Settings", "M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z", active === "settings")}
-      </nav>
-      <div className="p-3 border-t" style={{ borderColor: "var(--border)" }}>
-        <div className="flex items-center gap-3 rounded-lg px-3 py-2">
-          <div className="h-7 w-7 rounded-full flex items-center justify-center text-xs font-semibold text-white flex-shrink-0" style={{ background: "var(--accent)" }}>
-            {email?.[0]?.toUpperCase() ?? "U"}
-          </div>
-          <div className="flex-1 min-w-0"><p className="text-xs font-medium truncate" style={{ color: "var(--text-primary)" }}>{email}</p></div>
-          <button onClick={() => signOut({ callbackUrl: "/" })} className="text-xs flex-shrink-0" style={{ color: "var(--text-tertiary)" }} title="Log out">
-            <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
-            </svg>
-          </button>
-        </div>
-      </div>
-    </aside>
-  );
+  return <DashboardSidebar active={active} userEmail={email} />;
+}
+
+function relativeTime(iso: string): string {
+  const s = Math.round((Date.now() - new Date(iso).getTime()) / 1000);
+  if (s < 60) return `${s}s ago`;
+  if (s < 3600) return `${Math.round(s / 60)}m ago`;
+  if (s < 86400) return `${Math.round(s / 3600)}h ago`;
+  return `${Math.round(s / 86400)}d ago`;
 }
 
 export default function LaunchPage() {
   const { ready, loading: guardLoading, session } = useAuthGuard();
   const [batches, setBatches] = useState<BatchStatus[]>([]);
   const [autopilot, setAutopilot] = useState(false);
+  const [autopilotLimit, setAutopilotLimit] = useState("200");
+  const [savingLimit, setSavingLimit] = useState(false);
+  const [lastRun, setLastRun] = useState<{ at: string; generated: number; sent: number } | null>(null);
+  const [runningNow, setRunningNow] = useState(false);
+  const [inboxLimit, setInboxLimit] = useState("30");
+  const [sentToday, setSentToday] = useState(0);
+  const [capacity, setCapacity] = useState<{ total: number; warmed: number; unwarmed: number; perInbox: number; capacityPerDay: number } | null>(null);
   const [playbookApproved, setPlaybookApproved] = useState(true);
   const [loading, setLoading] = useState(true);
   const [busyBatch, setBusyBatch] = useState<string | null>(null);
@@ -85,6 +63,50 @@ export default function LaunchPage() {
   const [customInstructions, setCustomInstructions] = useState("");
   const [savingInstructions, setSavingInstructions] = useState(false);
   const [instructionsOpen, setInstructionsOpen] = useState(false);
+  // Guidelines preview/edit (so they can actually be reviewed before approval)
+  const [pbText, setPbText] = useState("");
+  const [pbMeta, setPbMeta] = useState<{ numSteps?: number; stepDelays?: number[] }>({});
+  const [pbExists, setPbExists] = useState(false);
+  const [pbSaving, setPbSaving] = useState(false);
+
+  // Flatten a playbook's guidelines into editable text (context, or tone + structure).
+  const guidelinesToText = (g: { context?: string; tone?: string; structure?: string }) =>
+    g?.context?.trim()
+      ? g.context
+      : [g?.tone ? `Tone: ${g.tone}` : "", g?.structure ?? ""].filter(Boolean).join("\n\n");
+
+  const loadPlaybook = useCallback(() => {
+    if (!session?.user?.id) return;
+    fetch("/api/playbook")
+      .then((r) => r.json())
+      .then((d) => {
+        const g = d?.playbook?.guidelines;
+        if (g) {
+          setPbExists(true);
+          setPbText(guidelinesToText(g));
+          setPbMeta({ numSteps: g.numSteps, stepDelays: Array.isArray(g.stepDelays) ? g.stepDelays : undefined });
+        }
+      })
+      .catch(() => {});
+  }, [session?.user?.id]);
+
+  useEffect(() => { loadPlaybook(); }, [loadPlaybook]);
+
+  const savePlaybookText = async () => {
+    setPbSaving(true);
+    try {
+      const playbook = { guidelines: { context: pbText.trim(), numSteps: pbMeta.numSteps ?? 5, stepDelays: pbMeta.stepDelays ?? [1, 3, 5, 7, 10] } };
+      const res = await fetch("/api/playbook", {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ playbook }),
+      });
+      const d = await res.json();
+      setMessage(d.error ? d.error : "Guidelines saved.");
+    } catch {
+      setMessage("Could not save guidelines.");
+    } finally {
+      setPbSaving(false);
+    }
+  };
 
   const load = useCallback(() => {
     if (!session?.user?.id) return;
@@ -94,6 +116,10 @@ export default function LaunchPage() {
         if (d.error) { setMessage(d.error); return; }
         setBatches(d.batches ?? []);
         setAutopilot(Boolean(d.autopilot));
+        if (d.autopilotDailyLimit) setAutopilotLimit(String(d.autopilotDailyLimit));
+        if (d.inboxDailyLimit) setInboxLimit(String(d.inboxDailyLimit));
+        setSentToday(d.sentToday ?? 0);
+        setLastRun(d.lastAutopilotRun ?? null);
         setPlaybookApproved(d.playbookApproved !== false);
         setHasPlaybook(d.hasPlaybook !== false);
         setHasProductContext(d.hasProductContext !== false);
@@ -110,6 +136,14 @@ export default function LaunchPage() {
   }, [session?.user?.id]);
 
   useEffect(() => { load(); }, [load]);
+
+  useEffect(() => {
+    if (!session?.user?.id) return;
+    fetch("/api/instantly/capacity")
+      .then((r) => r.json())
+      .then((d) => { if (!d.error) setCapacity(d); })
+      .catch(() => {});
+  }, [session?.user?.id]);
 
   useEffect(() => {
     if (!session?.user?.id) return;
@@ -160,7 +194,13 @@ export default function LaunchPage() {
       }
       setHasPlaybook(true);
       setPlaybookApproved(false);
-      setMessage("Guidelines created. Review them, then approve to enable sending.");
+      // Surface the generated guidelines immediately so they can be reviewed/edited.
+      if (gen.playbook?.guidelines) {
+        setPbExists(true);
+        setPbText(guidelinesToText(gen.playbook.guidelines));
+        setPbMeta({ numSteps: gen.playbook.guidelines.numSteps, stepDelays: gen.playbook.guidelines.stepDelays });
+      }
+      setMessage("Guidelines created. Review and edit them below, then approve to enable sending.");
     } catch {
       setMessage("Setup request failed.");
     } finally {
@@ -194,6 +234,52 @@ export default function LaunchPage() {
       body: JSON.stringify({ enabled: next }),
     });
   };
+
+  const saveDailyLimit = async () => {
+    setSavingLimit(true);
+    try {
+      const dailyLimit = Math.min(20000, Math.max(1, parseInt(autopilotLimit) || 200));
+      const inboxDailyLimit = Math.min(200, Math.max(1, parseInt(inboxLimit) || 30));
+      const res = await fetch("/api/orchestrate/autopilot", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ dailyLimit, inboxDailyLimit }),
+      });
+      const d = await res.json();
+      if (d.autopilotDailyLimit) setAutopilotLimit(String(d.autopilotDailyLimit));
+      if (d.inboxDailyLimit) setInboxLimit(String(d.inboxDailyLimit));
+      setMessage(d.error ? d.error : `Saved: ${d.autopilotDailyLimit} leads/day, ${d.inboxDailyLimit}/inbox.`);
+    } catch {
+      setMessage("Could not save the daily limit.");
+    } finally {
+      setSavingLimit(false);
+    }
+  };
+
+  const runAutopilotNow = async () => {
+    setRunningNow(true);
+    setMessage(null);
+    try {
+      const res = await fetch("/api/orchestrate/run", { method: "POST" });
+      const d = await res.json();
+      if (d.error) setMessage(d.error);
+      else if (d.skipped) setMessage("Nothing to run — no leads need generating or sending. Pull or upload more leads first.");
+      else {
+        const diag = d.genDiag?.error ? ` Generation issue: ${d.genDiag.error}` : "";
+        const sErr = d.sendError ? ` Send issue: ${d.sendError}` : "";
+        setMessage(`Autopilot run: generated ${d.generated ?? 0}, sent ${d.sent ?? 0}.${diag}${sErr}`);
+      }
+      load();
+    } catch {
+      setMessage("Run failed.");
+    } finally {
+      setRunningNow(false);
+    }
+  };
+
+  // Leads sitting in batches that autopilot still has to work through (not yet sent).
+  const queuedLeads = batches.reduce((sum, b) => sum + Math.max(0, (b.needsGeneration ?? 0) + (b.readyToSend ?? 0)), 0);
+  const dailyLimitNum = Math.min(20000, Math.max(1, parseInt(autopilotLimit) || 200));
+  const daysToClear = queuedLeads > 0 ? Math.ceil(queuedLeads / dailyLimitNum) : 0;
 
   // Generate sequences for a batch in a capped batch size (a few hundred at a time).
   // Stops once `cap` leads have sequences generated, leaving the rest of the batch untouched.
@@ -272,27 +358,101 @@ export default function LaunchPage() {
       <main className="flex-1 overflow-y-auto">
         <div className="max-w-3xl mx-auto px-8 py-8">
           <div className="mb-6">
-            <h1 className="text-xl font-semibold" style={{ color: "var(--text-primary)" }}>Launch control</h1>
+            <h1 className="text-xl font-semibold" style={{ color: "var(--text-primary)" }}>Generate &amp; send</h1>
             <p className="text-sm mt-0.5" style={{ color: "var(--text-secondary)" }}>
               Generate sequences, review the output, then approve each send. Nothing goes out without your click.
             </p>
           </div>
 
           {/* Mode banner */}
-          <div className="mb-6 card p-4 flex items-center justify-between">
-            <div>
-              <p className="text-sm font-medium" style={{ color: "var(--text-primary)" }}>
-                {autopilot ? "Autopilot preference: ON" : "Manual approval (recommended)"}
-              </p>
-              <p className="text-xs mt-0.5" style={{ color: "var(--text-tertiary)" }}>
-                {autopilot
-                  ? "The daily job generates and sends automatically (into your latest campaign), up to your daily limit. You can still send manually below anytime."
-                  : "Every batch waits for your review and approval before any email is sent."}
-              </p>
+          <div className="mb-6 card p-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-medium" style={{ color: "var(--text-primary)" }}>
+                  {autopilot ? "Autopilot: ON" : "Manual approval (recommended)"}
+                </p>
+                <p className="text-xs mt-0.5" style={{ color: "var(--text-tertiary)" }}>
+                  {autopilot
+                    ? "Runs once a day (~08:00 ET): generates fresh sequences and sends them into your latest campaign, up to the daily limit. You can still send manually below anytime."
+                    : "Every batch waits for your review and approval before any email is sent."}
+                </p>
+              </div>
+              <div className="flex items-center gap-3 flex-shrink-0 ml-4">
+                <button onClick={runAutopilotNow} disabled={runningNow} className="btn-primary whitespace-nowrap">
+                  {runningNow ? "Running…" : "Run a batch now"}
+                </button>
+                <button onClick={toggleAutopilot} title={autopilot ? "Turn autopilot off" : "Turn autopilot on"} className="relative inline-flex h-6 w-11 items-center rounded-full transition-colors" style={{ background: autopilot ? "var(--accent)" : "var(--border)" }}>
+                  <span className="inline-block h-4 w-4 transform rounded-full bg-white transition-transform" style={{ transform: autopilot ? "translateX(24px)" : "translateX(4px)" }} />
+                </button>
+              </div>
             </div>
-            <button onClick={toggleAutopilot} className="relative inline-flex h-6 w-11 items-center rounded-full transition-colors" style={{ background: autopilot ? "var(--accent)" : "var(--border)" }}>
-              <span className="inline-block h-4 w-4 transform rounded-full bg-white transition-transform" style={{ transform: autopilot ? "translateX(24px)" : "translateX(4px)" }} />
-            </button>
+            <p className="text-xs mt-2" style={{ color: "var(--text-tertiary)" }}>
+              &ldquo;Run a batch now&rdquo; kicks a cycle immediately (generates ~30, sends what&apos;s ready) — no need to wait for the daily run. Works whether autopilot is on or off.
+            </p>
+
+            {autopilot && (
+              <div className="mt-4 pt-4 border-t" style={{ borderColor: "var(--border)" }}>
+                <div className="flex flex-wrap items-end gap-3">
+                  <div>
+                    <label className="block text-xs font-medium mb-1" style={{ color: "var(--text-secondary)" }}>Leads per day</label>
+                    <input
+                      type="number" min={1} max={20000} value={autopilotLimit}
+                      onChange={(e) => setAutopilotLimit(e.target.value.replace(/[^0-9]/g, ""))}
+                      className="w-28 rounded-lg border px-3 py-2 text-sm"
+                      style={{ background: "var(--surface)", borderColor: "var(--border)", color: "var(--text-primary)" }}
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium mb-1" style={{ color: "var(--text-secondary)" }}>Per inbox/day</label>
+                    <input
+                      type="number" min={1} max={200} value={inboxLimit}
+                      onChange={(e) => setInboxLimit(e.target.value.replace(/[^0-9]/g, ""))}
+                      className="w-24 rounded-lg border px-3 py-2 text-sm"
+                      style={{ background: "var(--surface)", borderColor: "var(--border)", color: "var(--text-primary)" }}
+                    />
+                  </div>
+                  <button onClick={saveDailyLimit} disabled={savingLimit} className="btn-secondary">
+                    {savingLimit ? "Saving…" : "Set pace"}
+                  </button>
+                </div>
+                <div className="mt-3 text-xs space-y-1" style={{ color: "var(--text-tertiary)" }}>
+                  <p>
+                    <span style={{ color: "var(--text-secondary)" }}>Sent today:</span>{" "}
+                    <span className="font-medium" style={{ color: "var(--text-primary)" }}>{sentToday.toLocaleString()}</span> leads pushed to Instantly.
+                  </p>
+                  {capacity && (
+                    <p>
+                      <span style={{ color: "var(--text-secondary)" }}>Real capacity:</span>{" "}
+                      <span className="font-medium" style={{ color: capacity.warmed > 0 ? "#1A7A4A" : "#dc2626" }}>{capacity.warmed}</span> of {capacity.total} inboxes warmed → about <span className="font-medium" style={{ color: "var(--text-primary)" }}>{capacity.capacityPerDay.toLocaleString()}/day</span> Instantly will actually send.
+                      {capacity.unwarmed > 0 && <span> {capacity.unwarmed} still warming (~5/day each until ready).</span>}
+                      {dailyLimitNum > capacity.capacityPerDay && <span style={{ color: "#b45309" }}> Your {dailyLimitNum.toLocaleString()}/day limit is above capacity — extra leads just queue.</span>}
+                    </p>
+                  )}
+                  {parseInt(inboxLimit) > 50 && (
+                    <p style={{ color: "#b45309" }}>
+                      ⚠ {inboxLimit}/inbox is aggressive — only safe on inboxes aged several months. New/recently-warmed inboxes will land in spam at this rate.
+                    </p>
+                  )}
+                  <p>
+                    <span style={{ color: "var(--text-secondary)" }}>Last run:</span>{" "}
+                    {lastRun
+                      ? <span style={{ color: "var(--text-primary)" }}>{relativeTime(lastRun.at)} — generated {lastRun.generated}, sent {lastRun.sent}</span>
+                      : "no autopilot run yet (first run happens at the next daily cycle)"}
+                  </p>
+                  <p>
+                    <span style={{ color: "var(--text-secondary)" }}>Pace:</span> up to <span className="font-medium" style={{ color: "var(--text-primary)" }}>{dailyLimitNum}</span> leads generated &amp; queued per day, in one daily run.
+                  </p>
+                  {queuedLeads > 0 ? (
+                    <p>
+                      <span style={{ color: "var(--text-secondary)" }}>Queue:</span> {queuedLeads.toLocaleString()} leads not yet sent → about <span className="font-medium" style={{ color: "var(--text-primary)" }}>{daysToClear} {daysToClear === 1 ? "day" : "days"}</span> to work through at this pace.
+                    </p>
+                  ) : (
+                    <p>No leads queued right now — pull or upload more from <Link href="/dashboard/apollo" className="underline" style={{ color: "var(--accent)" }}>Lead source</Link> to keep autopilot fed.</p>
+                  )}
+                  <p>Actual send speed is also capped by Instantly (~30 emails per warmed inbox per day), so real throughput is the lower of this limit and your inbox capacity.</p>
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Custom instructions — quick free-text addendum applied to every email */}
@@ -381,6 +541,44 @@ export default function LaunchPage() {
               </button>
             </div>
           ) : null}
+
+          {pbExists && (
+            <div className="mb-6 card p-5">
+              <div className="flex items-center justify-between mb-2">
+                <h2 className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>
+                  Your guidelines {playbookApproved ? "" : "(review before approving)"}
+                </h2>
+                {!playbookApproved && (
+                  <span className="text-xs px-2 py-0.5 rounded-full" style={{ background: "var(--warning-bg)", color: "var(--warning-text)" }}>Not approved yet</span>
+                )}
+              </div>
+              <p className="text-xs mb-2" style={{ color: "var(--text-tertiary)" }}>
+                This is what the AI follows when writing every email. Edit it freely, then save and approve.
+              </p>
+              <textarea
+                value={pbText}
+                onChange={(e) => setPbText(e.target.value)}
+                rows={10}
+                className="w-full rounded-lg border px-3 py-2.5 text-sm leading-relaxed font-mono resize-y"
+                style={{ background: "var(--surface)", borderColor: "var(--border)", color: "var(--text-primary)" }}
+              />
+              {(pbMeta.numSteps || pbMeta.stepDelays?.length) && (
+                <p className="mt-1.5 text-xs" style={{ color: "var(--text-tertiary)" }}>
+                  {pbMeta.numSteps ?? "?"}-step sequence{pbMeta.stepDelays?.length ? ` · days between: ${pbMeta.stepDelays.join(", ")}` : ""}
+                </p>
+              )}
+              <div className="mt-3 flex flex-wrap gap-2">
+                <button onClick={savePlaybookText} disabled={pbSaving || !pbText.trim()} className="btn-secondary">
+                  {pbSaving ? "Saving…" : "Save guidelines"}
+                </button>
+                {!playbookApproved && (
+                  <button onClick={approvePlaybook} disabled={approvingPlaybook} className="btn-primary">
+                    {approvingPlaybook ? "Approving…" : "Approve guidelines"}
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
 
           {message && (
             <div className="mb-6 card p-4 border-l-4" style={{ borderLeftColor: "var(--accent)" }}>

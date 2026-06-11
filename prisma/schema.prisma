@@ -92,6 +92,14 @@ model Workspace {
   autopilot        Boolean  @default(false) // when true, the daily orchestrator generates AND sends without manual approval
   customInstructions String? // free-text addendum injected into every generation prompt (e.g. "offer a $100 Uber Eats card for booked demos")
   autopilotDailyLimit Int    @default(200) // max leads autopilot generates+sends per day
+  inboxDailyLimit  Int?     // per-warmed-inbox daily send cap applied in Instantly (default 30; raise only for well-aged inboxes)
+  incentiveConfigJson String? // Incentives Lab: { subjectTemplate, bodyTemplate, amounts: number[] }
+  incentivesAutopilot Boolean @default(false) // when true, the orchestrator auto-pulls fresh leads (when low) and appends them into the rolling Incentives Lab campaign
+  incentivesPerRun     Int      @default(50)   // leads appended into the rolling campaign per autopilot run
+  incentivesIntervalMin Int     @default(30)   // minimum minutes between incentives-autopilot runs (paces sending)
+  incentivesDailyCap   Int      @default(500)  // max leads/day the incentives autopilot will append
+  incentivesLastRunAt  DateTime?               // when the incentives autopilot last appended (for interval pacing)
+  schedulingLink   String?  // real Calendly/booking link. Blank = NEVER include links. Set = used only in follow-up steps, never step 1.
   notifyOnActivity Boolean  @default(false) // email the operator on every activity-log event
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
@@ -115,6 +123,7 @@ model Campaign {
   proofPointsJson String?
   leadBatchId     String?  // set when leads added for this campaign
   ctaUrl          String?  // CTA URL shown on personalized landing pages
+  builderPrefsJson String? // builder UI prefs: { useFastModel, useWebScraping, useLandingPage, useVideo, selectedAccountEmails }
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
@@ -247,6 +256,11 @@ model Lead {
   repliedAt          DateTime? // when a reply was received
   requeueAt          DateTime? // for OOO replies: re-contact after this date
   suppressed         Boolean   @default(false) // true = never contact again (negative reply / bounce)
+  bouncedAt          DateTime? // set by the bounce webhook; drives suppression + the bounce-rate guardrail
+  wildcardApproach   String?   // if set, this lead got a radical "wildcard" email style — label for per-approach reply tracking
+  incentiveAmount    Int?      // Incentives Lab: dollar amount offered to this lead (for per-amount A/B tracking)
+  incentiveSubjectStyle String? // Incentives Lab: which subject-style variant this lead got (for style A/B)
+  emailProvider      String?   // inbox provider (Google / Microsoft / Yahoo / Other) — classified by MX at ingest, for provider analytics
   experimentIdsJson  String?   // JSON: string[] of PromptExperiment ids used to write this lead (for attribution)
   createdAt          DateTime  @default(now())
 

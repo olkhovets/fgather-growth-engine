@@ -16,6 +16,9 @@ export default function OnboardingPage() {
   const [senderName, setSenderName] = useState("");
   const [similarCompanies, setSimilarCompanies] = useState("");
   const [referralPhrase, setReferralPhrase] = useState("");
+  const [proofPointsText, setProofPointsText] = useState("");
+  const [customInstructions, setCustomInstructions] = useState("");
+  const [schedulingLink, setSchedulingLink] = useState("");
   const [anthropicKey, setAnthropicKey] = useState("");
   const [instantlyKey, setInstantlyKey] = useState("");
   const [lumaApiKey, setLumaApiKey] = useState("");
@@ -23,6 +26,33 @@ export default function OnboardingPage() {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [existingData, setExistingData] = useState<any>(null);
+  const [autofilling, setAutofilling] = useState(false);
+  const [autofillMsg, setAutofillMsg] = useState("");
+
+  const handleAutofill = async () => {
+    if (!domain.trim()) {
+      setAutofillMsg("Enter your website above first.");
+      return;
+    }
+    setAutofilling(true);
+    setAutofillMsg("");
+    try {
+      const res = await fetch("/api/onboarding/autofill", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ domain: domain.trim() }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Autofill failed");
+      if (data.productSummary) setProductSummary(data.productSummary);
+      if (data.icp) setIcp(data.icp);
+      setAutofillMsg("Drafted from your site. Review and edit before saving.");
+    } catch (e) {
+      setAutofillMsg(e instanceof Error ? e.message : "Autofill failed");
+    } finally {
+      setAutofilling(false);
+    }
+  };
 
   useEffect(() => {
     if (session?.user?.id) {
@@ -35,6 +65,16 @@ export default function OnboardingPage() {
             setProductSummary(data.workspace.productSummary || "");
             setIcp(data.workspace.icp || "");
             setSenderName(data.workspace.senderName || "");
+            setCustomInstructions(data.workspace.customInstructions || "");
+            setSchedulingLink(data.workspace.schedulingLink || "");
+            if (data.workspace.proofPointsJson) {
+              try {
+                const arr = JSON.parse(data.workspace.proofPointsJson) as Array<{ title?: string; text: string }>;
+                setProofPointsText(arr.map((p) => (p.title ? `${p.title}: ${p.text}` : p.text)).join("\n"));
+              } catch {
+                //
+              }
+            }
             if (data.workspace.socialProofJson) {
               try {
                 const sp = JSON.parse(data.workspace.socialProofJson);
@@ -87,6 +127,9 @@ export default function OnboardingPage() {
           senderName: senderName.trim() || null,
           similarCompanies: similarCompanies.trim() || null,
           referralPhrase: referralPhrase.trim() || null,
+          proofPointsText,
+          customInstructions: customInstructions.trim(),
+          schedulingLink: schedulingLink.trim(),
           anthropicKey,
           instantlyKey,
           lumaApiKey,
@@ -183,9 +226,23 @@ export default function OnboardingPage() {
           </div>
 
           <div>
-            <label htmlFor="product_summary" className="block text-sm font-medium text-zinc-300">
-              Product summary
-            </label>
+            <div className="flex items-center justify-between">
+              <label htmlFor="product_summary" className="block text-sm font-medium text-zinc-300">
+                Product summary
+              </label>
+              <button
+                type="button"
+                onClick={handleAutofill}
+                disabled={autofilling || !domain.trim() || !existingData?.hasAnthropicKey}
+                title={!existingData?.hasAnthropicKey ? "Add your Anthropic key below first" : "Read your website and draft Product Summary + ICP"}
+                className="rounded-md border border-emerald-700 px-2.5 py-1 text-xs font-medium text-emerald-400 hover:bg-emerald-950 disabled:opacity-40"
+              >
+                {autofilling ? "Reading your site…" : "✨ Auto-fill from website"}
+              </button>
+            </div>
+            {autofillMsg && (
+              <p className={`mt-1 text-xs ${autofillMsg.startsWith("Drafted") ? "text-emerald-400" : "text-amber-400"}`}>{autofillMsg}</p>
+            )}
             <textarea
               id="product_summary"
               name="product_summary"
@@ -215,6 +272,60 @@ export default function OnboardingPage() {
             />
             <p className="mt-1 text-xs text-zinc-500">
               Required to generate messaging guidelines. The more specific, the better the emails.
+            </p>
+          </div>
+
+          <div>
+            <label htmlFor="proof_points" className="block text-sm font-medium text-zinc-300">
+              Proof points
+            </label>
+            <textarea
+              id="proof_points"
+              name="proof_points"
+              rows={5}
+              placeholder={"One per line. Use \"Name: what they did\" for a customer story.\nDatadog: runs buyer research in-house in days instead of waiting on agencies\nEinstein Bros Bagels: tests campaigns against real audiences before spending media"}
+              value={proofPointsText}
+              onChange={(e) => setProofPointsText(e.target.value)}
+              className="mt-2 w-full rounded-md border border-zinc-700 bg-zinc-900 px-4 py-3 text-zinc-100 placeholder-zinc-500 focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+            />
+            <p className="mt-1 text-xs text-zinc-500">
+              Real customer names + specific results. The AI weaves these into every email. One per line.
+            </p>
+          </div>
+
+          <div>
+            <label htmlFor="custom_instructions" className="block text-sm font-medium text-zinc-300">
+              Custom instructions &amp; incentives
+            </label>
+            <textarea
+              id="custom_instructions"
+              name="custom_instructions"
+              rows={4}
+              placeholder={"Applied to every email. e.g. Offer a $100 Uber Eats / DoorDash / Amazon card for a 20-min call, up to $250 for CMO/VP titles. Frame it as for their time, never include a link with it."}
+              value={customInstructions}
+              onChange={(e) => setCustomInstructions(e.target.value)}
+              className="mt-2 w-full rounded-md border border-zinc-700 bg-zinc-900 px-4 py-3 text-zinc-100 placeholder-zinc-500 focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+            />
+            <p className="mt-1 text-xs text-zinc-500">
+              High-priority notes the AI applies to every email (gift-card policy, tone, things to avoid). Overrides defaults where they conflict.
+            </p>
+          </div>
+
+          <div>
+            <label htmlFor="scheduling_link" className="block text-sm font-medium text-zinc-300">
+              Calendly / scheduling link
+            </label>
+            <input
+              id="scheduling_link"
+              name="scheduling_link"
+              type="url"
+              placeholder="https://calendly.com/you/demo"
+              value={schedulingLink}
+              onChange={(e) => setSchedulingLink(e.target.value)}
+              className="mt-2 w-full rounded-md border border-zinc-700 bg-zinc-900 px-4 py-3 text-zinc-100 placeholder-zinc-500 focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+            />
+            <p className="mt-1 text-xs text-zinc-500">
+              Your real booking link. <span className="text-zinc-400">Leave blank and the AI includes NO links anywhere</span> (reply-first). If set, it&apos;s added only to follow-up emails (step 2+), never the first email, and the AI will never invent a fake one.
             </p>
           </div>
 

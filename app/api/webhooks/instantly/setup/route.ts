@@ -40,11 +40,22 @@ export async function GET() {
       (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "");
     const webhookUrl = `${baseUrl.replace(/\/$/, "")}/api/webhooks/instantly?secret=${secret}`;
 
+    // We can't know if the user pasted the URL into Instantly, but receiving any
+    // reply event proves the wiring works. This is the real "is it live?" signal —
+    // and the learning loop's positive-reply signal depends entirely on it.
+    const [repliesReceived, positiveReplies] = await Promise.all([
+      prisma.campaignReply.count({ where: { sentCampaign: { workspaceId: workspace.id } } }),
+      prisma.campaignReply.count({ where: { sentCampaign: { workspaceId: workspace.id }, classification: "positive" } }),
+    ]);
+
     return NextResponse.json({
       webhookUrl,
       event: "Reply received",
       instructions:
         "In Instantly: Settings → Webhooks → New Webhook. Set the event to 'Reply received' (or 'Email replied') and paste this URL.",
+      repliesReceived,
+      positiveReplies,
+      configured: repliesReceived > 0,
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Failed to set up webhook";

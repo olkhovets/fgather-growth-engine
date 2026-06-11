@@ -1,9 +1,11 @@
 "use client";
+import DashboardSidebar from "@/components/DashboardSidebar";
 
 import Link from "next/link";
 import { useSession, signOut } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import { useState, useEffect } from "react";
+import ProviderBreakdown from "@/components/ProviderBreakdown";
 import { useAuthGuard } from "@/hooks/useAuthGuard";
 import { APP_DISPLAY_NAME } from "@/lib/app-config";
 
@@ -32,6 +34,27 @@ type Aggregate = {
   totalLeads: number;
   totalReplies: number;
 } | null;
+
+type CampaignAnalytics = {
+  id: string;
+  name: string;
+  instantlyCampaignId: string;
+  createdAt: string;
+  variant: string | null;
+  metrics: {
+    sent: number;
+    opened: number;
+    open_rate_pct: number;
+    clicked: number;
+    click_rate_pct: number;
+    replies: number;
+    reply_rate_pct: number;
+    bounced: number;
+    bounce_rate_pct: number;
+    unsubscribed: number;
+    positive_replies: number;
+  };
+};
 
 function StatusBadge({ status }: { status: string }) {
   if (status === "launched") return (
@@ -66,6 +89,10 @@ export default function DashboardPage() {
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [strategySuggestion, setStrategySuggestion] = useState<string | null>(null);
+  const [analyticsData, setAnalyticsData] = useState<CampaignAnalytics[]>([]);
+  const [analyticsLoading, setAnalyticsLoading] = useState(false);
+  const [autopilotActivity, setAutopilotActivity] = useState<{ runs: number; runsWithWork: number; generated: number; sent: number; lastRunAt: string | null; bounceRate?: number; bouncedRecent?: number; sentRecent?: number; sentToday?: number; throttled?: boolean; replyStats?: { sentTotal: number; totalReplies: number; replyRatePct: number; ooo: number; oooRatePct: number; positive: number; positiveRatePct: number; objection: number; notInterested: number; other: number } } | null>(null);
+  const [capacity, setCapacity] = useState<{ warmed: number; total: number; capacityPerDay: number } | null>(null);
 
   useEffect(() => {
     if (!session?.user?.id) return;
@@ -84,6 +111,18 @@ export default function DashboardPage() {
   }, [session?.user?.id]);
 
   useEffect(() => {
+    if (!session?.user?.id) return;
+    fetch("/api/orchestrate/activity")
+      .then((r) => r.json())
+      .then((d) => { if (!d.error) setAutopilotActivity(d); })
+      .catch(() => {});
+    fetch("/api/instantly/capacity")
+      .then((r) => r.json())
+      .then((d) => { if (!d.error) setCapacity(d); })
+      .catch(() => {});
+  }, [session?.user?.id]);
+
+  useEffect(() => {
     if (!session?.user?.id || !workspace?.domain) return;
     fetch("/api/performance-memory/sync", { method: "POST" })
       .then(() => fetch("/api/performance-memory"))
@@ -95,6 +134,18 @@ export default function DashboardPage() {
       })
       .catch(() => {});
   }, [session?.user?.id, workspace?.domain]);
+
+  useEffect(() => {
+    if (!session?.user?.id || !workspace?.hasInstantlyKey) return;
+    setAnalyticsLoading(true);
+    fetch("/api/instantly/analytics")
+      .then((r) => r.json())
+      .then((data) => {
+        if (Array.isArray(data.campaigns)) setAnalyticsData(data.campaigns);
+      })
+      .catch(() => {})
+      .finally(() => setAnalyticsLoading(false));
+  }, [session?.user?.id, workspace?.hasInstantlyKey]);
 
   const handleLaunchNew = async () => {
     setCreating(true);
@@ -160,79 +211,7 @@ export default function DashboardPage() {
   return (
     <div className="flex min-h-screen" style={{ background: 'var(--bg)' }}>
       {/* Sidebar */}
-      <aside className="w-60 flex-shrink-0 flex flex-col border-r" style={{ background: 'var(--surface)', borderColor: 'var(--border)' }}>
-        {/* Logo */}
-        <div className="px-5 py-5 border-b" style={{ borderColor: 'var(--border)' }}>
-          <Link href="/dashboard" className="flex items-center gap-2.5">
-            <div className="h-7 w-7 rounded-lg flex items-center justify-center text-white text-sm font-bold" style={{ background: 'var(--accent)' }}>g</div>
-            <span className="font-semibold text-sm" style={{ color: 'var(--text-primary)' }}>gather</span>
-          </Link>
-        </div>
-
-        {/* Nav */}
-        <nav className="flex-1 p-3 space-y-0.5">
-          <Link href="/dashboard" className="sidebar-link active">
-            <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" />
-            </svg>
-            Dashboard
-          </Link>
-          <Link href="/dashboard/apollo" className="sidebar-link">
-            <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
-            </svg>
-            Lead source
-          </Link>
-          <Link href="/dashboard/launch" className="sidebar-link">
-            <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" />
-            </svg>
-            Launch control
-          </Link>
-          <Link href="/dashboard/experiments" className="sidebar-link">
-            <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z" />
-            </svg>
-            Experiments
-          </Link>
-          <Link href="/dashboard/activity" className="sidebar-link">
-            <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01" />
-            </svg>
-            Activity log
-          </Link>
-          <Link href="/dashboard/features" className="sidebar-link">
-            <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
-            </svg>
-            Feature Requests
-          </Link>
-          <Link href="/onboarding" className="sidebar-link">
-            <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
-              <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-            </svg>
-            Settings
-          </Link>
-        </nav>
-
-        {/* User */}
-        <div className="p-3 border-t" style={{ borderColor: 'var(--border)' }}>
-          <div className="flex items-center gap-3 rounded-lg px-3 py-2">
-            <div className="h-7 w-7 rounded-full flex items-center justify-center text-xs font-semibold text-white flex-shrink-0" style={{ background: 'var(--accent)' }}>
-              {session.user?.email?.[0]?.toUpperCase() ?? "U"}
-            </div>
-            <div className="flex-1 min-w-0">
-              <p className="text-xs font-medium truncate" style={{ color: 'var(--text-primary)' }}>{session.user?.email}</p>
-            </div>
-            <button onClick={() => signOut({ callbackUrl: "/" })} className="text-xs flex-shrink-0" style={{ color: 'var(--text-tertiary)' }} title="Log out">
-              <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
-              </svg>
-            </button>
-          </div>
-        </div>
-      </aside>
+      <DashboardSidebar active="dashboard" userEmail={session.user?.email} />
 
       {/* Main */}
       <main className="flex-1 overflow-y-auto">
@@ -252,6 +231,68 @@ export default function DashboardPage() {
               {creating ? "Creating…" : "New Campaign"}
             </button>
           </div>
+
+          {/* Two paths, same outcome — make the overlap with the sidebar explicit */}
+          {hasOnboarding && (
+            <div className="mb-6 rounded-xl border px-4 py-3 text-sm" style={{ background: 'var(--surface)', borderColor: 'var(--border)', color: 'var(--text-secondary)' }}>
+              <span style={{ color: 'var(--text-primary)' }}>Two ways to run a campaign, same result.</span>{" "}
+              <span className="font-medium" style={{ color: 'var(--text-primary)' }}>New Campaign</span> walks you through it all in one place. Or use the sidebar step by step:{" "}
+              <Link href="/dashboard/apollo" className="underline" style={{ color: 'var(--accent)' }}>Lead source</Link> to get leads, then{" "}
+              <Link href="/dashboard/launch" className="underline" style={{ color: 'var(--accent)' }}>Generate &amp; send</Link> to write and ship them. New to this?{" "}
+              <Link href="/dashboard/help" className="underline" style={{ color: 'var(--accent)' }}>How it works</Link>.
+            </div>
+          )}
+
+          {/* Autopilot activity — last 24h, so the operator can confirm the cron is healthy at a glance */}
+          {autopilotActivity && (
+            <div className="mb-6 rounded-xl border px-4 py-3" style={{ background: 'var(--surface)', borderColor: 'var(--border)' }}>
+              <div className="flex items-center justify-between flex-wrap gap-2">
+                <div className="flex items-center gap-2">
+                  <span className={`inline-block h-2 w-2 rounded-full ${autopilotActivity.runsWithWork > 0 ? 'bg-emerald-500' : 'bg-gray-300'}`} />
+                  <span className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>Autopilot · last 24h</span>
+                </div>
+                <div className="flex items-center gap-5 text-sm" style={{ color: 'var(--text-secondary)' }}>
+                  <span><span className="font-semibold tabular-nums" style={{ color: 'var(--text-primary)' }}>{autopilotActivity.runs}</span> runs</span>
+                  <span><span className="font-semibold tabular-nums" style={{ color: 'var(--text-primary)' }}>{autopilotActivity.generated.toLocaleString()}</span> generated</span>
+                  <span><span className="font-semibold tabular-nums" style={{ color: '#16a34a' }}>{autopilotActivity.sent.toLocaleString()}</span> sent</span>
+                  {typeof autopilotActivity.bounceRate === 'number' && (autopilotActivity.sentRecent ?? 0) >= 20 && (
+                    <span style={{ color: autopilotActivity.bounceRate > 5 ? '#dc2626' : autopilotActivity.bounceRate > 2 ? '#b45309' : '#16a34a' }}>
+                      {autopilotActivity.bounceRate}% bounce
+                    </span>
+                  )}
+                  {autopilotActivity.lastRunAt && (
+                    <span style={{ color: 'var(--text-tertiary)' }}>last {(() => { const s = Math.round((Date.now() - new Date(autopilotActivity.lastRunAt).getTime())/1000); return s<60?`${s}s`:s<3600?`${Math.round(s/60)}m`:`${Math.round(s/3600)}h`; })()} ago</span>
+                  )}
+                </div>
+              </div>
+              {capacity && (autopilotActivity.sentToday ?? 0) >= 0 && (
+                <div className="mt-2 pt-2 border-t" style={{ borderColor: 'var(--border)' }}>
+                  <div className="flex items-center justify-between text-xs mb-1">
+                    <span style={{ color: 'var(--text-secondary)' }}>
+                      Delivered today: <span className="font-semibold tabular-nums" style={{ color: 'var(--text-primary)' }}>{(autopilotActivity.sentToday ?? 0).toLocaleString()}</span> of ~{capacity.capacityPerDay.toLocaleString()}/day capacity
+                    </span>
+                    <span style={{ color: 'var(--text-tertiary)' }}>{capacity.warmed} of {capacity.total} inboxes warmed</span>
+                  </div>
+                  <div className="h-1.5 w-full rounded-full overflow-hidden" style={{ background: 'var(--border)' }}>
+                    <div className="h-full rounded-full" style={{ width: `${Math.min(100, capacity.capacityPerDay > 0 ? ((autopilotActivity.sentToday ?? 0) / capacity.capacityPerDay) * 100 : 0)}%`, background: 'var(--accent)' }} />
+                  </div>
+                  {capacity.warmed < capacity.total && (
+                    <p className="text-xs mt-1" style={{ color: 'var(--text-tertiary)' }}>
+                      Your ceiling is warmed inboxes × ~30/day. Warm the other {capacity.total - capacity.warmed} in Instantly to raise it.
+                    </p>
+                  )}
+                </div>
+              )}
+              {autopilotActivity.throttled && (
+                <p className="text-xs mt-1.5 font-medium" style={{ color: '#dc2626' }}>
+                  ⚠ Sending auto-paused — bounce rate {autopilotActivity.bounceRate}% is above 5%. Autopilot keeps generating but holds sends to protect your domains; it resumes automatically when bounces drop. Check inbox warmup in Instantly.
+                </p>
+              )}
+              {autopilotActivity.runs === 0 && (
+                <p className="text-xs mt-1" style={{ color: 'var(--text-tertiary)' }}>No autopilot runs in the last 24h. If your cron is enabled, check its execution log; or use &ldquo;Run a batch now&rdquo; on Generate &amp; send.</p>
+              )}
+            </div>
+          )}
 
           {/* Setup warning */}
           {hasOnboarding && workspace && (!workspace.hasAnthropicKey || !workspace.hasInstantlyKey) && (
@@ -283,11 +324,85 @@ export default function DashboardPage() {
             </div>
           )}
 
+          {/* Reply metrics — what's coming back from everything we've sent */}
+          {autopilotActivity?.replyStats && autopilotActivity.replyStats.sentTotal > 0 && (
+            <div className="grid grid-cols-4 gap-4 mb-8">
+              {[
+                { label: "Reply rate", value: `${autopilotActivity.replyStats.replyRatePct}%`, sub: `${autopilotActivity.replyStats.totalReplies.toLocaleString()} of ${autopilotActivity.replyStats.sentTotal.toLocaleString()} sent`, color: 'var(--text-primary)' },
+                { label: "Positive replies", value: `${autopilotActivity.replyStats.positive.toLocaleString()}`, sub: `${autopilotActivity.replyStats.positiveRatePct}% of sent`, color: '#16a34a' },
+                { label: "Out of office", value: `${autopilotActivity.replyStats.oooRatePct}%`, sub: `${autopilotActivity.replyStats.ooo.toLocaleString()} OOO, auto-requeued`, color: '#b45309' },
+                { label: "Objections / not interested", value: `${(autopilotActivity.replyStats.objection + autopilotActivity.replyStats.notInterested).toLocaleString()}`, sub: `${autopilotActivity.replyStats.objection} obj · ${autopilotActivity.replyStats.notInterested} no`, color: 'var(--text-secondary)' },
+              ].map(({ label, value, sub, color }) => (
+                <div key={label} className="card p-5">
+                  <p className="text-xs font-medium" style={{ color: 'var(--text-tertiary)' }}>{label}</p>
+                  <p className="text-2xl font-semibold mt-1.5 tabular-nums" style={{ color }}>{value}</p>
+                  <p className="text-xs mt-1" style={{ color: 'var(--text-tertiary)' }}>{sub}</p>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Performance by inbox provider */}
+          <ProviderBreakdown />
+
           {/* Strategy suggestion */}
           {strategySuggestion && (
             <div className="mb-6 card p-4 border-l-4" style={{ borderLeftColor: 'var(--accent)' }}>
               <p className="text-xs font-semibold uppercase tracking-wide mb-1" style={{ color: 'var(--accent)' }}>Strategy insight</p>
               <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>{strategySuggestion}</p>
+            </div>
+          )}
+
+          {/* Live Instantly Analytics */}
+          {(analyticsLoading || analyticsData.length > 0) && (
+            <div className="mb-8">
+              <div className="flex items-center justify-between mb-3">
+                <h2 className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>Campaign performance</h2>
+                <span className="text-xs" style={{ color: 'var(--text-tertiary)' }}>Live from Instantly · last 30 days</span>
+              </div>
+              <div className="card overflow-hidden">
+                {analyticsLoading ? (
+                  <div className="px-6 py-8 flex items-center justify-center gap-2 text-sm" style={{ color: 'var(--text-tertiary)' }}>
+                    <div className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-gray-300 border-t-gray-500" />
+                    Pulling live data from Instantly…
+                  </div>
+                ) : (
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b" style={{ borderColor: 'var(--border)' }}>
+                        {["Campaign", "Sent", "Opens", "Open %", "Replies", "Reply %", "Bounced", "+Reply"].map((h) => (
+                          <th key={h} className="px-4 py-2.5 text-left text-xs font-medium uppercase tracking-wide" style={{ color: 'var(--text-tertiary)' }}>{h}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {analyticsData.map((c) => (
+                        <tr key={c.id} className="border-b last:border-0" style={{ borderColor: 'var(--border)' }}>
+                          <td className="px-4 py-2.5 font-medium max-w-[200px] truncate" style={{ color: 'var(--text-primary)' }} title={c.name}>
+                            {c.name}
+                            {c.variant && <span className="ml-1.5 text-xs px-1.5 py-0.5 rounded" style={{ background: 'var(--accent-subtle)', color: 'var(--accent)' }}>{c.variant}</span>}
+                          </td>
+                          <td className="px-4 py-2.5 tabular-nums" style={{ color: 'var(--text-secondary)' }}>{c.metrics.sent.toLocaleString()}</td>
+                          <td className="px-4 py-2.5 tabular-nums" style={{ color: 'var(--text-secondary)' }}>{c.metrics.opened.toLocaleString()}</td>
+                          <td className="px-4 py-2.5 tabular-nums font-medium" style={{ color: c.metrics.open_rate_pct >= 20 ? '#16a34a' : c.metrics.open_rate_pct >= 10 ? 'var(--text-primary)' : '#dc2626' }}>
+                            {c.metrics.open_rate_pct}%
+                          </td>
+                          <td className="px-4 py-2.5 tabular-nums" style={{ color: 'var(--text-secondary)' }}>{c.metrics.replies.toLocaleString()}</td>
+                          <td className="px-4 py-2.5 tabular-nums font-medium" style={{ color: c.metrics.reply_rate_pct >= 3 ? '#16a34a' : 'var(--text-primary)' }}>
+                            {c.metrics.reply_rate_pct}%
+                          </td>
+                          <td className="px-4 py-2.5 tabular-nums" style={{ color: c.metrics.bounce_rate_pct > 5 ? '#dc2626' : 'var(--text-tertiary)' }}>
+                            {c.metrics.bounced > 0 ? `${c.metrics.bounced} (${c.metrics.bounce_rate_pct}%)` : '—'}
+                          </td>
+                          <td className="px-4 py-2.5 tabular-nums font-medium" style={{ color: c.metrics.positive_replies > 0 ? '#16a34a' : 'var(--text-tertiary)' }}>
+                            {c.metrics.positive_replies > 0 ? `+${c.metrics.positive_replies}` : '—'}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
+              </div>
             </div>
           )}
 

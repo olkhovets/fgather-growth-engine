@@ -2,13 +2,17 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getInstantlyClientForWorkspaceId } from "@/lib/instantly";
 import { recordCampaignObservations } from "@/lib/performance-memory";
+import { logActivity } from "@/lib/activity";
 
 export const dynamic = "force-dynamic";
 
 /**
  * Cron: pull Instantly analytics for all recent campaigns and write PerformanceObservations.
- * Scheduled every 6 hours via vercel.json cron.
- * Protected by CRON_SECRET header.
+ * Scheduled once daily (13:00 UTC ≈ 8am ET) via vercel.json cron. Vercel's Hobby
+ * plan caps crons at once per day; move to a tighter cadence on the Pro plan.
+ * Protected by CRON_SECRET header (Vercel auto-sends it as the Authorization bearer
+ * for scheduled invocations once CRON_SECRET is set as a project env var). The same
+ * secret is forwarded to the optimizer fan-out below — without it those routes 401.
  * After pulling analytics, automatically triggers the A/B decision agent.
  */
 export async function GET(request: Request) {
@@ -63,15 +67,29 @@ export async function GET(request: Request) {
         const opened = analytics.open_count_unique ?? analytics.open_count ?? 0;
         const clicked = analytics.link_click_count_unique ?? analytics.link_click_count ?? 0;
         const replies = analytics.reply_count ?? 0;
+        const bounced = analytics.bounced_count ?? 0;
+        const unsubscribed = analytics.unsubscribed_count ?? 0;
 
         const open_rate_pct = sent > 0 ? Math.round((opened / sent) * 1000) / 10 : 0;
         const click_rate_pct = sent > 0 ? Math.round((clicked / sent) * 1000) / 10 : 0;
+        const bounce_rate_pct = sent > 0 ? Math.round((bounced / sent) * 1000) / 10 : 0;
+        const unsubscribe_rate_pct = sent > 0 ? Math.round((unsubscribed / sent) * 1000) / 10 : 0;
 
         await recordCampaignObservations(workspaceId, sc.id, sc.leadBatchId ?? null, {
           open_rate_pct,
           click_rate_pct,
           reply_count: replies,
+          bounce_rate_pct,
+          unsubscribe_rate_pct,
         });
+
+        // Log to activity so operator can see analytics pull in the activity feed
+        if (sent > 0) {
+          await logActivity(workspaceId, "info",
+            `Analytics refreshed: "${analytics.campaign_name}" — ${sent} sent, ${open_rate_pct}% open, ${replies} replies${bounced > 0 ? `, ${bounced} bounced` : ""}`,
+            { sent, opened, open_rate_pct, click_rate_pct, replies, bounced, bounce_rate_pct, unsubscribed, instantlyCampaignId: sc.instantlyCampaignId }
+          );
+        }
 
         updated++;
       } catch (err) {
@@ -81,12 +99,41 @@ export async function GET(request: Request) {
     }
   }
 
+  // Classify inbox provider (MX) for any sent leads not yet classified — bounded per run
+  // so it never risks the function timeout; backfills steadily over a few runs.
+  try {
+    const { classifyEmailProviders } = await import("@/lib/email-provider");
+    const toClassify = await prisma.lead.findMany({
+      where: { sentAt: { not: null }, emailProvider: null },
+      select: { id: true, email: true },
+      take: 1500,
+    });
+    if (toClassify.length > 0) {
+      const providers = await classifyEmailProviders(toClassify.map((l) => l.email));
+      // Group by provider and update in bulk.
+      const byProvider = new Map<string, string[]>();
+      for (const l of toClassify) {
+        const p = providers[l.email] ?? "Unknown";
+        (byProvider.get(p) ?? byProvider.set(p, []).get(p)!).push(l.id);
+      }
+      for (const [provider, ids] of Array.from(byProvider.entries())) {
+        await prisma.lead.updateMany({ where: { id: { in: ids } }, data: { emailProvider: provider } });
+      }
+    }
+  } catch {
+    // best-effort
+  }
+
   // After pulling analytics, run the optimization agents on all active workspaces:
   //  1. A/B decision agent (route remaining leads to winners)
   //  2. Variant evaluator (promote/kill message experiments, fold winners into learnings, refill)
   //  3. Variant generator (top up active experiments so there's always something being tested)
-  const baseUrl = process.env.NEXTJS_URL
-    ?? (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "http://localhost:3000");
+  // Use the open production alias, never VERCEL_URL (the immutable per-deploy URL is
+  // guarded by Deployment Protection and 401s these internal calls).
+  const baseUrlEnv = process.env.NEXTJS_URL || process.env.NEXTAUTH_URL;
+  const baseUrl = baseUrlEnv && baseUrlEnv.startsWith("http")
+    ? baseUrlEnv.replace(/\/$/, "")
+    : "https://peter-engine-working-copy.vercel.app";
   const authHeaders: Record<string, string> = secret ? { Authorization: `Bearer ${secret}` } : {};
   // Daily pipeline: Apollo ingest → autopilot (generate+send for autopilot workspaces)
   // → optimization agents (A/B routing, experiment evaluate/generate).

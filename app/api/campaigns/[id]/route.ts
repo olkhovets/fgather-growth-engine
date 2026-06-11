@@ -98,6 +98,7 @@ export async function PATCH(
     if (body.proofPointsJson !== undefined) updates.proofPointsJson = body.proofPointsJson;
     if (body.leadBatchId !== undefined) updates.leadBatchId = body.leadBatchId || null;
     if (body.ctaUrl !== undefined) updates.ctaUrl = body.ctaUrl || null;
+    if (body.builderPrefsJson !== undefined) updates.builderPrefsJson = body.builderPrefsJson || null;
 
     const campaign = await prisma.campaign.update({
       where: { id },

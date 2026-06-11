@@ -1,22 +1,19 @@
 import { NextResponse } from "next/server";
+import { getServerSession } from "next-auth";
+import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { logActivity } from "@/lib/activity";
+import { runAutopilotForWorkspace } from "@/lib/autopilot";
+import { runIncentivesAutopilotForWorkspace } from "@/lib/incentives-autopilot";
+import { waitUntil } from "@vercel/functions";
 
 export const dynamic = "force-dynamic";
-export const maxDuration = 60;
+// 300s so the occasional Incentives-autopilot Apollo pull (only when the fresh pool is low) fits;
+// the work runs in waitUntil so the cron caller still gets an instant 200.
+export const maxDuration = 300;
 
 /**
- * Autopilot orchestrator. For each workspace with autopilot ON, runs the full
- * hands-off pipeline once:
- *   1. Pick the most recent campaign (for guidelines) + most recent live
- *      Instantly campaign (to append into).
- *   2. Generate sequences for up to `autopilotDailyLimit` fresh leads.
- *   3. Send (append) those generated leads into the existing Instantly campaign.
- *
- * Generation + sending reuse the real endpoints via internal calls authed with
- * CRON_SECRET, so autopilot does exactly what the manual flow does.
- *
- * Called by the daily analytics cron. Protected by CRON_SECRET.
+ * Cron entrypoint: run autopilot for every workspace with it enabled.
+ * Protected by CRON_SECRET. Called by the daily analytics cron.
  */
 export async function GET(request: Request) {
   const secret = process.env.CRON_SECRET;
@@ -28,93 +25,54 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const baseUrl = process.env.NEXTJS_URL
-    ?? (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "http://localhost:3000");
+  // Optional ?max=N caps how many leads each run GENERATES (Claude is the slow part),
+  // so frequent external-cron pings stay inside the function timeout. Sending of the
+  // already-generated backlog still runs up to the full daily limit.
+  const maxParam = new URL(request.url).searchParams.get("max");
+  const maxGenerate = maxParam ? Math.max(1, parseInt(maxParam, 10) || 0) || undefined : undefined;
 
-  const workspaces = await prisma.workspace.findMany({
-    where: { autopilot: true },
+  const [workspaces, incentiveWorkspaces] = await Promise.all([
+    prisma.workspace.findMany({ where: { autopilot: true }, select: { id: true, autopilotDailyLimit: true } }),
+    prisma.workspace.findMany({ where: { incentivesAutopilot: true }, select: { id: true } }),
+  ]);
+
+  // Run the work in the background and respond IMMEDIATELY. Generation takes ~30s,
+  // which exceeds external cron services' HTTP timeout (~30s) — they'd report "failed"
+  // and may disable the job even though the work completes. waitUntil keeps the function
+  // alive for the work (up to maxDuration) after the fast response.
+  waitUntil((async () => {
+    for (const ws of workspaces) {
+      await runAutopilotForWorkspace(ws, secret, maxGenerate);
+    }
+    for (const ws of incentiveWorkspaces) {
+      await runIncentivesAutopilotForWorkspace(ws, secret);
+    }
+  })());
+
+  return NextResponse.json({ ok: true, started: true, workspaces: workspaces.length, incentiveWorkspaces: incentiveWorkspaces.length });
+}
+
+/**
+ * Manual "run autopilot now" for the logged-in user's workspace. Bounded to a
+ * smaller chunk so it returns within the function timeout; click again for more.
+ */
+export async function POST() {
+  const session = await getServerSession(authOptions);
+  if (!session?.user?.id) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+  const secret = process.env.CRON_SECRET;
+  if (!secret) {
+    return NextResponse.json({ error: "CRON_SECRET not configured — autopilot can't run." }, { status: 400 });
+  }
+  const ws = await prisma.workspace.findUnique({
+    where: { userId: session.user.id },
     select: { id: true, autopilotDailyLimit: true },
   });
-
-  const results: Array<Record<string, unknown>> = [];
-
-  for (const ws of workspaces) {
-    const dailyLimit = ws.autopilotDailyLimit ?? 200;
-    try {
-      // Find a batch with leads that still need generating, and a destination campaign
-      const batch = await prisma.lead.findFirst({
-        where: {
-          leadBatch: { workspaceId: ws.id },
-          sentAt: null, suppressed: false, repliedAt: null,
-          OR: [{ stepsJson: null }, { stepsJson: "" }, { stepsJson: "[]" }],
-        },
-        select: { leadBatchId: true },
-        orderBy: { id: "asc" },
-      });
-
-      const campaign = await prisma.campaign.findFirst({
-        where: { workspaceId: ws.id, playbookJson: { not: null } },
-        select: { id: true },
-        orderBy: { updatedAt: "desc" },
-      });
-      const liveInstantly = await prisma.sentCampaign.findFirst({
-        where: { workspaceId: ws.id },
-        select: { instantlyCampaignId: true },
-        orderBy: { createdAt: "desc" },
-      });
-
-      if (!batch?.leadBatchId) {
-        results.push({ workspaceId: ws.id, skipped: "no leads need generating" });
-        continue;
-      }
-
-      const cronHeaders = { "Content-Type": "application/json", "x-cron-secret": secret };
-
-      // 1. Generate up to dailyLimit (10 per call)
-      let generated = 0;
-      while (generated < dailyLimit) {
-        const res = await fetch(`${baseUrl}/api/leads/generate`, {
-          method: "POST", headers: cronHeaders,
-          body: JSON.stringify({
-            batchId: batch.leadBatchId, useFastModel: true, workspaceId: ws.id,
-            ...(campaign?.id ? { campaignId: campaign.id } : {}),
-          }),
-        });
-        const d = await res.json().catch(() => ({}));
-        const done = d.done ?? 0;
-        generated += done;
-        if (done === 0 || !res.ok) break;
-      }
-
-      // 2. Send (append into the live Instantly campaign, or create one)
-      let sendResult: Record<string, unknown> = {};
-      if (generated > 0) {
-        const sendRes = await fetch(`${baseUrl}/api/instantly/send`, {
-          method: "POST", headers: cronHeaders,
-          body: JSON.stringify({
-            batchId: batch.leadBatchId, workspaceId: ws.id, skipFailingLeads: true,
-            sendLimit: dailyLimit,
-            ...(campaign?.id ? { campaignId: campaign.id } : {}),
-            ...(liveInstantly?.instantlyCampaignId
-              ? { addToInstantlyCampaignId: liveInstantly.instantlyCampaignId }
-              : { campaignName: `Autopilot ${new Date().toISOString().slice(0, 10)}` }),
-          }),
-        });
-        sendResult = await sendRes.json().catch(() => ({}));
-      }
-
-      const sent = (sendResult.leads_uploaded as number) ?? 0;
-      await logActivity(ws.id, "autopilot",
-        `Autopilot run: generated ${generated}, sent ${sent}`,
-        { generated, sent, appended: Boolean(liveInstantly?.instantlyCampaignId) });
-
-      results.push({ workspaceId: ws.id, generated, sent });
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : "autopilot failed";
-      await logActivity(ws.id, "autopilot", `Autopilot run failed: ${msg}`).catch(() => {});
-      results.push({ workspaceId: ws.id, error: msg });
-    }
+  if (!ws) {
+    return NextResponse.json({ error: "Workspace not found" }, { status: 404 });
   }
-
-  return NextResponse.json({ ran: results.length, results });
+  // Cap a manual run to ~30 leads so it finishes inside the 60s budget.
+  const result = await runAutopilotForWorkspace(ws, secret, 30);
+  return NextResponse.json(result);
 }

@@ -5,6 +5,7 @@ import { getInstantlyClientForUserId, getInstantlyClientForWorkspaceId } from "@
 import { prisma } from "@/lib/prisma";
 import { parsePlaybook, getSequenceSteps } from "@/lib/playbook";
 import { logActivity } from "@/lib/activity";
+import { getWorkspaceWebhookUrl, registerCampaignWebhooks } from "@/lib/campaign-webhooks";
 
 export const dynamic = "force-dynamic";
 
@@ -16,7 +17,7 @@ export const dynamic = "force-dynamic";
 export async function POST(request: Request) {
   try {
     const body = await request.json().catch(() => ({}));
-    const { batchId, abTest, subjectLineA, subjectLineB, campaignName: campaignNameInput, accountEmails, campaignId: flowCampaignId, skipFailingLeads, styles, sendLimit, addToInstantlyCampaignId, workspaceId: workspaceIdParam } = body as {
+    const { batchId, abTest, subjectLineA, subjectLineB, campaignName: campaignNameInput, accountEmails, campaignId: flowCampaignId, skipFailingLeads, styles, sendLimit, addToInstantlyCampaignId, workspaceId: workspaceIdParam, skipRamp } = body as {
       batchId?: string;
       abTest?: boolean;
       subjectLineA?: string;
@@ -29,6 +30,7 @@ export async function POST(request: Request) {
       sendLimit?: number; // cap how many leads enter this send; undefined = send all
       addToInstantlyCampaignId?: string; // append leads into this existing Instantly campaign instead of creating a new one
       workspaceId?: string; // autopilot orchestrator (with CRON_SECRET) targets a workspace directly
+      skipRamp?: boolean; // skip re-applying per-inbox limits (autopilot runs frequently; ramp is a manual/periodic concern)
     };
 
     // Auth: session for users, or CRON_SECRET + workspaceId for the autopilot orchestrator
@@ -60,7 +62,7 @@ export async function POST(request: Request) {
 
     const workspace = await prisma.workspace.findUnique({
       where: isCron ? { id: workspaceIdParam } : { userId: sessionUserId! },
-      select: { id: true, playbookApproved: true, playbookJson: true },
+      select: { id: true, playbookApproved: true, playbookJson: true, inboxDailyLimit: true },
     });
     if (!workspace) {
       return NextResponse.json({ error: "Workspace not found" }, { status: 404 });
@@ -80,20 +82,40 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Approve your playbook before sending." }, { status: 400 });
     }
 
+    // EGRESS GUARDRAIL: the autopilot/skip path runs every minute, so it must NOT load the
+    // whole batch (all leads + their full sequences + landing-page JSON) each time — doing
+    // so drained the Neon data-transfer quota. On that path, load ONLY contactable, ready
+    // leads, capped per run. Manual launches (rare, skipFailingLeads=false) still load the
+    // full batch so the "every lead must pass" quality check can report accurately.
+    const now = new Date();
+    const PER_SEND_CAP = Math.min(sendLimit ?? 1000, 1000);
     const batch = await prisma.leadBatch.findFirst({
       where: { id: batchId, workspaceId: workspace.id },
-      include: { leads: true },
+      include: {
+        leads: skipFailingLeads
+          ? {
+              where: {
+                sentAt: null, // only UNSENT leads — re-sending already-sent ones just dedupes to 0 uploaded
+                suppressed: false,
+                repliedAt: null,
+                OR: [{ requeueAt: null }, { requeueAt: { lte: now } }],
+                AND: [{ stepsJson: { not: null } }, { stepsJson: { not: "" } }, { stepsJson: { not: "[]" } }],
+              },
+              orderBy: { id: "asc" },
+              take: PER_SEND_CAP,
+            }
+          : true,
+      },
     });
     if (!batch) {
       return NextResponse.json({ error: "Batch not found" }, { status: 404 });
     }
     if (batch.leads.length === 0) {
-      return NextResponse.json({ error: "Batch has no leads" }, { status: 400 });
+      return NextResponse.json({ error: "No contactable leads ready to send (all sent, suppressed, replied, or not yet generated)." }, { status: 400 });
     }
 
     // Never re-contact leads who said no / bounced (suppressed) or who already replied.
     // OOO leads with a future requeueAt are also held until that date passes.
-    const now = new Date();
     const contactable = batch.leads.filter((l) => {
       const lead = l as typeof l & { suppressed?: boolean; repliedAt?: Date | null; requeueAt?: Date | null };
       if (lead.suppressed) return false;
@@ -124,9 +146,9 @@ export async function POST(request: Request) {
     const { client } = ctx;
 
     try {
-      await client.applyRampForUnwarmedAccounts({
+      if (!skipRamp) await client.applyRampForUnwarmedAccounts({
         unwarmedDailyLimit: 5,
-        warmedDailyLimit: 30,
+        warmedDailyLimit: workspace.inboxDailyLimit ?? 30,
         ...(selectedEmails != null && selectedEmails.length > 0 && { accountEmails: selectedEmails }),
       });
     } catch (rampErr) {
@@ -327,6 +349,11 @@ export async function POST(request: Request) {
       delayUnit: "days" as const,
     };
 
+    // Shared Instantly account → every campaign we create needs its OWN scoped reply/bounce/OOO
+    // webhooks (an account-level one would catch other people's campaigns). Compute the target URL
+    // once; each creation path below registers after it records the SentCampaign.
+    const webhookUrl = await getWorkspaceWebhookUrl(workspace.id);
+
     // ── Multi-style A/B/C/D ──────────────────────────────────────────────────
     // When styles[] is provided, group leads by emailStyle and create one campaign
     // per style sharing a common abGroupId. The decision agent will pick a winner.
@@ -362,6 +389,7 @@ export async function POST(request: Request) {
               variant: s,
             },
           });
+          await registerCampaignWebhooks(client, styleId, webhookUrl, styleName);
           styleResults.push({ style: s, campaignId: styleId, leadsCount: result.leads_uploaded });
         }
       }
@@ -492,6 +520,10 @@ export async function POST(request: Request) {
           },
         ],
       });
+      await Promise.all([
+        registerCampaignWebhooks(client, idA, webhookUrl, nameA),
+        registerCampaignWebhooks(client, idB, webhookUrl, nameB),
+      ]);
       if (flowCampaign?.id) {
         await prisma.campaign.update({ where: { id: flowCampaign.id }, data: { status: "launched", name: baseName } });
       }
@@ -616,6 +648,7 @@ export async function POST(request: Request) {
         name: campaignName,
       },
     });
+    await registerCampaignWebhooks(client, campaignId, webhookUrl, campaignName);
     if (flowCampaign?.id) {
       await prisma.campaign.update({ where: { id: flowCampaign.id }, data: { status: "launched", name: campaignName } });
     }

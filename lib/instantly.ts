@@ -81,12 +81,15 @@ function createInstantlyClient(apiKey: string) {
     }
     const headers: Record<string, string> = {
       Authorization: `Bearer ${apiKey}`,
-      "Content-Type": "application/json",
     };
-    // POST/PATCH with application/json must send a body; some APIs reject empty body
-    const needsBody = method !== "GET" && method !== "HEAD";
+    // POST/PATCH with application/json must send a body; some APIs reject an empty one. But
+    // Instantly's DELETE rejects BOTH an empty json body and "{}" (it wants no body and no
+    // application/json content-type at all), so only attach a body — and the json content-type —
+    // for methods that actually send one.
+    const needsBody = method !== "GET" && method !== "HEAD" && method !== "DELETE";
     const bodyPayload =
       body !== undefined ? JSON.stringify(body) : needsBody ? "{}" : undefined;
+    if (bodyPayload !== undefined) headers["Content-Type"] = "application/json";
     const res = await fetch(url, {
       method,
       headers,
@@ -207,22 +210,19 @@ function createInstantlyClient(apiKey: string) {
       }
       const unwarmedLimit = options?.unwarmedDailyLimit ?? 5;
       const warmedLimit = options?.warmedDailyLimit ?? 30;
+      // PATCH in parallel chunks. Sequentially PATCHing hundreds of inboxes blew past the
+      // 60s function timeout; chunks of 25 keep it to a few seconds without hammering Instantly.
       let updated = 0;
-      for (const acc of accounts) {
-        const isWarmed = acc.warmup_status === 1;
-        try {
-          if (isWarmed) {
-            await this.patchAccount(acc.email, { daily_limit: warmedLimit });
-          } else {
-            await this.patchAccount(acc.email, {
-              daily_limit: unwarmedLimit,
-              enable_slow_ramp: true,
-            });
-          }
-          updated++;
-        } catch {
-          // skip failed account
-        }
+      const CONCURRENCY = 25;
+      for (let i = 0; i < accounts.length; i += CONCURRENCY) {
+        const chunk = accounts.slice(i, i + CONCURRENCY);
+        const results = await Promise.allSettled(chunk.map((acc) => {
+          const isWarmed = acc.warmup_status === 1;
+          return isWarmed
+            ? this.patchAccount(acc.email, { daily_limit: warmedLimit })
+            : this.patchAccount(acc.email, { daily_limit: unwarmedLimit, enable_slow_ramp: true });
+        }));
+        updated += results.filter((r) => r.status === "fulfilled").length;
       }
       return { updated };
     },
@@ -368,6 +368,35 @@ function createInstantlyClient(apiKey: string) {
       return request("POST", `/campaigns/${campaignId}/activate`);
     },
 
+    /**
+     * Create a webhook. Pass `campaignId` to SCOPE it to a single campaign — essential on a
+     * shared Instantly account, where an account-level webhook (campaign omitted) would fire for
+     * everyone's campaigns. event_type is e.g. "reply_received", "email_bounced", or "all_events".
+     */
+    async createWebhook(options: {
+      targetUrl: string;
+      eventType: string;
+      campaignId?: string;
+      name?: string;
+    }): Promise<{ id: string } | null> {
+      const body: Record<string, unknown> = {
+        target_hook_url: options.targetUrl,
+        event_type: options.eventType,
+      };
+      if (options.campaignId) body.campaign = options.campaignId;
+      if (options.name) body.name = options.name;
+      const data = await request<{ id?: string }>("POST", "/webhooks", body);
+      return data?.id ? { id: data.id } : null;
+    },
+
+    /** List webhooks (for inspection / cleanup). */
+    async listWebhooks(): Promise<Array<{ id: string; campaign?: string | null; event_type?: string | null; target_hook_url?: string }>> {
+      const data = await request<{ items?: unknown[]; data?: unknown[] }>("GET", "/webhooks", undefined, { limit: 100 });
+      const obj = data as Record<string, unknown>;
+      const arr = (Array.isArray(obj.items) ? obj.items : Array.isArray(obj.data) ? obj.data : []) as Array<{ id: string; campaign?: string | null; event_type?: string | null; target_hook_url?: string }>;
+      return arr;
+    },
+
     /** Pause (stop) a campaign. */
     async pauseCampaign(campaignId: string): Promise<unknown> {
       return request("POST", `/campaigns/${campaignId}/pause`);
@@ -394,8 +423,41 @@ function createInstantlyClient(apiKey: string) {
       const arr = Array.isArray(data) ? data : [data];
       return arr.length > 0 ? (arr[0] as InstantlyCampaignAnalytics) : null;
     },
+
+    /**
+     * Warmup analytics per inbox — the real deliverability health signal. health_score is the
+     * inbox-vs-spam placement ratio over the warmup window (0-100); Instantly's guidance is that
+     * below ~80% means pause cold sends and audit the domain. Chunked (the endpoint limits how
+     * many emails it accepts per call). Returns aggregate data keyed by email; missing/failed
+     * inboxes simply don't appear in the map.
+     */
+    async getWarmupAnalytics(emails: string[]): Promise<Record<string, InstantlyWarmupAggregate>> {
+      const out: Record<string, InstantlyWarmupAggregate> = {};
+      const chunkSize = 100;
+      for (let i = 0; i < emails.length; i += chunkSize) {
+        const chunk = emails.slice(i, i + chunkSize);
+        try {
+          const data = await request<{ aggregate_data?: Record<string, InstantlyWarmupAggregate> }>(
+            "POST", "/accounts/warmup-analytics", { emails: chunk }
+          );
+          if (data?.aggregate_data) Object.assign(out, data.aggregate_data);
+        } catch {
+          // best-effort: a failed chunk just leaves those inboxes without a health score
+        }
+      }
+      return out;
+    },
   };
 }
+
+export type InstantlyWarmupAggregate = {
+  sent?: number;
+  landed_inbox?: number;
+  landed_spam?: number;
+  received?: number;
+  health_score_label?: string;
+  health_score?: number; // 0-100 inbox-placement ratio
+};
 
 export type InstantlyCampaignAnalytics = {
   campaign_id: string;

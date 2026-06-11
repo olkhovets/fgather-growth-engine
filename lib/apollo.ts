@@ -1,6 +1,16 @@
 import type { NormalizedLead } from "@/lib/leads";
+import { classifyEmailProvider } from "@/lib/email-provider";
 
 const APOLLO_BASE = "https://api.apollo.io/api/v1";
+
+export type ProviderFilter = "all" | "google" | "no-gateways";
+/** Strict security gateways that quarantine cold email most aggressively. */
+const STRICT_GATEWAYS = new Set(["Proofpoint", "Mimecast", "Barracuda"]);
+function providerAllowed(provider: string, filter: ProviderFilter): boolean {
+  if (filter === "google") return provider === "Google";
+  if (filter === "no-gateways") return !STRICT_GATEWAYS.has(provider);
+  return true;
+}
 
 /**
  * Saved Apollo search parameters. These mirror Apollo's People Search filters.
@@ -14,6 +24,7 @@ export type ApolloSearch = {
   q_organization_keyword_tags?: string[]; // industry-ish keywords e.g. ["consumer goods", "retail"]
   q_keywords?: string;               // free-text
   per_page?: number;                 // max 100
+  providerFilter?: ProviderFilter;   // "all" (default) | "google" | "no-gateways" — filter by recipient inbox provider (MX)
 };
 
 type ApolloPerson = {
@@ -35,6 +46,11 @@ type ApolloPerson = {
 type ApolloSearchResponse = {
   people?: ApolloPerson[];
   pagination?: { page?: number; per_page?: number; total_entries?: number; total_pages?: number };
+};
+
+type ApolloMatchResponse = {
+  matches?: (ApolloPerson | null)[];
+  people?: (ApolloPerson | null)[];
 };
 
 /** Apollo returns this placeholder when an email is gated behind credits/plan. */
@@ -65,26 +81,21 @@ function toNormalizedLead(p: ApolloPerson): NormalizedLead | null {
 }
 
 /**
- * Run one page of an Apollo People Search and return normalized leads with
- * usable emails, plus pagination + how many results were skipped for locked emails.
+ * Apollo wants each employee range as ONE string "min,max" (e.g. "51,200"). A common
+ * mistake is splitting the input on commas, which shatters "51,200" into ["51","200"]
+ * — Apollo then rejects "[51] is invalid". This repairs both shapes: valid "min,max"
+ * pairs pass through; stray lone numbers get paired up two-by-two; garbage is dropped.
  */
-export async function apolloSearchPage(
-  apiKey: string,
-  search: ApolloSearch,
-  page: number
-): Promise<{ leads: NormalizedLead[]; totalPages: number; totalEntries: number; lockedSkipped: number; rawCount: number }> {
-  const body: Record<string, unknown> = {
-    page,
-    per_page: Math.min(100, Math.max(1, search.per_page ?? 50)),
-  };
-  if (search.person_titles?.length) body.person_titles = search.person_titles;
-  if (search.person_seniorities?.length) body.person_seniorities = search.person_seniorities;
-  if (search.organization_locations?.length) body.organization_locations = search.organization_locations;
-  if (search.organization_num_employees_ranges?.length) body.organization_num_employees_ranges = search.organization_num_employees_ranges;
-  if (search.q_organization_keyword_tags?.length) body.q_organization_keyword_tags = search.q_organization_keyword_tags;
-  if (search.q_keywords?.trim()) body.q_keywords = search.q_keywords.trim();
+export function normalizeEmployeeRanges(ranges: string[]): string[] {
+  // Rejoin with commas (this reverses a bad comma-split that shatters "51,200" into
+  // ["51","200"] or "51,200 201,500" into ["51","200 201","500"]), then pull out every
+  // "min,max" pair left-to-right. Handles clean input and corrupted saved data alike.
+  const joined = ranges.map((r) => String(r).trim()).filter(Boolean).join(",");
+  return (joined.match(/\d+\s*,\s*\d+/g) ?? []).map((r) => r.replace(/\s+/g, ""));
+}
 
-  const res = await fetch(`${APOLLO_BASE}/mixed_people/search`, {
+async function apolloPost<T>(apiKey: string, path: string, body: unknown): Promise<T> {
+  const res = await fetch(`${APOLLO_BASE}${path}`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -93,59 +104,211 @@ export async function apolloSearchPage(
     },
     body: JSON.stringify(body),
   });
-
   if (!res.ok) {
     const text = await res.text().catch(() => "");
-    throw new Error(`Apollo search failed (${res.status}): ${text.slice(0, 200)}`);
+    throw new Error(`Apollo ${path} failed (${res.status}): ${text.slice(0, 240)}`);
   }
+  return (await res.json()) as T;
+}
 
-  const data = (await res.json()) as ApolloSearchResponse;
+/**
+ * Run one page of Apollo People Search. As of 2025 this endpoint (`mixed_people/api_search`,
+ * which replaced the deprecated `mixed_people/search`) returns people WITHOUT emails or
+ * phone numbers — emails must be unlocked separately via bulk enrichment (apolloEnrichPeople).
+ * Returns the raw people (with Apollo `id`s) plus pagination.
+ */
+export async function apolloSearchPage(
+  apiKey: string,
+  search: ApolloSearch,
+  page: number
+): Promise<{ people: ApolloPerson[]; totalPages: number; totalEntries: number; rawCount: number }> {
+  const body: Record<string, unknown> = {
+    page,
+    per_page: 100, // always page at the max; api_search returns no pagination object, so we
+    // page until a page comes back not-full (see apolloFetchLeads). search.per_page is ignored.
+  };
+  if (search.person_titles?.length) body.person_titles = search.person_titles;
+  if (search.person_seniorities?.length) body.person_seniorities = search.person_seniorities;
+  if (search.organization_locations?.length) body.organization_locations = search.organization_locations;
+  if (search.organization_num_employees_ranges?.length) {
+    const ranges = normalizeEmployeeRanges(search.organization_num_employees_ranges);
+    if (ranges.length) body.organization_num_employees_ranges = ranges;
+  }
+  if (search.q_organization_keyword_tags?.length) body.q_organization_keyword_tags = search.q_organization_keyword_tags;
+  if (search.q_keywords?.trim()) body.q_keywords = search.q_keywords.trim();
+
+  const data = await apolloPost<ApolloSearchResponse>(apiKey, "/mixed_people/api_search", body);
   const people = data.people ?? [];
-  const leads: NormalizedLead[] = [];
-  let lockedSkipped = 0;
-  for (const p of people) {
-    const lead = toNormalizedLead(p);
-    if (lead) leads.push(lead);
-    else lockedSkipped += 1;
-  }
-
   return {
-    leads,
+    people,
     totalPages: data.pagination?.total_pages ?? 1,
     totalEntries: data.pagination?.total_entries ?? people.length,
-    lockedSkipped,
     rawCount: people.length,
   };
 }
 
 /**
- * Pull up to `limit` leads with usable emails across multiple pages.
- * Stops when limit is reached, pages are exhausted, or a hard page cap is hit.
+ * Unlock emails for up to 10 people via Apollo Bulk People Enrichment (`people/bulk_match`).
+ * Matches primarily on the Apollo person `id` returned by search, with name/domain as hints.
+ * Consumes Apollo credits per match. Returns the enriched person records (now with emails).
+ */
+export async function apolloEnrichPeople(
+  apiKey: string,
+  people: ApolloPerson[],
+  revealPersonalEmails = false
+): Promise<ApolloPerson[]> {
+  const batch = people.slice(0, 10);
+  if (batch.length === 0) return [];
+  const details = batch.map((p) => ({
+    ...(p.id ? { id: p.id } : {}),
+    ...(p.first_name ? { first_name: p.first_name } : {}),
+    ...(p.last_name ? { last_name: p.last_name } : {}),
+    ...(p.name ? { name: p.name } : {}),
+    ...(p.organization?.name ? { organization_name: p.organization.name } : {}),
+    ...(p.organization?.primary_domain ? { domain: p.organization.primary_domain } : {}),
+  }));
+  const data = await apolloPost<ApolloMatchResponse>(apiKey, "/people/bulk_match", {
+    details,
+    reveal_personal_emails: revealPersonalEmails,
+  });
+  const matches = data.matches ?? data.people ?? [];
+  return matches.filter((m): m is ApolloPerson => Boolean(m));
+}
+
+/**
+ * Stable key for matching a person against existing leads BEFORE enrichment (when we only have
+ * name + company, not email). Used to skip dupes before spending an Apollo enrichment credit.
+ */
+export function leadDedupKey(name: string | null | undefined, company: string | null | undefined): string {
+  const n = (name || "").toLowerCase().replace(/\s+/g, " ").trim();
+  const c = (company || "").toLowerCase().replace(/\s+/g, " ").trim();
+  return `${n}|${c}`;
+}
+
+/**
+ * Pull up to `limit` leads with usable emails: page through search, then enrich each
+ * page in batches of 10 to unlock emails, stopping as soon as `limit` usable emails are
+ * collected (to bound credit spend). Enrichment is the only way to get emails now.
+ *
+ * `existingKeys` (name|company keys of leads already in the workspace) lets us skip people we
+ * already have BEFORE enriching them — Apollo charges a credit per enrichment, so on a mined-out
+ * search this avoids paying to re-reveal emails for duplicates.
  */
 export async function apolloFetchLeads(
   apiKey: string,
   search: ApolloSearch,
-  limit: number
-): Promise<{ leads: NormalizedLead[]; lockedSkipped: number; pagesScanned: number; totalEntries: number }> {
+  limit: number,
+  existingKeys?: Set<string>,
+  // Optional ICP fit-screen run on title/company/industry BEFORE enrichment, so off-ICP people
+  // never cost an enrichment credit. Returns a keep-mask aligned to the input. Fail-safe to keep.
+  screenFn?: (cands: Array<{ jobTitle?: string | null; company?: string | null; industry?: string | null }>) => Promise<boolean[]>
+): Promise<{ leads: NormalizedLead[]; lockedSkipped: number; pagesScanned: number; totalEntries: number; stoppedEarly: boolean; stopReason: string | null; preEnrichDupesSkipped: number; screenedOut: number }> {
   const collected: NormalizedLead[] = [];
   let lockedSkipped = 0;
   let page = 1;
-  let totalPages = 1;
   let totalEntries = 0;
-  const MAX_PAGES = 25; // safety cap (Apollo caps deep pagination anyway)
+  const PER_PAGE = 100;
+  const filter: ProviderFilter = search.providerFilter ?? "all";
+  // A provider filter drops most people BEFORE the expensive enrichment step (only keepers get
+  // enriched), so a filtered pull can afford to scan far deeper to actually net `limit` leads —
+  // at ~9% Google density, 25 pages tops out around ~225 Google leads. Unfiltered pulls enrich
+  // every person, so they hit `limit` quickly and don't need the extra pages. The longer function
+  // budget (maxDuration 300 on the ingest route) is what makes the deeper scan safe.
+  const MAX_PAGES = filter === "all" ? 25 : 80;
 
-  while (collected.length < limit && page <= totalPages && page <= MAX_PAGES) {
-    const res = await apolloSearchPage(apiKey, search, page);
-    totalPages = res.totalPages;
-    totalEntries = res.totalEntries;
-    lockedSkipped += res.lockedSkipped;
-    for (const l of res.leads) {
-      collected.push(l);
-      if (collected.length >= limit) break;
+  // Domain -> provider cache (shared across pages). When a provider filter is active we
+  // classify the company domain by MX BEFORE enriching, so we never spend enrichment credits
+  // on a provider we're going to drop (e.g. Proofpoint/Mimecast gateways).
+  const provCache = new Map<string, string>();
+  const provFor = async (domain: string) => {
+    const d = (domain || "").toLowerCase().trim();
+    if (!d) return "Unknown";
+    if (!provCache.has(d)) provCache.set(d, await classifyEmailProvider(`x@${d}`));
+    return provCache.get(d)!;
+  };
+
+  // If Apollo throws mid-pull (most importantly: OUT OF CREDITS, but also rate limits / transient
+  // errors), we must NOT discard the leads already enriched — those cost credits. Catch the error,
+  // stop, and RETURN what we've collected so the caller still saves it. `stoppedEarly` flags it.
+  let stoppedEarly = false;
+  let stopReason: string | null = null;
+  // Pre-enrichment dedup: skip people already in the workspace (existingKeys) or already pulled
+  // earlier in THIS run (pulledKeys) before paying a credit to enrich them.
+  const pulledKeys = new Set<string>();
+  let preEnrichDupesSkipped = 0;
+  let screenedOut = 0;
+  const personName = (p: ApolloPerson) => p.name || [p.first_name, p.last_name].filter(Boolean).join(" ");
+  outer: while (collected.length < limit && page <= MAX_PAGES) {
+    let res: Awaited<ReturnType<typeof apolloSearchPage>>;
+    try {
+      res = await apolloSearchPage(apiKey, search, page);
+    } catch (err) {
+      stoppedEarly = true; stopReason = err instanceof Error ? err.message : "search failed";
+      break;
     }
-    if (res.rawCount === 0) break; // no more results
+    totalEntries += res.rawCount;
+    if (res.rawCount === 0) break;
+
+    let people = res.people;
+
+    // Dedup BEFORE enriching (free) so we never spend a credit on someone we already have or
+    // already pulled this run. Match on name|company (email isn't known until enrichment).
+    people = people.filter((p) => {
+      const key = leadDedupKey(personName(p), p.organization?.name);
+      if (key === "|") return true; // no name/company to key on — let enrichment decide
+      if ((existingKeys && existingKeys.has(key)) || pulledKeys.has(key)) { preEnrichDupesSkipped += 1; return false; }
+      pulledKeys.add(key);
+      return true;
+    });
+
+    // Provider pre-filter (only when active): classify each person's company domain and
+    // keep only allowed providers, so enrichment credits are spent on keepers only.
+    if (filter !== "all") {
+      const domains = Array.from(new Set(people.map((p) => p.organization?.primary_domain || "").filter(Boolean)));
+      const C = 25;
+      for (let i = 0; i < domains.length; i += C) await Promise.all(domains.slice(i, i + C).map((d) => provFor(d)));
+      people = people.filter((p) => {
+        const dom = (p.organization?.primary_domain || "").toLowerCase().trim();
+        return dom && providerAllowed(provCache.get(dom) ?? "Unknown", filter);
+      });
+    }
+
+    // ICP fit-screen BEFORE enrichment (free Claude check on title/company/industry) so we never
+    // spend an enrichment credit on an off-ICP lead. Fail-safe: keep on any error.
+    if (screenFn && people.length > 0) {
+      let mask: boolean[];
+      try { mask = await screenFn(people.map((p) => ({ jobTitle: p.title, company: p.organization?.name, industry: p.organization?.industry }))); }
+      catch { mask = people.map(() => true); }
+      const before = people.length;
+      people = people.filter((_, i) => mask[i] !== false);
+      screenedOut += before - people.length;
+    }
+
+    for (let i = 0; i < people.length && collected.length < limit; i += 10) {
+      let enriched: ApolloPerson[];
+      try {
+        enriched = await apolloEnrichPeople(apiKey, people.slice(i, i + 10));
+      } catch (err) {
+        // Out of credits / API error mid-enrichment: keep everything collected so far and stop.
+        stoppedEarly = true; stopReason = err instanceof Error ? err.message : "enrichment failed";
+        break outer;
+      }
+      for (const e of enriched) {
+        const lead = toNormalizedLead(e);
+        if (lead) {
+          // Stamp provider only when a filter is active (cache already warm). When filter is
+          // "all" we skip MX here to keep ingest fast — the daily cron backfills providers.
+          if (filter !== "all") lead.emailProvider = await provFor((lead.email.split("@")[1] || ""));
+          collected.push(lead);
+          if (collected.length >= limit) break outer;
+        } else {
+          lockedSkipped += 1;
+        }
+      }
+    }
+    if (res.rawCount < PER_PAGE) break;
     page += 1;
   }
 
-  return { leads: collected, lockedSkipped, pagesScanned: page - 1, totalEntries };
+  return { leads: collected, lockedSkipped, pagesScanned: page - 1, totalEntries, stoppedEarly, stopReason, preEnrichDupesSkipped, screenedOut };
 }

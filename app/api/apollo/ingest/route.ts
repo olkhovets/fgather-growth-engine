@@ -3,133 +3,17 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { decrypt } from "@/lib/encryption";
-import { apolloFetchLeads, type ApolloSearch } from "@/lib/apollo";
-import { createBatchWithLeads, type NormalizedLead } from "@/lib/leads";
-import { verifyEmailBatch } from "@/lib/verify-email";
-import { logActivity } from "@/lib/activity";
+import { type ApolloSearch } from "@/lib/apollo";
+import { ingestForWorkspace, loadSearch, type IngestResult } from "@/lib/apollo-ingest";
 
 export const dynamic = "force-dynamic";
-export const maxDuration = 60;
+// 300s (Vercel's current max on all plans) so a provider-filtered pull can scan deep enough to
+// actually net a real-volume batch of Google leads instead of stalling at ~225 inside 60s.
+export const maxDuration = 300;
 
 // Default per-run ingest size. Large enough to feed the funnel in one go,
 // small enough to stay within Apollo credits and the function timeout.
 const DEFAULT_INGEST_LIMIT = 250;
-
-type IngestResult = {
-  workspaceId: string;
-  batchId: string | null;
-  fetched: number;
-  inserted: number;
-  skippedDuplicate: number;
-  skippedInvalid: number;
-  lockedSkipped: number;
-  message: string;
-};
-
-/**
- * Pull leads from Apollo for one workspace, dedupe against everyone ever
- * contacted, optionally verify emails, and create a fresh batch.
- */
-async function ingestForWorkspace(
-  workspaceId: string,
-  apolloApiKey: string,
-  search: ApolloSearch,
-  limit: number,
-  zeroBounceKey?: string | null
-): Promise<IngestResult> {
-  // Over-fetch a bit so that after dedupe we still land near `limit`
-  const { leads: fetched, lockedSkipped } = await apolloFetchLeads(apolloApiKey, search, Math.ceil(limit * 1.5));
-
-  if (fetched.length === 0) {
-    return {
-      workspaceId, batchId: null, fetched: 0, inserted: 0, skippedDuplicate: 0,
-      skippedInvalid: 0, lockedSkipped,
-      message: lockedSkipped > 0
-        ? `Apollo returned ${lockedSkipped} people but all emails were locked. Check your Apollo plan/credits for email access.`
-        : "Apollo returned no matching people for this search.",
-    };
-  }
-
-  // Pre-dedupe against everyone already in the workspace so we don't waste verification credits
-  const existing = await prisma.lead.findMany({
-    where: { leadBatch: { workspaceId } },
-    select: { email: true },
-  });
-  const seen = new Set(existing.map((r) => r.email.toLowerCase().trim()));
-  let deduped: NormalizedLead[] = [];
-  const localSeen = new Set<string>();
-  for (const l of fetched) {
-    const key = l.email.toLowerCase().trim();
-    if (seen.has(key) || localSeen.has(key)) continue;
-    localSeen.add(key);
-    deduped.push(l);
-  }
-  const preDedupSkipped = fetched.length - deduped.length;
-  deduped = deduped.slice(0, limit);
-
-  if (deduped.length === 0) {
-    return {
-      workspaceId, batchId: null, fetched: fetched.length, inserted: 0,
-      skippedDuplicate: preDedupSkipped, skippedInvalid: 0, lockedSkipped,
-      message: "All Apollo results were already in your workspace (duplicates).",
-    };
-  }
-
-  // Optional email verification — drop confirmed-invalid addresses to protect deliverability
-  let skippedInvalid = 0;
-  let verified = deduped;
-  if (zeroBounceKey) {
-    try {
-      const results = await verifyEmailBatch(deduped.map((l) => l.email), zeroBounceKey);
-      verified = deduped.filter((l) => results.get(l.email) !== "invalid");
-      skippedInvalid = deduped.length - verified.length;
-    } catch {
-      verified = deduped; // verification is best-effort; never block ingestion on it
-    }
-  }
-
-  if (verified.length === 0) {
-    return {
-      workspaceId, batchId: null, fetched: fetched.length, inserted: 0,
-      skippedDuplicate: preDedupSkipped, skippedInvalid, lockedSkipped,
-      message: "All fetched emails failed verification.",
-    };
-  }
-
-  const dateLabel = new Date().toISOString().slice(0, 10);
-  const { batchId, count, skippedDuplicate } = await createBatchWithLeads(workspaceId, verified, {
-    batchName: `Apollo ${dateLabel}`,
-    dedupe: true,
-  });
-
-  await logActivity(workspaceId, "ingest",
-    `Ingested ${count} new leads from Apollo`,
-    { ingested: count, fetched: fetched.length, duplicatesSkipped: preDedupSkipped + skippedDuplicate, invalidSkipped: skippedInvalid, lockedSkipped });
-
-  return {
-    workspaceId,
-    batchId,
-    fetched: fetched.length,
-    inserted: count,
-    skippedDuplicate: preDedupSkipped + skippedDuplicate,
-    skippedInvalid,
-    lockedSkipped,
-    message: `Ingested ${count} new leads into batch "Apollo ${dateLabel}". Generate sequences, then launch.`,
-  };
-}
-
-async function loadSearch(workspaceId: string): Promise<ApolloSearch | null> {
-  const ws = await prisma.workspace.findUnique({
-    where: { id: workspaceId },
-    select: { apolloSearchJson: true },
-  });
-  if (!ws?.apolloSearchJson) return null;
-  try {
-    return JSON.parse(ws.apolloSearchJson) as ApolloSearch;
-  } catch {
-    return null;
-  }
-}
 
 export async function POST(request: Request) {
   try {
@@ -150,7 +34,7 @@ export async function POST(request: Request) {
     if (!search) {
       return NextResponse.json({ error: "No Apollo search configured. Save search filters first or pass them in the request." }, { status: 400 });
     }
-    const limit = Math.min(500, Math.max(1, body.limit ?? DEFAULT_INGEST_LIMIT));
+    const limit = Math.min(1000, Math.max(1, body.limit ?? DEFAULT_INGEST_LIMIT));
 
     const result = await ingestForWorkspace(
       workspace.id,

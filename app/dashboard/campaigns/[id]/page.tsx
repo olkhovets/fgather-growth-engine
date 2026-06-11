@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useSession, signOut } from "next-auth/react";
 import { useAuthGuard } from "@/hooks/useAuthGuard";
 import { APP_DISPLAY_NAME } from "@/lib/app-config";
@@ -17,6 +17,7 @@ type CampaignData = {
   icp: string | null;
   leadBatchId: string | null;
   ctaUrl: string | null;
+  builderPrefsJson: string | null;
   leadBatch?: {
     id: string;
     name: string | null;
@@ -95,6 +96,28 @@ export default function CampaignPage() {
   const [sampleError, setSampleError] = useState("");
   const [sampleJobTitle, setSampleJobTitle] = useState("");
   const [sampleCompanyUrl, setSampleCompanyUrl] = useState("");
+  // Persistence status for builder edits (name, CTA, prefs). Shown next to the step tabs.
+  const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
+  const prefsLoadedRef = useRef(false);
+  const prefsSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // PATCH a single campaign column (name, ctaUrl, …) with visible save status.
+  const saveCampaignField = async (patch: Record<string, unknown>, optimistic?: Partial<CampaignData>) => {
+    if (!id) return;
+    setSaveStatus("saving");
+    try {
+      const res = await fetch(`/api/campaigns/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(patch),
+      });
+      if (!res.ok) throw new Error("save failed");
+      if (optimistic) setCampaign((c) => (c ? { ...c, ...optimistic } : c));
+      setSaveStatus("saved");
+    } catch {
+      setSaveStatus("error");
+    }
+  };
 
   useEffect(() => {
     if (!id || !session?.user?.id) return;
@@ -139,11 +162,40 @@ export default function CampaignPage() {
           if (data.campaign.ctaUrl) {
             setCtaUrl(data.campaign.ctaUrl);
           }
+          if (data.campaign.builderPrefsJson) {
+            try {
+              const p = JSON.parse(data.campaign.builderPrefsJson) as {
+                useFastModel?: boolean; useWebScraping?: boolean; useLandingPage?: boolean;
+                useVideo?: boolean; selectedAccountEmails?: string[];
+              };
+              if (typeof p.useFastModel === "boolean") setUseFastModel(p.useFastModel);
+              if (typeof p.useWebScraping === "boolean") setUseWebScraping(p.useWebScraping);
+              if (typeof p.useLandingPage === "boolean") setUseLandingPage(p.useLandingPage);
+              if (typeof p.useVideo === "boolean") setUseVideo(p.useVideo);
+              if (Array.isArray(p.selectedAccountEmails)) setSelectedAccountEmails(p.selectedAccountEmails);
+            } catch {
+              //
+            }
+          }
         }
       })
       .catch(() => {})
       .finally(() => setLoading(false));
   }, [id, session?.user?.id]);
+
+  // Debounced autosave of builder preferences (toggles + mailbox selection) so
+  // they survive navigation/refresh. Skips the initial load to avoid a no-op write.
+  useEffect(() => {
+    if (loading) return;
+    if (!prefsLoadedRef.current) { prefsLoadedRef.current = true; return; }
+    if (prefsSaveTimer.current) clearTimeout(prefsSaveTimer.current);
+    prefsSaveTimer.current = setTimeout(() => {
+      const prefs = { useFastModel, useWebScraping, useLandingPage, useVideo, selectedAccountEmails };
+      saveCampaignField({ builderPrefsJson: JSON.stringify(prefs) });
+    }, 600);
+    return () => { if (prefsSaveTimer.current) clearTimeout(prefsSaveTimer.current); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [useFastModel, useWebScraping, useLandingPage, useVideo, selectedAccountEmails, loading]);
 
   useEffect(() => {
     if (!session?.user?.id) return;
@@ -644,8 +696,8 @@ export default function CampaignPage() {
             </div>
           ) : (
             <>
-              <div className="flex gap-2 mb-8 border-b border-gray-200 pb-4">
-                {(["playbook", "sequences", "send"] as const).map((s) => (
+              <div className="flex items-center gap-2 mb-8 border-b border-gray-200 pb-4">
+                {(["playbook", "sequences", "send"] as const).map((s, i) => (
                   <button
                     key={s}
                     onClick={() => setStep(s)}
@@ -653,9 +705,14 @@ export default function CampaignPage() {
                       step === s ? "bg-gray-200 text-gray-900" : "text-gray-400 hover:text-gray-700"
                     }`}
                   >
-                    {s}
+                    {i + 1}. {s}
                   </button>
                 ))}
+                <span className="ml-auto text-xs" aria-live="polite">
+                  {saveStatus === "saving" && <span className="text-gray-400">Saving…</span>}
+                  {saveStatus === "saved" && <span className="text-[#1A7A4A]">✓ Saved</span>}
+                  {saveStatus === "error" && <span className="text-red-600">Save failed — retry</span>}
+                </span>
               </div>
 
               {step === "playbook" && (
@@ -1028,14 +1085,7 @@ export default function CampaignPage() {
                             type="url"
                             value={ctaUrl}
                             onChange={(e) => setCtaUrl(e.target.value)}
-                            onBlur={() => {
-                              if (!id) return;
-                              fetch(`/api/campaigns/${id}`, {
-                                method: "PATCH",
-                                headers: { "Content-Type": "application/json" },
-                                body: JSON.stringify({ ctaUrl: ctaUrl.trim() }),
-                              }).catch(() => {});
-                            }}
+                            onBlur={() => saveCampaignField({ ctaUrl: ctaUrl.trim() }, { ctaUrl: ctaUrl.trim() })}
                             placeholder="https://calendly.com/you/demo"
                             className="w-full rounded-md border border-gray-300 bg-white px-3 py-1.5 text-sm text-gray-800 placeholder-zinc-600 focus:border-zinc-500 focus:outline-none"
                           />
@@ -1231,6 +1281,10 @@ export default function CampaignPage() {
                     <input
                       value={campaignNameInput}
                       onChange={(e) => setCampaignNameInput(e.target.value)}
+                      onBlur={() => {
+                        const n = campaignNameInput.trim();
+                        if (n && n !== campaign.name) saveCampaignField({ name: n }, { name: n });
+                      }}
                       placeholder="e.g. Q1 Outbound"
                       className="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-gray-800 text-sm"
                     />
@@ -1300,6 +1354,13 @@ export default function CampaignPage() {
                         </div>
                         <p className="text-xs text-gray-400">
                           {(selectedAccountEmails === null ? instantlyAccounts.length : selectedAccountEmails.length)} of {instantlyAccounts.length} selected
+                          {(() => {
+                            const n = selectedAccountEmails === null ? instantlyAccounts.length : selectedAccountEmails.length;
+                            return n > 0 ? <span className="text-[#1A7A4A]"> · ~{n * 30} emails/day at 30 per inbox</span> : null;
+                          })()}
+                        </p>
+                        <p className="text-xs text-gray-300">
+                          Want more volume? Select every warmed inbox — daily sends scale with the number of inboxes, not the per-inbox rate. Keep ~30/inbox for deliverability.
                         </p>
                         {(() => {
                           const filtered = instantlyAccounts.filter(

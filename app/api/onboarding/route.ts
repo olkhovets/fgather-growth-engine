@@ -26,6 +26,24 @@ export async function POST(request: Request) {
     // Optional manual product summary + ICP (otherwise productSummary comes from the domain crawl)
     const productSummary = typeof body.productSummary === "string" ? body.productSummary.trim() : undefined;
     const icp = typeof body.icp === "string" ? body.icp.trim() : undefined;
+    // Custom instructions (incentive policy, tone notes) — applied to every email
+    const customInstructions = typeof body.customInstructions === "string" ? body.customInstructions.trim() : undefined;
+    // Real scheduling/Calendly link. Blank = never include links; set = follow-up steps only.
+    const schedulingLink = typeof body.schedulingLink === "string" ? body.schedulingLink.trim() : undefined;
+    // Proof points: client sends newline-separated "Title: text" lines; store as JSON array
+    let proofPointsJson: string | null | undefined = undefined;
+    if (typeof body.proofPointsText === "string") {
+      const arr = body.proofPointsText
+        .split("\n")
+        .map((l: string) => l.trim())
+        .filter(Boolean)
+        .map((line: string) => {
+          const idx = line.indexOf(":");
+          if (idx > 0 && idx < 60) return { title: line.slice(0, idx).trim(), text: line.slice(idx + 1).trim() };
+          return { text: line };
+        });
+      proofPointsJson = arr.length > 0 ? JSON.stringify(arr) : null;
+    }
 
     if (!domain) {
       return NextResponse.json(
@@ -63,6 +81,9 @@ export async function POST(request: Request) {
         socialProofJson,
         ...(productSummary !== undefined && productSummary !== "" && { productSummary }),
         ...(icp !== undefined && icp !== "" && { icp }),
+        ...(customInstructions !== undefined && { customInstructions: customInstructions || null }),
+        ...(schedulingLink !== undefined && { schedulingLink: schedulingLink || null }),
+        ...(proofPointsJson !== undefined && { proofPointsJson }),
         ...(anthropicKey && { anthropicKey: encryptedAnthropicKey }),
         ...(instantlyKey && { instantlyKey: encryptedInstantlyKey }),
         ...(lumaApiKey && { lumaApiKey: encryptedLumaKey }),
@@ -75,6 +96,9 @@ export async function POST(request: Request) {
         socialProofJson,
         ...(productSummary ? { productSummary } : {}),
         ...(icp ? { icp } : {}),
+        ...(customInstructions ? { customInstructions } : {}),
+        ...(schedulingLink ? { schedulingLink } : {}),
+        ...(proofPointsJson ? { proofPointsJson } : {}),
         anthropicKey: encryptedAnthropicKey,
         instantlyKey: encryptedInstantlyKey,
         lumaApiKey: encryptedLumaKey,
@@ -110,6 +134,9 @@ export async function GET(request: Request) {
         domain: true,
         productSummary: true,
         icp: true,
+        proofPointsJson: true,
+        customInstructions: true,
+        schedulingLink: true,
         anthropicModel: true,
         senderName: true,
         socialProofJson: true,
