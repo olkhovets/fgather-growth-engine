@@ -9,6 +9,8 @@
 
 **Favor incentives (Peter: they work, stick to them).** Value-first track cut from 50% to a small 20% ongoing A/B; incentives now the 80% default. `VALUE_FIRST_SHARE=0` disables it entirely.
 
+**Cost-efficiency watch (so a credit leak can't run silently again).** The optimizer watched send-side metrics but never lead-pull COST. Added `apolloEfficiency` — every optimizer run computes Apollo yield (new leads / enrichment attempts) from recent ingest logs, reports `apolloYield`, and raises a "COST WARNING" action when efficiency drops below 35% at meaningful volume. Consumed by the twice-daily Opus agent. Verified live: flagged the day's 19% yield immediately.
+
 ## Session 2026-06-15 (late eve) — value-first track parallel to incentives (deployed + verified live)
 
 Peter: incentives sell, but balance both approaches. Built a no-money A/B track and split volume 50/50.
