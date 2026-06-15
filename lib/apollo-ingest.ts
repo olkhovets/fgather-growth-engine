@@ -25,7 +25,8 @@ export async function ingestForWorkspace(
   apolloApiKey: string,
   search: ApolloSearch,
   limit: number,
-  zeroBounceKey?: string | null
+  zeroBounceKey?: string | null,
+  personaTag?: string
 ): Promise<IngestResult> {
   // Load everyone already in the workspace ONCE — used both to dedup BEFORE enriching (by
   // name|company, to save Apollo credits) and to dedup AFTER enriching (by email, authoritative).

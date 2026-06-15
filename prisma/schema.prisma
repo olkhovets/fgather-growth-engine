@@ -100,6 +100,7 @@ model Workspace {
   incentivesDailyCap   Int      @default(500)  // max leads/day the incentives autopilot will append
   incentivesLastRunAt  DateTime?               // when the incentives autopilot last appended (for interval pacing)
   recycleCooldownDays  Int      @default(21)   // min days since last contact before an already-sent non-replier can be recycled
+  apolloPersonaIndex   Int      @default(0)    // rotation cursor across persona search variants (expands the addressable pool)
   schedulingLink   String?  // real Calendly/booking link. Blank = NEVER include links. Set = used only in follow-up steps, never step 1.
   notifyOnActivity Boolean  @default(false) // email the operator on every activity-log event
   createdAt       DateTime @default(now())
