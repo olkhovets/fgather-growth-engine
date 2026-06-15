@@ -1,5 +1,14 @@
 # Engine Changelog
 
+## Session 2026-06-15 (late eve) — Apollo credit-burn fix (page cursor) + favor incentives 80/20 (deployed + verified)
+
+**Apollo was burning ~9 credits per net-new lead.** Diagnosed from ingest logs: every pull restarted at api_search page 1 and re-scanned the same already-ingested people; their name|company keys had drifted, so pre-enrich dedup missed them and we paid to re-enrich, then dropped them as email-dupes (last 8 pulls before the fix: 418 inserted vs 2,013 wasted dupe-enrichments). Fix: persistent pagination cursor (`Workspace.apolloPagePtr`) — each pull resumes past where the last scanned, marching forward into fresh people. Wraps to page 1 when exhausted; capped under Apollo's ~50k-record ceiling.
+- `apolloFetchLeads`: `startPage` param + returns `nextPage`/`reachedEnd`.
+- `ingestForWorkspace`: reads + advances the cursor (only on a non-errored pull).
+- **Verified live:** pull#1 (pages 1-12) inserted 15 / 360 dupes; pull#2 (13-25) inserted 233 / 142; pull#3 (26-40) inserted 250 / 62. ~16x more leads per pull, dupe waste down ~6x.
+
+**Favor incentives (Peter: they work, stick to them).** Value-first track cut from 50% to a small 20% ongoing A/B; incentives now the 80% default. `VALUE_FIRST_SHARE=0` disables it entirely.
+
 ## Session 2026-06-15 (late eve) — value-first track parallel to incentives (deployed + verified live)
 
 Peter: incentives sell, but balance both approaches. Built a no-money A/B track and split volume 50/50.
