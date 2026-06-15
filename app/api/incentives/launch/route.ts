@@ -39,8 +39,13 @@ export async function POST(request: Request) {
       body.workspaceId = sws.id; // normalize so the lookup below is uniform
     }
 
-    const ws = await prisma.workspace.findUnique({ where: { id: body.workspaceId }, select: { id: true, webhookSecret: true, incentiveConfigJson: true } });
+    const ws = await prisma.workspace.findUnique({ where: { id: body.workspaceId }, select: { id: true, webhookSecret: true, incentiveConfigJson: true, recycleCooldownDays: true } });
     if (!ws) return NextResponse.json({ error: "Workspace not found" }, { status: 404 });
+
+    // RECYCLE mode: re-contact already-sent, never-replied leads with the current (better) emails,
+    // once they're past the cooldown. This re-uses the whole send pipeline but on a different pool.
+    const recycle = body.recycle === true;
+    const cooldownDays = ws.recycleCooldownDays ?? 21;
 
     // batchId optional: a specific batch (manual launch) or workspace-wide fresh leads (autopilot).
     const batchId: string | undefined = body.batchId;
@@ -68,7 +73,12 @@ export async function POST(request: Request) {
       providerFilter === "google" ? { OR: [{ emailProvider: "Google" }, { emailProvider: null }] }
       : providerFilter === "no-gateways" ? { NOT: { emailProvider: { in: Array.from(STRICT_GATEWAYS) } } }
       : {};
-    const base = { sentAt: null, suppressed: false, repliedAt: null, email: { not: "" }, ...providerWhere };
+    const cutoff = new Date(Date.now() - cooldownDays * 24 * 60 * 60 * 1000);
+    // FRESH base = never sent. RECYCLE base = sent long ago, never replied/bounced, not recycled
+    // recently, capped at 2 re-contacts (so we don't pester the same person endlessly).
+    const base = recycle
+      ? { sentAt: { lt: cutoff }, suppressed: false, repliedAt: null, bouncedAt: null, email: { not: "" }, recycleCount: { lt: 2 }, OR: [{ recycledAt: null }, { recycledAt: { lt: cutoff } }], ...providerWhere }
+      : { sentAt: null, suppressed: false, repliedAt: null, email: { not: "" }, ...providerWhere };
     const leadWhere = batchId ? { leadBatchId: batchId, ...base } : { leadBatch: { workspaceId: ws.id }, ...base };
     // When filtering by provider, load a generous pool (≥1500, not just sendLimit×6) so a small
     // per-run send still has enough candidates to find eligible leads — otherwise a handful of
@@ -77,11 +87,12 @@ export async function POST(request: Request) {
     const candidates = await prisma.lead.findMany({
       where: leadWhere,
       select: { id: true, email: true, name: true, company: true, emailProvider: true },
-      orderBy: { id: "asc" },
+      // Recycle oldest-contacted first ("the deepest people"); fresh sends go by id.
+      orderBy: recycle ? { sentAt: "asc" } : { id: "asc" },
       take: pool,
     });
     if (candidates.length === 0) {
-      return NextResponse.json({ error: "No fresh unsent leads. Pull more from Lead source." }, { status: 400 });
+      return NextResponse.json({ error: recycle ? `No leads eligible to recycle yet (need to be ${cooldownDays}+ days since last contact, no reply).` : "No fresh unsent leads. Pull more from Lead source." }, { status: 400 });
     }
 
     // Provider filtering — only send the incentive into mailboxes that actually accept cold mail.
@@ -184,7 +195,7 @@ export async function POST(request: Request) {
     });
 
     // Find the existing rolling campaign to append into (unless the operator forces a fresh one).
-    const ROLLING_NAME = "Incentives Lab (rolling)";
+    const ROLLING_NAME = recycle ? "Incentives Lab (recycle)" : "Incentives Lab (rolling)";
     const existing = freshCampaign
       ? null
       : await prisma.sentCampaign.findFirst({ where: { workspaceId: ws.id, name: ROLLING_NAME }, orderBy: { createdAt: "desc" }, select: { instantlyCampaignId: true } });
@@ -227,7 +238,9 @@ export async function POST(request: Request) {
     // separate Instantly campaigns — so one campaign gives identical A/B results).
     await Promise.all(
       Object.values(stampByCombo).map((c) =>
-        prisma.lead.updateMany({ where: { id: { in: c.ids } }, data: { sentAt: new Date(), incentiveAmount: c.amount, incentiveSubjectStyle: c.style, incentiveGiftType: c.gift } })
+        prisma.lead.updateMany({ where: { id: { in: c.ids } }, data: recycle
+          ? { recycledAt: new Date(), recycleCount: { increment: 1 }, incentiveAmount: c.amount, incentiveSubjectStyle: c.style, incentiveGiftType: c.gift }
+          : { sentAt: new Date(), incentiveAmount: c.amount, incentiveSubjectStyle: c.style, incentiveGiftType: c.gift } })
       )
     );
 

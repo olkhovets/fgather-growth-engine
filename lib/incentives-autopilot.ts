@@ -88,10 +88,23 @@ export async function runIncentivesAutopilotForWorkspace(
     const launchError = typeof launch.error === "string" ? launch.error : null;
     const distribution = Array.isArray(launch.distribution) ? launch.distribution : [];
 
+    // RECYCLE FALLBACK: if there were no fresh leads to append, re-contact the oldest non-repliers
+    // (past the cooldown) with the current credentialed emails, into a separate recycle campaign.
+    let recycled = 0;
+    if (appended === 0) {
+      const rres = await fetch(`${baseUrl()}/api/incentives/launch`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-cron-secret": secret },
+        body: JSON.stringify({ workspaceId: ws.id, sendLimit: thisRunLimit, providerFilter: PROVIDER, warmedInboxesOnly: true, recycle: true }),
+      });
+      const rl = await rres.json().catch(() => ({} as Record<string, unknown>));
+      recycled = (rl.totalUploaded as number) ?? 0;
+    }
+
     await logActivity(ws.id, "autopilot",
-      `Incentives autopilot: pulled ${ingested}, appended ${appended}/${thisRunLimit} into "${launch.campaignName ?? "rolling campaign"}" (${sentToday + appended}/${dailyCap} today)${launchError ? ` (issue: ${launchError})` : ""}`,
-      { incentives: true, ingested, appended, thisRunLimit, sentToday: sentToday + appended, dailyCap, mode: launch.mode, distribution, launchError, freshBefore: freshCount });
-    return { workspaceId: ws.id, ingested, appended, sentToday: sentToday + appended, dailyCap, mode: launch.mode, distribution, launchError };
+      `Incentives autopilot: pulled ${ingested}, appended ${appended}${recycled ? `, recycled ${recycled}` : ""}/${thisRunLimit} (${sentToday + appended}/${dailyCap} today)${launchError && !recycled ? ` (issue: ${launchError})` : ""}`,
+      { incentives: true, ingested, appended, recycled, thisRunLimit, sentToday: sentToday + appended, dailyCap, mode: launch.mode, distribution, launchError, freshBefore: freshCount });
+    return { workspaceId: ws.id, ingested, appended, recycled, sentToday: sentToday + appended, dailyCap, mode: launch.mode, distribution, launchError };
   } catch (err) {
     const msg = err instanceof Error ? err.message : "incentives autopilot failed";
     await logActivity(ws.id, "autopilot", `Incentives autopilot failed: ${msg}`).catch(() => {});

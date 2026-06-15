@@ -99,6 +99,7 @@ model Workspace {
   incentivesIntervalMin Int     @default(30)   // minimum minutes between incentives-autopilot runs (paces sending)
   incentivesDailyCap   Int      @default(500)  // max leads/day the incentives autopilot will append
   incentivesLastRunAt  DateTime?               // when the incentives autopilot last appended (for interval pacing)
+  recycleCooldownDays  Int      @default(21)   // min days since last contact before an already-sent non-replier can be recycled
   schedulingLink   String?  // real Calendly/booking link. Blank = NEVER include links. Set = used only in follow-up steps, never step 1.
   notifyOnActivity Boolean  @default(false) // email the operator on every activity-log event
   createdAt       DateTime @default(now())
@@ -261,6 +262,8 @@ model Lead {
   incentiveAmount    Int?      // Incentives Lab: dollar amount offered to this lead (for per-amount A/B tracking)
   incentiveSubjectStyle String? // Incentives Lab: which subject-style variant this lead got (for style A/B)
   incentiveGiftType  String?   // Incentives Lab: which gift type this lead was offered (Uber Eats / Amazon / Visa / DoorDash) for gift A/B
+  recycledAt         DateTime? // last time this already-sent, non-replied lead was re-contacted (recycling)
+  recycleCount       Int       @default(0) // how many times this lead has been recycled (cap re-contacts)
   emailProvider      String?   // inbox provider (Google / Microsoft / Yahoo / Other) — classified by MX at ingest, for provider analytics
   experimentIdsJson  String?   // JSON: string[] of PromptExperiment ids used to write this lead (for attribution)
   createdAt          DateTime  @default(now())
