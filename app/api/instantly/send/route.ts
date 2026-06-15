@@ -318,7 +318,7 @@ export async function POST(request: Request) {
       const payload = leadsPassingAllSteps.map((l) => toLeadPayload(l as LeadRecord));
       let addResult: { leads_uploaded: number; duplicated_leads: number; in_blocklist: number };
       try {
-        addResult = await client.bulkAddLeadsToCampaign(targetId, payload, { verify_leads_on_import: false });
+        addResult = await client.bulkAddLeadsToCampaign(targetId, payload, { verify_leads_on_import: true });
       } catch (err) {
         const msg = err instanceof Error ? err.message : "unknown";
         return NextResponse.json({ error: `Instantly rejected the leads: ${msg}` }, { status: 400 });
@@ -374,7 +374,7 @@ export async function POST(request: Request) {
         await client.addCampaignVariables(styleId, stepVarNames).catch(() => {});
 
         const payload = styleLeads.map((l) => toLeadPayload(l as LeadRecord));
-        const result = await client.bulkAddLeadsToCampaign(styleId, payload, { verify_leads_on_import: false });
+        const result = await client.bulkAddLeadsToCampaign(styleId, payload, { verify_leads_on_import: true });
         if (result.leads_uploaded > 0) {
           await client.activateCampaign(styleId);
           await markAsSent(styleLeads.map((l) => l.id), s);
@@ -469,10 +469,10 @@ export async function POST(request: Request) {
 
       const [resA, resB] = await Promise.all([
         client.bulkAddLeadsToCampaign(idA, toPayload(leadsA, subjectLineA!.trim()), {
-          verify_leads_on_import: false,
+          verify_leads_on_import: true,
         }),
         client.bulkAddLeadsToCampaign(idB, toPayload(leadsB, subjectLineB!.trim()), {
-          verify_leads_on_import: false,
+          verify_leads_on_import: true,
         }),
       ]);
 
@@ -609,7 +609,7 @@ export async function POST(request: Request) {
     let addResult: { leads_uploaded: number; duplicated_leads: number; in_blocklist: number };
     try {
       addResult = await client.bulkAddLeadsToCampaign(campaignId, validLeadsPayload, {
-        verify_leads_on_import: false,
+        verify_leads_on_import: true,
       });
       console.log(`[send] bulkAddLeads result: uploaded=${addResult.leads_uploaded}, dupes=${addResult.duplicated_leads}, blocklist=${addResult.in_blocklist}`);
     } catch (err) {

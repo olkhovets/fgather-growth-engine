@@ -4,6 +4,7 @@ import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { runAutopilotForWorkspace } from "@/lib/autopilot";
 import { runIncentivesAutopilotForWorkspace } from "@/lib/incentives-autopilot";
+import { optimizeIncentivesForWorkspace } from "@/lib/incentives-optimizer";
 import { waitUntil } from "@vercel/functions";
 
 export const dynamic = "force-dynamic";
@@ -46,6 +47,14 @@ export async function GET(request: Request) {
     }
     for (const ws of incentiveWorkspaces) {
       await runIncentivesAutopilotForWorkspace(ws, secret);
+    }
+    // Always-on iterator: run the optimizer at most ~every 6h per workspace (gated by its last log),
+    // so health/scaling/promotion happens even without the twice-daily creative agent.
+    for (const ws of incentiveWorkspaces) {
+      const last = await prisma.activityLog.findFirst({ where: { workspaceId: ws.id, type: "autopilot", message: { startsWith: "Optimizer:" } }, orderBy: { createdAt: "desc" }, select: { createdAt: true } });
+      if (!last || Date.now() - last.createdAt.getTime() > 6 * 60 * 60 * 1000) {
+        await optimizeIncentivesForWorkspace(ws.id);
+      }
     }
   })());
 

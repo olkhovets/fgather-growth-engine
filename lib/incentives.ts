@@ -16,49 +16,44 @@ export type IncentiveConfig = {
  *  - "clean": no money in the subject (curiosity/benefit; the offer lives in the body — far safer
  *    for deliverability). A/B the two families to see which actually lands + converts.
  */
-export const SUBJECT_PRESETS: Array<{ label: string; template: string; category: "bold" | "clean" }> = [
-  // BOLD — money in subject
-  { label: "direct-offer", template: "Get ${{amount}} to view a demo (seriously)", category: "bold" },
-  { label: "we-pay-you", template: "We'll pay you ${{amount}} for 20 minutes", category: "bold" },
-  { label: "no-catch", template: "${{amount}} for a 20-minute demo, no catch", category: "bold" },
-  { label: "heres-money", template: "Here's ${{amount}} to watch a demo", category: "bold" },
-  { label: "ill-send", template: "I'll send you ${{amount}} to see this", category: "bold" },
-  { label: "gift-card", template: "${{amount}} gift card, 20 minutes, no pitch", category: "bold" },
-  { label: "time-trade", template: "Trade you 20 minutes for ${{amount}}", category: "bold" },
-  { label: "ready-when", template: "Your ${{amount}} is ready when you are", category: "bold" },
-  { label: "on-us", template: "${{amount}} on us to check out Gather", category: "bold" },
-  { label: "for-your-time", template: "${{amount}} for 20 minutes of your time", category: "bold" },
-  // CLEAN — money in body, deliverability-safe subjects
-  { label: "worth-20", template: "Worth 20 minutes?", category: "clean" },
-  { label: "quick-q", template: "Quick question about {{companyName}}'s research", category: "clean" },
-  { label: "for-insights-team", template: "An offer for the {{companyName}} insights team", category: "clean" },
-  { label: "first-name-20", template: "{{firstName}}, worth 20 minutes of your time?", category: "clean" },
-  { label: "days-not-months", template: "Research answers in days, not months", category: "clean" },
-  { label: "right-person", template: "For whoever owns research at {{companyName}}", category: "clean" },
-  { label: "company-faster", template: "{{companyName}} + faster consumer answers", category: "clean" },
-  { label: "genuinely-useful", template: "20 minutes for something genuinely useful", category: "clean" },
-  { label: "made-offer", template: "{{firstName}}, made you an offer (inside)", category: "clean" },
-  { label: "quick-one", template: "{{firstName}} quick one on consumer research", category: "clean" },
+export const SUBJECT_PRESETS: Array<{ label: string; template: string; category: "credentialed" | "confident" | "clean" }> = [
+  // CREDENTIALED — lead with who we are / who we work with (build trust first)
+  { label: "belk-bagel-want", template: "how Belk and Bagel Brands learn what customers actually want", category: "credentialed" },
+  { label: "behind-staples-belk", template: "the consumer research behind Staples and Belk", category: "credentialed" },
+  { label: "gartner-team", template: "{{firstName}}, the team behind Gartner Peer Insights built this", category: "credentialed" },
+  { label: "menlo-backed", template: "Menlo-backed consumer research for {{companyName}}", category: "credentialed" },
+  { label: "ai-marketing-hire", template: "an AI marketing hire for {{companyName}}", category: "credentialed" },
+  { label: "days-not-six-weeks", template: "real consumer answers in days, not six weeks", category: "credentialed" },
+  // CONFIDENT — money framed as conviction, never a gimmick
+  { label: "behind-our-pitch", template: "{{firstName}}, we'll put ${{amount}} behind our pitch", category: "confident" },
+  { label: "confident-enough", template: "confident enough to put ${{amount}} on 20 minutes", category: "confident" },
+  { label: "back-it", template: "we'll back it with ${{amount}} for your time, {{firstName}}", category: "confident" },
+  { label: "sure-it-helps", template: "${{amount}} for 20 minutes, and here's why we're sure", category: "confident" },
+  // CLEAN — no money in subject, deliverability-safe
+  { label: "worth-20", template: "{{firstName}}, worth 20 minutes?", category: "clean" },
+  { label: "quick-one", template: "quick one on {{companyName}}'s consumer research", category: "clean" },
+  { label: "right-person", template: "for whoever owns consumer research at {{companyName}}", category: "clean" },
+  { label: "faster-answers", template: "{{companyName}} + faster consumer answers", category: "clean" },
 ];
 
-/** Body PRESETS — sharp 2-3 liners across many angles. */
+/**
+ * Body PRESETS — credentialed and confident, never gimmicky. Each leads with real credibility
+ * (customers, backers, founder pedigree, hard proof) and frames the money as conviction: a serious
+ * company putting cash behind a cold pitch because it's sure it can help. No "gift card, no catch."
+ * Verified facts only: backed by Menlo / True / Ridge, AI built on Anthropic; team behind Gartner
+ * Peer Insights; used by Datadog, Staples, Belk, Bagel Brands, Patreon; answers in 1-2 weeks vs 6-8
+ * at ~1/10th the cost. No em dashes, no links.
+ */
 export const BODY_PRESETS: Array<{ label: string; template: string }> = [
-  { label: "Blunt + confident", template: "We do AI consumer research that gets brands real audience answers in days, not months. I'm so sure it'll help {{companyName}} that I'll send you a ${{amount}} gift card just to watch a 20-minute demo.\nReply \"yes\" and it's yours." },
-  { label: "We do X, you need it", template: "We run AI consumer research. {{companyName}} needs faster, realer audience answers, and I'll pay you ${{amount}} to prove it in 20 minutes.\nWorth a reply?" },
-  { label: "Proof-point led", template: "Brands like Einstein Bros and Datadog use us to get consumer answers in days instead of months. I'll send {{firstName}} a ${{amount}} gift card to show you the same in 20 minutes.\nReply and it's yours." },
-  { label: "Pure offer", template: "No pitch: I'll give you a ${{amount}} gift card to sit through a 20-minute Gather demo. We do AI consumer research that's fast enough to be worth your time.\nReply \"in\"?" },
-  { label: "Confidence bet", template: "I'll bet you ${{amount}} that our AI research tool earns its spot at {{companyName}} in one 20-minute demo. Win or lose, the gift card is yours.\nReply to claim it." },
-  { label: "Ultra-short", template: "${{amount}} gift card for 20 minutes on a Gather demo. We do AI consumer research, fast.\nReply \"yes\"?" },
-  { label: "Personal + direct", template: "{{firstName}}, real offer: ${{amount}} to you for a 20-minute look at how Gather gets {{companyName}} consumer answers in days. No strings.\nReply and I'll send it over." },
-  { label: "Question hook", template: "What's it worth to get real consumer answers in days instead of months? To us, ${{amount}} — that's what I'll send you for a 20-minute demo.\nGame?" },
-  { label: "Reverse psychology", template: "Most research tools waste your time, so I'll put money on it: a ${{amount}} gift card if you give Gather 20 minutes and it isn't faster than your current setup.\nReply and I'll book it." },
-  { label: "Stat-led", template: "Most consumer research takes six to eight weeks. We get {{companyName}} validated answers in days. I'll send you a ${{amount}} gift card to spend 20 minutes seeing how.\nWorth a reply?" },
-  { label: "Peer / social proof", template: "The insights teams at brands like Einstein Bros stopped waiting weeks for answers. I'll give you a ${{amount}} gift card to see what they use, in 20 minutes.\nInterested?" },
-  { label: "Casual text", template: "{{firstName}}, odd ask: can I send you a ${{amount}} gift card to show you something for 20 minutes? We do AI consumer research and it's genuinely fast.\nWorth a yes?" },
-  { label: "Problem-first", template: "If validating a campaign with real consumers at {{companyName}} still takes weeks, that's exactly what we fix, in days. I'll send a ${{amount}} gift card for 20 minutes to prove it.\nReply \"show me\"." },
-  { label: "Time-respect", template: "I know your inbox is brutal, so here's a real reason to reply: a ${{amount}} gift card for 20 minutes seeing how Gather gets {{companyName}} consumer answers in days.\nYes?" },
-  { label: "Curiosity + offer", template: "There's a way to get consumer answers in days instead of months, and I'll send you a ${{amount}} gift card to let me show you in 20 minutes.\nReply and I'll explain." },
-  { label: "No-BS short", template: "${{amount}} gift card for 20 minutes. We do fast AI consumer research. That's the whole pitch.\nReply if you're in." },
+  { label: "The gap (mission-led)", template: "Most teams market on what they think customers want, not what customers actually need. Gather closes that gap with real consumer research in days, not six weeks. Brands like Belk, Bagel Brands, and Empire Today run it, and we're backed by Menlo. Confident it helps {{companyName}}, so I'll back it with a ${{amount}} {{gift}} for a 20-minute demo.\nWorth it?" },
+  { label: "Not generic AI copy", template: "Most teams are drowning in generic AI copy. Gather is the opposite: real consumer research underneath every asset, the kind you'd have briefed to an agency. Used by Staples, Belk, and Bagel Brands, backed by Menlo. I'll send a ${{amount}} {{gift}} for a 20-minute demo with {{companyName}}.\nReply and I'll set it up?" },
+  { label: "Six weeks + budget", template: "If a real consumer study at {{companyName}} still means six weeks and next year's research budget, that's exactly what we fix: answers in days at a tenth of the cost. Belk, Empire Today, and Bagel Brands use us; we're Menlo-backed. A ${{amount}} {{gift}} for a 20-minute demo.\nWorth a reply?" },
+  { label: "One study, twelve outputs", template: "With Gather, one consumer study fans out into a dozen ship-ready assets, the report, the landing page, the ad copy. Brands like Staples, Belk, and Bagel Brands run it, and we're backed by Menlo. Confident it helps {{companyName}}, so a ${{amount}} {{gift}} for a 20-minute demo.\nIn?" },
+  { label: "Founder pedigree", template: "Gather is from the team that built Gartner Peer Insights. We run AI consumer research for Belk, Staples, and Bagel Brands, answers in days not months, backed by Menlo and Anthropic. I'll put a ${{amount}} {{gift}} behind a 20-minute demo for {{companyName}}.\nWorth it?" },
+  { label: "AI marketing hire", template: "Think of Gather as an AI marketing hire: it runs real consumer research and turns it into on-brand content, in days. Belk, Empire Today, and Bagel Brands already use it, and we're Menlo-backed. I'll send a ${{amount}} {{gift}} for a 20-minute demo with {{companyName}}.\nReply and I'll set it up?" },
+  { label: "Surveys miss the why", template: "Surveys miss the why. Gather runs AI-moderated interviews against a 60M-person panel and turns them into content in days. Used by Staples, Belk, and Bagel Brands, backed by Menlo. A ${{amount}} {{gift}} for a 20-minute demo with {{companyName}}.\nWorth a yes?" },
+  { label: "Consumer peers", template: "Consumer brands like Bagel Brands, Naf Naf, and Belk use Gather to find out what their customers actually want before they spend on a campaign, in days, not months. We're Menlo-backed. A ${{amount}} {{gift}} for a 20-minute demo with {{companyName}}.\nReply \"yes\"?" },
+  { label: "Cost + confidence", template: "Traditional consumer research runs six to eight weeks and up to $100k. Gather does it in days at a tenth of that, which is why Staples, Belk, and Bagel Brands use us. We're confident enough it helps {{companyName}} to put a ${{amount}} {{gift}} behind a 20-minute demo.\nWorth a reply?" },
 ];
 
 /**
@@ -68,11 +63,23 @@ export const BODY_PRESETS: Array<{ label: string; template: string }> = [
  * links. Sent as in-thread replies (blank subject) a few days apart. {{amount}} filled at launch.
  */
 export const INCENTIVE_FOLLOWUPS: Array<{ body: string; delayDays: number }> = [
-  { delayDays: 3, body: "Quick follow up. Brands like Einstein Bros and Datadog get real consumer answers from us in days, not months, and that ${{amount}} gift card is still yours for 20 minutes. Worth a reply?" },
-  { delayDays: 3, body: "Last note from me. Most teams wait weeks on research we turn around in days, and I'll still send you ${{amount}} to see how in 20 minutes. Want me to set it up?" },
+  { delayDays: 3, body: "Quick follow up, {{firstName}}. Belk, Staples, and Bagel Brands use Gather to learn what their customers actually want, in days. We're Menlo-backed. That ${{amount}} {{gift}} for a 20-minute demo still stands. Worth a reply?" },
+  { delayDays: 3, body: "Last note from me. Gather is from the team behind Gartner Peer Insights, backed by Menlo and Anthropic, and I'm confident it helps {{companyName}}. The ${{amount}} {{gift}} for a 20-minute demo is still yours. Want me to set it up?" },
 ];
 
 export const ALLOWED_AMOUNTS = [50, 100, 150, 200, 250, 500];
+
+/**
+ * Gift TYPES to A/B (the third experiment dimension alongside amount + subject style). The body's
+ * {{gift}} token renders to one of these; we rotate per lead and track which converts. Framed as
+ * the company backing its pitch ("a $200 Uber Eats card"), not a giveaway.
+ */
+export const GIFT_TYPES = ["Uber Eats card", "Amazon gift card", "Visa gift card", "DoorDash card"];
+
+/** Render the gift phrase into a body (after amount/firstName/companyName are filled). */
+export function renderGift(text: string, gift: string): string {
+  return text.replace(/\{\{\s*gift\s*\}\}/g, gift);
+}
 
 export const DEFAULT_INCENTIVE_CONFIG: IncentiveConfig = {
   subjectTemplates: [SUBJECT_PRESETS[0].template, SUBJECT_PRESETS[1].template],

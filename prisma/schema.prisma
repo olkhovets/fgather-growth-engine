@@ -260,6 +260,7 @@ model Lead {
   wildcardApproach   String?   // if set, this lead got a radical "wildcard" email style — label for per-approach reply tracking
   incentiveAmount    Int?      // Incentives Lab: dollar amount offered to this lead (for per-amount A/B tracking)
   incentiveSubjectStyle String? // Incentives Lab: which subject-style variant this lead got (for style A/B)
+  incentiveGiftType  String?   // Incentives Lab: which gift type this lead was offered (Uber Eats / Amazon / Visa / DoorDash) for gift A/B
   emailProvider      String?   // inbox provider (Google / Microsoft / Yahoo / Other) — classified by MX at ingest, for provider analytics
   experimentIdsJson  String?   // JSON: string[] of PromptExperiment ids used to write this lead (for attribution)
   createdAt          DateTime  @default(now())

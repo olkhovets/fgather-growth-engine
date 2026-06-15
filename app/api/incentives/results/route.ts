@@ -57,5 +57,15 @@ export async function GET() {
   for (const r of sStyleReply) { const k = r.incentiveSubjectStyle as string; if (!smap[k]) smap[k] = { style: k, sent: 0, replies: 0, positive: 0, ooo: 0 }; smap[k].replies += r._count; if (r.replyStatus === "positive") smap[k].positive += r._count; if (r.replyStatus === "ooo") smap[k].ooo += r._count; }
   const styles = Object.values(smap).map((m) => ({ ...m, realReplies: m.replies - m.ooo, replyRatePct: m.sent > 0 ? Math.round(((m.replies - m.ooo) / m.sent) * 1000) / 10 : 0 })).sort((a, b) => b.realReplies - a.realReplies);
 
-  return NextResponse.json({ amounts, styles });
+  // Same breakdown by GIFT TYPE (third A/B dimension).
+  const [gSent, gReply] = await Promise.all([
+    prisma.lead.groupBy({ by: ["incentiveGiftType"], where: { leadBatch: { workspaceId: ws.id }, incentiveGiftType: { not: null }, sentAt: { not: null } }, _count: true }),
+    prisma.lead.groupBy({ by: ["incentiveGiftType", "replyStatus"], where: { leadBatch: { workspaceId: ws.id }, incentiveGiftType: { not: null }, replyStatus: { not: null } }, _count: true }),
+  ]);
+  const gmap: Record<string, { gift: string; sent: number; replies: number; positive: number; ooo: number }> = {};
+  for (const r of gSent) { const k = r.incentiveGiftType as string; gmap[k] = { gift: k, sent: r._count, replies: 0, positive: 0, ooo: 0 }; }
+  for (const r of gReply) { const k = r.incentiveGiftType as string; if (!gmap[k]) gmap[k] = { gift: k, sent: 0, replies: 0, positive: 0, ooo: 0 }; gmap[k].replies += r._count; if (r.replyStatus === "positive") gmap[k].positive += r._count; if (r.replyStatus === "ooo") gmap[k].ooo += r._count; }
+  const gifts = Object.values(gmap).map((m) => ({ ...m, realReplies: m.replies - m.ooo, replyRatePct: m.sent > 0 ? Math.round(((m.replies - m.ooo) / m.sent) * 1000) / 10 : 0 })).sort((a, b) => b.realReplies - a.realReplies);
+
+  return NextResponse.json({ amounts, styles, gifts });
 }

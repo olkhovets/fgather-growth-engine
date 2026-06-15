@@ -4,7 +4,7 @@ import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { getInstantlyClientForWorkspaceId } from "@/lib/instantly";
 import { logActivity } from "@/lib/activity";
-import { normalizeIncentiveConfig, renderIncentive, subjectStyleLabel, INCENTIVE_FOLLOWUPS } from "@/lib/incentives";
+import { normalizeIncentiveConfig, renderIncentive, subjectStyleLabel, INCENTIVE_FOLLOWUPS, GIFT_TYPES, renderGift } from "@/lib/incentives";
 import { classifyEmailProviders } from "@/lib/email-provider";
 import { getWorkspaceWebhookUrl, registerCampaignWebhooks, WEBHOOK_EVENTS_PER_CAMPAIGN } from "@/lib/campaign-webhooks";
 
@@ -159,27 +159,28 @@ export async function POST(request: Request) {
 
     // Render each lead's own subject + 3 step bodies (firstName/companyName/amount substituted in
     // OUR code — Instantly won't expand {{merge}} tags that live inside a merge-variable value).
-    const fill = (tpl: string, amount: number, firstName: string, companyName: string) =>
-      renderIncentive(tpl, amount).replace(/\{\{\s*firstName\s*\}\}/g, firstName).replace(/\{\{\s*companyName\s*\}\}/g, companyName);
-    const fillBody = (tpl: string, amount: number, firstName: string, companyName: string) =>
-      fill(tpl, amount, firstName, companyName).replace(/\n/g, "<br>");
+    const fill = (tpl: string, amount: number, firstName: string, companyName: string, gift: string) =>
+      renderGift(renderIncentive(tpl, amount).replace(/\{\{\s*firstName\s*\}\}/g, firstName).replace(/\{\{\s*companyName\s*\}\}/g, companyName), gift);
+    const fillBody = (tpl: string, amount: number, firstName: string, companyName: string, gift: string) =>
+      fill(tpl, amount, firstName, companyName, gift).replace(/\n/g, "<br>");
 
     type LeadPayload = { email: string; first_name?: string; company_name?: string; custom_variables: Record<string, string> };
     const payloads: LeadPayload[] = [];
-    const stampByCombo: Record<string, { amount: number; style: string; ids: string[] }> = {};
+    const stampByCombo: Record<string, { amount: number; style: string; gift: string; ids: string[] }> = {};
     leads.forEach((l, i) => {
       const { subjectTemplate, amount } = combos[i % combos.length];
       const style = subjectStyleLabel(subjectTemplate);
+      const gift = GIFT_TYPES[i % GIFT_TYPES.length]; // rotate gift type independently (3rd A/B dimension)
       const firstName = (l.name ?? "").trim().split(/\s+/)[0] || "there";
       const companyName = (l.company ?? "").trim() || "your team";
       const cv: Record<string, string> = {
-        inc_subject: fill(subjectTemplate, amount, firstName, companyName),
-        inc_body1: fillBody(config.bodyTemplate, amount, firstName, companyName),
+        inc_subject: fill(subjectTemplate, amount, firstName, companyName, gift),
+        inc_body1: fillBody(config.bodyTemplate, amount, firstName, companyName, gift),
       };
-      INCENTIVE_FOLLOWUPS.forEach((f, k) => { cv[`inc_body${k + 2}`] = fillBody(f.body, amount, firstName, companyName); });
+      INCENTIVE_FOLLOWUPS.forEach((f, k) => { cv[`inc_body${k + 2}`] = fillBody(f.body, amount, firstName, companyName, gift); });
       payloads.push({ email: l.email, first_name: firstName, company_name: l.company ?? undefined, custom_variables: cv });
-      const key = `${amount}|${style}`;
-      (stampByCombo[key] ||= { amount, style, ids: [] }).ids.push(l.id);
+      const key = `${amount}|${style}|${gift}`;
+      (stampByCombo[key] ||= { amount, style, gift, ids: [] }).ids.push(l.id);
     });
 
     // Find the existing rolling campaign to append into (unless the operator forces a fresh one).
@@ -208,7 +209,7 @@ export async function POST(request: Request) {
       campaignId = existing.instantlyCampaignId;
       mode = "appended";
     } else {
-      const created = await client.createCampaign(ROLLING_NAME, { sequenceSteps: mergeSteps, ...(emailList && { email_list: emailList }) });
+      const created = await client.createCampaign(ROLLING_NAME, { sequenceSteps: mergeSteps, dailyLimit: 5000, ...(emailList && { email_list: emailList }) });
       campaignId = created.id;
       await client.addCampaignVariables(campaignId, varNames).catch(() => {});
       await prisma.sentCampaign.create({ data: { workspaceId: ws.id, leadBatchId: batchId ?? null, instantlyCampaignId: campaignId, name: ROLLING_NAME } });
@@ -216,14 +217,17 @@ export async function POST(request: Request) {
       mode = "created";
     }
 
-    const add = await client.bulkAddLeadsToCampaign(campaignId, payloads, { verify_leads_on_import: false });
+    // verify_leads_on_import: Instantly validates each email at import and won't send to the
+    // invalid ones — this is the bounce protection. Without it, dead Apollo addresses bounce and
+    // Instantly auto-pauses the campaign to protect the sending domains.
+    const add = await client.bulkAddLeadsToCampaign(campaignId, payloads, { verify_leads_on_import: true });
     await client.activateCampaign(campaignId).catch(() => {}); // idempotent — ensure it's running
 
     // Stamp leads with their combo (per-amount/per-style analytics come from these stamps, NOT from
     // separate Instantly campaigns — so one campaign gives identical A/B results).
     await Promise.all(
       Object.values(stampByCombo).map((c) =>
-        prisma.lead.updateMany({ where: { id: { in: c.ids } }, data: { sentAt: new Date(), incentiveAmount: c.amount, incentiveSubjectStyle: c.style } })
+        prisma.lead.updateMany({ where: { id: { in: c.ids } }, data: { sentAt: new Date(), incentiveAmount: c.amount, incentiveSubjectStyle: c.style, incentiveGiftType: c.gift } })
       )
     );
 

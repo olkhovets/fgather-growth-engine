@@ -243,6 +243,9 @@ function createInstantlyClient(apiKey: string) {
         sequenceSteps?: Array<{ subject: string; body: string; delayDays: number }>;
         /** Delay unit for sequence steps. Default "days". Use "minutes" for test campaigns so emails arrive within minutes. */
         delayUnit?: "days" | "minutes";
+        /** Campaign-level max emails/day. Instantly's default is LOW, so a new campaign only sends a
+         *  small batch unless this is raised. Default 2000 so volume isn't throttled at the campaign. */
+        dailyLimit?: number;
       }
     ): Promise<{ id: string }> {
       const schedule = options?.schedule;
@@ -272,9 +275,12 @@ function createInstantlyClient(apiKey: string) {
             variants: Array<{ subject: string; body: string }>;
           }>;
         }>;
+        daily_limit?: number;
       } = {
         name,
         campaign_schedule,
+        // Raise the campaign send cap so Instantly doesn't throttle new campaigns to a tiny batch.
+        daily_limit: options?.dailyLimit ?? 2000,
       };
       if (options?.email_list != null && options.email_list.length > 0) {
         body.email_list = options.email_list;
@@ -339,7 +345,9 @@ function createInstantlyClient(apiKey: string) {
           // Don't skip leads that exist elsewhere — add them to this campaign (so "Send to Instantly" actually populates the campaign)
           skip_if_in_workspace: options?.skip_if_in_workspace ?? false,
           skip_if_in_campaign: options?.skip_if_in_campaign ?? false,
-          verify_leads_on_import: options?.verify_leads_on_import ?? false,
+          // Default ON: verify each email at import so Instantly won't send to invalid addresses
+          // (bounce protection). Callers can still pass false for tiny probe/test sends.
+          verify_leads_on_import: options?.verify_leads_on_import ?? true,
         };
         const res = await request<{
           leads_uploaded?: number;
