@@ -1,5 +1,16 @@
 # Engine Changelog
 
+## Session 2026-06-15 (late eve) — OOO requeue on stated return date (deployed + verified live)
+
+Found that the OOO requeue plumbing was **dead**: OOO replies set `repliedAt` + `requeueAt`, but every send query excluded `repliedAt != null` (and the main send also requires `sentAt: null`), so OOO leads were never re-contacted regardless of `requeueAt`.
+
+1. **Accurate return-date parsing** — `classifyReply` prompt now includes today's date and resolves relative/absolute phrases ("back Monday", "the 20th", "6/20") to an absolute future date.
+2. **OOO status events** now parse the auto-reply body for the return date instead of a blind +7 days.
+3. **Sane clamp** — re-contact the morning *after* return, clamped to [tomorrow, +90d], fallback +7d when no date.
+4. **Working re-contact path** — new `oooRequeue` launch mode selects `replyStatus=ooo` + `requeueAt<=now` and re-contacts them into `Incentives Lab (OOO)` (reuses recycle machinery; stamps `recycledAt`/`recycleCount`, clears `requeueAt` to cap re-touches). The autopilot fires it **every run**, independent of the fresh pool.
+
+**Verified live:** run logged "OOO-requeued 10/10", `Incentives Lab (OOO)` campaign created, due count dropped 22 → 12. New OOOs now re-contact on their actual return date.
+
 ## Session 2026-06-15 (late eve) — Apollo credits restored, engine retuned for quality + variety (deployed + verified live)
 
 Peter topped up Apollo. Retuned per his guidance: great B2C people across the full title variety, no tiny companies, not restaurant-locked, credentialed-not-scammy emails.
