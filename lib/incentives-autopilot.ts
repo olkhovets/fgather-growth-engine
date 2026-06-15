@@ -91,10 +91,25 @@ export async function runIncentivesAutopilotForWorkspace(
     const launchError = typeof launch.error === "string" ? launch.error : null;
     const distribution = Array.isArray(launch.distribution) ? launch.distribution : [];
 
-    // RECYCLE FALLBACK: if there were no fresh leads to append, re-contact the oldest non-repliers
-    // (past the cooldown) with the current credentialed emails, into a separate recycle campaign.
+    // OOO REQUEUE (every run, independent of the fresh pool): re-contact leads who sent an
+    // out-of-office reply and whose stated return date has now passed — so we land when they're
+    // actually back, not on a blind schedule. Capped small; counts against the daily budget.
+    let oooRequeued = 0;
+    const oooLimit = Math.min(thisRunLimit, Math.max(0, remainingToday - appended));
+    if (oooLimit > 0) {
+      const ores = await fetch(`${baseUrl()}/api/incentives/launch`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-cron-secret": secret },
+        body: JSON.stringify({ workspaceId: ws.id, sendLimit: oooLimit, providerFilter: PROVIDER, warmedInboxesOnly: true, oooRequeue: true }),
+      });
+      const ol = await ores.json().catch(() => ({} as Record<string, unknown>));
+      oooRequeued = (ol.totalUploaded as number) ?? 0;
+    }
+
+    // RECYCLE FALLBACK: if there were no fresh leads (or OOO leads) to append, re-contact the oldest
+    // non-repliers (past the cooldown) with the current credentialed emails, into a recycle campaign.
     let recycled = 0;
-    if (appended === 0) {
+    if (appended === 0 && oooRequeued === 0) {
       const rres = await fetch(`${baseUrl()}/api/incentives/launch`, {
         method: "POST",
         headers: { "Content-Type": "application/json", "x-cron-secret": secret },
@@ -104,10 +119,11 @@ export async function runIncentivesAutopilotForWorkspace(
       recycled = (rl.totalUploaded as number) ?? 0;
     }
 
+    const totalSent = appended + oooRequeued;
     await logActivity(ws.id, "autopilot",
-      `Incentives autopilot: pulled ${ingested}, appended ${appended}${recycled ? `, recycled ${recycled}` : ""}/${thisRunLimit} (${sentToday + appended}/${dailyCap} today)${launchError && !recycled ? ` (issue: ${launchError})` : ""}`,
-      { incentives: true, ingested, appended, recycled, thisRunLimit, sentToday: sentToday + appended, dailyCap, mode: launch.mode, distribution, launchError, freshBefore: freshCount });
-    return { workspaceId: ws.id, ingested, appended, recycled, sentToday: sentToday + appended, dailyCap, mode: launch.mode, distribution, launchError };
+      `Incentives autopilot: pulled ${ingested}, appended ${appended}${oooRequeued ? `, OOO-requeued ${oooRequeued}` : ""}${recycled ? `, recycled ${recycled}` : ""}/${thisRunLimit} (${sentToday + totalSent}/${dailyCap} today)${launchError && !recycled && !oooRequeued ? ` (issue: ${launchError})` : ""}`,
+      { incentives: true, ingested, appended, oooRequeued, recycled, thisRunLimit, sentToday: sentToday + totalSent, dailyCap, mode: launch.mode, distribution, launchError, freshBefore: freshCount });
+    return { workspaceId: ws.id, ingested, appended, oooRequeued, recycled, sentToday: sentToday + totalSent, dailyCap, mode: launch.mode, distribution, launchError };
   } catch (err) {
     const msg = err instanceof Error ? err.message : "incentives autopilot failed";
     await logActivity(ws.id, "autopilot", `Incentives autopilot failed: ${msg}`).catch(() => {});

@@ -30,7 +30,8 @@ export async function classifyReply(
   body: string,
   model = "claude-haiku-4-5"
 ): Promise<ClassifyResult> {
-  const prompt = `Classify this cold outreach reply into exactly one category and, if it is an out-of-office auto-reply, extract the date the person returns.
+  const today = new Date().toISOString().slice(0, 10);
+  const prompt = `Classify this cold outreach reply into exactly one category and, if it is an out-of-office auto-reply, extract the date the person returns to the office.
 
 Categories:
 - positive: interested, wants a demo/call, asks a buying question
@@ -39,6 +40,7 @@ Categories:
 - not_interested: explicit no, unsubscribe request, "remove me", hostile
 - other: anything else (bounce notice, irrelevant, forwarded internally)
 
+Today's date is ${today}.
 Reply from: ${fromEmail}
 Subject: ${subject}
 Body:
@@ -46,7 +48,7 @@ ${body || "(empty)"}
 
 Respond with ONLY a JSON object, no markdown:
 { "classification": "positive|objection|ooo|not_interested|other", "return_date": "YYYY-MM-DD or null" }
-Set return_date only for ooo replies when a specific return date is stated; otherwise null.`;
+For return_date (ooo only): use the date the person says they are BACK / returning. Resolve relative phrases against today's date and always pick the SOONEST future date that matches — "Monday" / "next week" / "the 20th" / "back on 6/20" all become an absolute YYYY-MM-DD in the future. If they give a range, use the day they return. If no return date is stated, use null.`;
 
   try {
     const { text } = await callAnthropic(anthropicKey, prompt, { maxTokens: 80, model });
@@ -104,10 +106,21 @@ export async function applyReplyToLead(
 
   if (classification === "not_interested") {
     data.suppressed = true;
-  } else if (classification === "ooo" && requeueDate) {
-    // re-contact the day after they return
-    const d = new Date(`${requeueDate}T09:00:00Z`);
-    if (!isNaN(d.getTime())) data.requeueAt = d;
+  } else if (classification === "ooo") {
+    // Re-contact when they're back. Parse the stated return date, but sanity-clamp it: a past date
+    // (LLM resolved the wrong year, or they're already back) or one absurdly far out falls back to
+    // a sensible window. Default to +7 days when no usable date was extracted.
+    const now = Date.now();
+    const min = now + 24 * 60 * 60 * 1000;       // never sooner than tomorrow
+    const max = now + 90 * 24 * 60 * 60 * 1000;  // never further than ~3 months
+    let when = now + 7 * 24 * 60 * 60 * 1000;     // fallback: +7 days
+    if (requeueDate) {
+      // Re-contact the morning AFTER they return, so we don't land in the inbox the day they're
+      // back to a pile of email.
+      const d = new Date(`${requeueDate}T09:00:00Z`).getTime() + 24 * 60 * 60 * 1000;
+      if (!isNaN(d) && d >= min) when = Math.min(d, max);
+    }
+    data.requeueAt = new Date(when);
   }
 
   await prisma.lead.updateMany({ where: { id: { in: leadIds } }, data });

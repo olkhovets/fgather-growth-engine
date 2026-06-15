@@ -139,13 +139,16 @@ export async function POST(request: Request) {
     const anthropicKey = decryptKey(workspace?.anthropicKey);
     const model = workspace?.anthropicModel ?? "claude-haiku-4-5";
 
-    // OOO status events: mark ooo + requeue ~7 days out directly (no reply body to parse).
-    // Reply events: classify with Claude (falls back to "other" if no key / error).
+    // OOO status events: mark ooo + parse the auto-reply body for the date they're back, so we
+    // re-contact them when they return (not a blind +7 days). applyReplyToLead falls back to +7d
+    // when no date is found. Reply events: classify with Claude (falls back to "other" if no key).
     let classification: Awaited<ReturnType<typeof classifyReply>>["classification"];
     let requeueDate: string | null;
     if (isOOO) {
       classification = "ooo";
-      requeueDate = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+      requeueDate = anthropicKey && bodySnippet.trim()
+        ? (await classifyReply(anthropicKey, fromEmail, subject, bodySnippet, model)).requeueDate
+        : null;
     } else if (anthropicKey) {
       ({ classification, requeueDate } = await classifyReply(anthropicKey, fromEmail, subject, bodySnippet, model));
     } else {

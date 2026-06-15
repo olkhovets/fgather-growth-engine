@@ -45,6 +45,11 @@ export async function POST(request: Request) {
     // RECYCLE mode: re-contact already-sent, never-replied leads with the current (better) emails,
     // once they're past the cooldown. This re-uses the whole send pipeline but on a different pool.
     const recycle = body.recycle === true;
+    // OOO REQUEUE mode: re-contact leads who sent an out-of-office auto-reply and whose stated
+    // return date has now passed — so we land when they're actually back. Shares the recycle
+    // machinery (re-contacts already-sent leads, stamps recycledAt/recycleCount to cap re-touches).
+    const oooRequeue = body.oooRequeue === true;
+    const reEngage = recycle || oooRequeue; // both re-contact already-sent leads, not fresh ones
     const cooldownDays = ws.recycleCooldownDays ?? 21;
 
     // batchId optional: a specific batch (manual launch) or workspace-wide fresh leads (autopilot).
@@ -73,10 +78,14 @@ export async function POST(request: Request) {
       providerFilter === "google" ? { OR: [{ emailProvider: "Google" }, { emailProvider: null }] }
       : providerFilter === "no-gateways" ? { NOT: { emailProvider: { in: Array.from(STRICT_GATEWAYS) } } }
       : {};
+    const now = new Date();
     const cutoff = new Date(Date.now() - cooldownDays * 24 * 60 * 60 * 1000);
     // FRESH base = never sent. RECYCLE base = sent long ago, never replied/bounced, not recycled
-    // recently, capped at 2 re-contacts (so we don't pester the same person endlessly).
-    const base = recycle
+    // recently, capped at 2 re-contacts. OOO base = sent an out-of-office reply whose return date
+    // has passed; same cap + not-recently-recontacted guard so we don't loop on the same person.
+    const base = oooRequeue
+      ? { replyStatus: "ooo", requeueAt: { lte: now }, suppressed: false, bouncedAt: null, email: { not: "" }, recycleCount: { lt: 2 }, OR: [{ recycledAt: null }, { recycledAt: { lt: cutoff } }], ...providerWhere }
+      : recycle
       ? { sentAt: { lt: cutoff }, suppressed: false, repliedAt: null, bouncedAt: null, email: { not: "" }, recycleCount: { lt: 2 }, OR: [{ recycledAt: null }, { recycledAt: { lt: cutoff } }], ...providerWhere }
       : { sentAt: null, suppressed: false, repliedAt: null, email: { not: "" }, ...providerWhere };
     const leadWhere = batchId ? { leadBatchId: batchId, ...base } : { leadBatch: { workspaceId: ws.id }, ...base };
@@ -87,12 +96,17 @@ export async function POST(request: Request) {
     const candidates = await prisma.lead.findMany({
       where: leadWhere,
       select: { id: true, email: true, name: true, company: true, emailProvider: true },
-      // Recycle oldest-contacted first ("the deepest people"); fresh sends go by id.
-      orderBy: recycle ? { sentAt: "asc" } : { id: "asc" },
+      // OOO requeue: soonest-returned first. Recycle: oldest-contacted first. Fresh: by id.
+      orderBy: oooRequeue ? { requeueAt: "asc" } : recycle ? { sentAt: "asc" } : { id: "asc" },
       take: pool,
     });
     if (candidates.length === 0) {
-      return NextResponse.json({ error: recycle ? `No leads eligible to recycle yet (need to be ${cooldownDays}+ days since last contact, no reply).` : "No fresh unsent leads. Pull more from Lead source." }, { status: 400 });
+      const emptyMsg = oooRequeue
+        ? "No out-of-office leads are back yet (none past their stated return date)."
+        : recycle
+        ? `No leads eligible to recycle yet (need to be ${cooldownDays}+ days since last contact, no reply).`
+        : "No fresh unsent leads. Pull more from Lead source.";
+      return NextResponse.json({ error: emptyMsg }, { status: 400 });
     }
 
     // Provider filtering — only send the incentive into mailboxes that actually accept cold mail.
@@ -205,7 +219,7 @@ export async function POST(request: Request) {
     });
 
     // Find the existing rolling campaign to append into (unless the operator forces a fresh one).
-    const ROLLING_NAME = recycle ? "Incentives Lab (recycle)" : "Incentives Lab (rolling)";
+    const ROLLING_NAME = oooRequeue ? "Incentives Lab (OOO)" : recycle ? "Incentives Lab (recycle)" : "Incentives Lab (rolling)";
     const existing = freshCampaign
       ? null
       : await prisma.sentCampaign.findFirst({ where: { workspaceId: ws.id, name: ROLLING_NAME }, orderBy: { createdAt: "desc" }, select: { instantlyCampaignId: true } });
@@ -248,8 +262,8 @@ export async function POST(request: Request) {
     // separate Instantly campaigns — so one campaign gives identical A/B results).
     await Promise.all(
       Object.values(stampByCombo).map((c) =>
-        prisma.lead.updateMany({ where: { id: { in: c.ids } }, data: recycle
-          ? { recycledAt: new Date(), recycleCount: { increment: 1 }, incentiveAmount: c.amount, incentiveSubjectStyle: c.style, incentiveGiftType: c.gift }
+        prisma.lead.updateMany({ where: { id: { in: c.ids } }, data: reEngage
+          ? { recycledAt: new Date(), recycleCount: { increment: 1 }, requeueAt: null, incentiveAmount: c.amount, incentiveSubjectStyle: c.style, incentiveGiftType: c.gift }
           : { sentAt: new Date(), incentiveAmount: c.amount, incentiveSubjectStyle: c.style, incentiveGiftType: c.gift } })
       )
     );
