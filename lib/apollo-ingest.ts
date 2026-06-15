@@ -122,6 +122,15 @@ export async function ingestForWorkspace(
     dedupe: true,
   });
 
+  // Tag this batch's leads with the persona that produced them (rotating title set), so downstream
+  // copy can be tailored per persona and so we can track reply rates by persona.
+  if (personaTag && batchId) {
+    await prisma.lead.updateMany({
+      where: { leadBatchId: batchId },
+      data: { persona: personaTag },
+    });
+  }
+
   await logActivity(workspaceId, "ingest",
     `Ingested ${count} new leads from Apollo${screenedOut > 0 ? ` (${screenedOut} screened out as off-ICP)` : ""}${preEnrichDupesSkipped > 0 ? `; skipped ${preEnrichDupesSkipped} known leads before enriching (saved credits)` : ""}${earlyNote}`,
     { ingested: count, fetched: fetched.length, preEnrichDupesSkipped, duplicatesSkipped: preDedupSkipped + skippedDuplicate, invalidSkipped: skippedInvalid, screenedOut, lockedSkipped, stoppedEarly, stopReason });

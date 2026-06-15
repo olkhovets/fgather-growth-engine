@@ -2,6 +2,7 @@ import { prisma } from "@/lib/prisma";
 import { logActivity } from "@/lib/activity";
 import { decrypt } from "@/lib/encryption";
 import { ingestForWorkspace, loadSearch } from "@/lib/apollo-ingest";
+import { PERSONAS } from "@/lib/apollo-personas";
 
 // Internal calls must hit the open production alias, NOT VERCEL_URL (deployment-protected → 401).
 const baseUrl = () => {
@@ -30,7 +31,7 @@ export async function runIncentivesAutopilotForWorkspace(
   try {
     const cfg = await prisma.workspace.findUnique({
       where: { id: ws.id },
-      select: { apolloApiKey: true, incentivesPerRun: true, incentivesIntervalMin: true, incentivesDailyCap: true, incentivesLastRunAt: true },
+      select: { apolloApiKey: true, incentivesPerRun: true, incentivesIntervalMin: true, incentivesDailyCap: true, incentivesLastRunAt: true, apolloPersonaIndex: true },
     });
     const perRun = cfg?.incentivesPerRun ?? 50;
     const intervalMin = cfg?.incentivesIntervalMin ?? 30;
@@ -71,9 +72,23 @@ export async function runIncentivesAutopilotForWorkspace(
       const search = await loadSearch(ws.id);
       // All-providers pull: more new people per pull (no provider drop), and they're all sendable.
       if (search) search.providerFilter = PROVIDER;
+      // PERSONA ROTATION: each pull swaps in a different title set so consecutive pulls reach DIFFERENT
+      // people (one query ≈ 10k reachable; rotating multiplies the addressable pool) and tags leads by
+      // persona for tailored copy. Cursor lives on the workspace; increment after each pull.
+      let persona = null as (typeof PERSONAS)[number] | null;
+      if (search && PERSONAS.length) {
+        const idx = (cfg?.apolloPersonaIndex ?? 0) % PERSONAS.length;
+        persona = PERSONAS[idx];
+        search.person_titles = persona.titles;
+      }
       if (cfg?.apolloApiKey && search && longEnough) {
-        const r = await ingestForWorkspace(ws.id, decrypt(cfg.apolloApiKey), search, INGEST_LIMIT, process.env.ZEROBOUNCE_API_KEY ?? null);
+        const r = await ingestForWorkspace(ws.id, decrypt(cfg.apolloApiKey), search, INGEST_LIMIT, process.env.ZEROBOUNCE_API_KEY ?? null, persona?.key);
         ingested = r.inserted;
+        // Advance the cursor so the NEXT pull uses a different persona's title set.
+        await prisma.workspace.update({
+          where: { id: ws.id },
+          data: { apolloPersonaIndex: (cfg?.apolloPersonaIndex ?? 0) + 1 },
+        });
       }
     }
 
