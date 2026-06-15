@@ -1,5 +1,16 @@
 # Engine Changelog
 
+## Session 2026-06-15 (late eve) — Apollo credits restored, engine retuned for quality + variety (deployed + verified live)
+
+Peter topped up Apollo. Retuned per his guidance: great B2C people across the full title variety, no tiny companies, not restaurant-locked, credentialed-not-scammy emails.
+
+1. **Search quality (DB / apolloSearchJson):** floor raised to **201+ employees** (dropped 51-200); broadened to **39 B2C verticals**; kept all **55 titles**.
+2. **Per-pull title VARIETY:** discovered Apollo `api_search` returns people in **title-list order** — so the insights-first list produced 100%-insights pulls. Fix: titles **interleaved round-robin by persona** (growth/brand/insights/product). Verified a pull then returns a real mix (growth 70 / brand 49 / insights 4).
+3. **Per-lead persona tagging:** `personaForTitle()` buckets each lead by its actual title; `ingestForWorkspace` stamps `Lead.persona` per-lead. Keeps full search variety AND enables tailored copy / per-persona learning. Removed the old per-pull persona-narrowing rotation (it shrank variety).
+4. **Rotating credentialed emails:** `bodyTemplates[]` added to `IncentiveConfig`; launch rotates the step-1 body per lead across all 9 credentialed presets (or operator-pinned bodies). Live config: 9 rotating bodies + 4 subjects + $100/150/200. Fixes the samey-opener risk. All reply-first, no links, no em dashes, no banned words, gift = confidence.
+
+**Verified end-to-end live:** batches flowing with title variety at great B2C brands (L.L.Bean, Helen of Troy, Bombas, e.l.f., Spanx, Utz, Pressed Juicery, Fleet Feet, Bergdorf Goodman); fresh pool refilling; sends going out.
+
 ## Session 2026-06-15 (eve) — persona rotation finished + REAL blocker found: Apollo out of credits (deployed)
 
 1. **Finished persona-search-rotation** (commit 201141e). `ingestForWorkspace` stamps `Lead.persona = personaTag`; `incentives-autopilot` rotates `PERSONAS[idx % len]` into `search.person_titles` each pull, passes `persona.key` as `personaTag`, increments `apolloPersonaIndex`. Verified the cursor advances live (0 → 3).
