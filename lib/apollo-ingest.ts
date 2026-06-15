@@ -64,12 +64,20 @@ export async function ingestForWorkspace(
   const earlyNote = stoppedEarly ? ` (Apollo stopped the pull early: ${stopReason} — the leads enriched before that ARE saved below)` : "";
 
   if (fetched.length === 0) {
+    // Surface WHY nothing came back so the blocker is visible in Activity (the most common real
+    // cause is Apollo enrichment credits being exhausted — the search itself is rarely empty).
+    const creditsOut = stoppedEarly && /insufficient credits|insufficient_credits|upgrade your plan/i.test(stopReason ?? "");
+    const message = creditsOut
+      ? "Apollo enrichment is OUT OF CREDITS — can't unlock emails. Top up / upgrade the Apollo plan to resume new-lead pulls."
+      : stoppedEarly
+        ? `Apollo pull stopped early before any lead was enriched: ${stopReason}`
+        : lockedSkipped > 0
+          ? `Apollo returned ${lockedSkipped} people but all emails were locked. Check your Apollo plan/credits for email access.`
+          : "Apollo returned no matching people for this search.";
+    await logActivity(workspaceId, "ingest", message, { ingested: 0, fetched: 0, lockedSkipped, stoppedEarly, stopReason, creditsOut });
     return {
       workspaceId, batchId: null, fetched: 0, inserted: 0, skippedDuplicate: 0,
-      skippedInvalid: 0, lockedSkipped,
-      message: lockedSkipped > 0
-        ? `Apollo returned ${lockedSkipped} people but all emails were locked. Check your Apollo plan/credits for email access.`
-        : "Apollo returned no matching people for this search.",
+      skippedInvalid: 0, lockedSkipped, message,
     };
   }
 
