@@ -18,9 +18,11 @@ const PROMOTE_MIN_POSITIVES = 3; // need at least this many positive replies bef
 type VariantRow = { key: string; sent: number; positive: number; replies: number; rate: number };
 
 async function variantPerf(workspaceId: string, field: "incentiveAmount" | "incentiveSubjectStyle" | "incentiveGiftType"): Promise<VariantRow[]> {
+  // incentiveAmount > 0 excludes the value-first track (stamped amount 0) so it can't pollute the
+  // incentive A/B — value-first is measured separately via its own "Value-First (rolling)" campaign.
   const [sent, reply] = await Promise.all([
-    prisma.lead.groupBy({ by: [field], where: { leadBatch: { workspaceId }, [field]: { not: null }, sentAt: { not: null } }, _count: true }),
-    prisma.lead.groupBy({ by: [field, "replyStatus"], where: { leadBatch: { workspaceId }, [field]: { not: null }, replyStatus: { not: null } }, _count: true }),
+    prisma.lead.groupBy({ by: [field], where: { leadBatch: { workspaceId }, [field]: { not: null }, incentiveAmount: { gt: 0 }, sentAt: { not: null } }, _count: true }),
+    prisma.lead.groupBy({ by: [field, "replyStatus"], where: { leadBatch: { workspaceId }, [field]: { not: null }, incentiveAmount: { gt: 0 }, replyStatus: { not: null } }, _count: true }),
   ]);
   const m: Record<string, VariantRow> = {};
   for (const r of sent) { const k = String((r as Record<string, unknown>)[field]); m[k] = { key: k, sent: r._count, positive: 0, replies: 0, rate: 0 }; }
@@ -65,8 +67,8 @@ export async function optimizeIncentivesForWorkspace(workspaceId: string): Promi
     prisma.lead.count({ where: { leadBatch: { workspaceId }, sentAt: { gte: since } } }),
     prisma.lead.count({ where: { leadBatch: { workspaceId }, bouncedAt: { gte: since } } }),
     prisma.lead.count({ where: { leadBatch: { workspaceId }, sentAt: null, suppressed: false, repliedAt: null, email: { not: "" } } }),
-    prisma.lead.count({ where: { leadBatch: { workspaceId }, incentiveAmount: { not: null }, sentAt: { not: null } } }),
-    prisma.lead.count({ where: { leadBatch: { workspaceId }, incentiveAmount: { not: null }, replyStatus: "positive" } }),
+    prisma.lead.count({ where: { leadBatch: { workspaceId }, incentiveAmount: { gt: 0 }, sentAt: { not: null } } }),
+    prisma.lead.count({ where: { leadBatch: { workspaceId }, incentiveAmount: { gt: 0 }, replyStatus: "positive" } }),
   ]);
   const bounceRate = sent24 >= 20 ? Math.round((bounced24 / sent24) * 1000) / 10 : 0;
   const [byAmount, byStyle, byGift] = await Promise.all([

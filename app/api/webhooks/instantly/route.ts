@@ -123,7 +123,10 @@ export async function POST(request: Request) {
     // stamp bouncedAt so the autopilot bounce-rate guardrail can see it. Terminal — return here.
     if (isBounce) {
       const r = await prisma.lead.updateMany({
-        where: { leadBatch: { workspaceId }, email: fromEmail.toLowerCase() },
+        // Case-INSENSITIVE match: emails are stored trimmed-but-not-lowercased, so an exact
+        // lowercase match silently misses any lead with uppercase letters → it never gets
+        // suppressed and keeps getting emailed + skews the bounce guardrail. (Matches the reply path.)
+        where: { leadBatch: { workspaceId }, email: { equals: fromEmail.trim(), mode: "insensitive" } },
         data: { suppressed: true, bouncedAt: new Date() },
       });
       const { logActivity: logAct } = await import("@/lib/activity");

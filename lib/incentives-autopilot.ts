@@ -41,10 +41,16 @@ export async function runIncentivesAutopilotForWorkspace(
       const waitMin = Math.ceil((intervalMin * 60 * 1000 - (Date.now() - cfg.incentivesLastRunAt.getTime())) / 60000);
       return { workspaceId: ws.id, skipped: `interval (next run in ~${waitMin} min)` };
     }
-    // 0b. Daily cap: count what's already gone out today, leave the rest for tomorrow.
+    // 0b. Daily cap: count what's already gone out today, leave the rest for tomorrow. Count BOTH
+    // fresh sends (sentAt today) AND re-contacts (recycle/OOO stamp recycledAt today, not sentAt) —
+    // otherwise recycle/OOO volume escapes the cap entirely and a fresh-exhausted workspace can send
+    // unbounded re-contacts, blowing past the warmed-inbox capacity the cap exists to protect.
     const startOfDay = new Date(); startOfDay.setHours(0, 0, 0, 0);
     const sentToday = await prisma.lead.count({
-      where: { leadBatch: { workspaceId: ws.id }, incentiveAmount: { not: null }, sentAt: { gte: startOfDay } },
+      where: {
+        leadBatch: { workspaceId: ws.id }, incentiveAmount: { not: null },
+        OR: [{ sentAt: { gte: startOfDay } }, { recycledAt: { gte: startOfDay } }],
+      },
     });
     const remainingToday = dailyCap - sentToday;
     if (remainingToday <= 0) return { workspaceId: ws.id, skipped: `daily cap reached (${sentToday}/${dailyCap})` };

@@ -61,14 +61,17 @@ export async function ingestForWorkspace(
 
   // Over-fetch a bit so that after dedupe we still land near `limit`. Pass existingKeys (skip dupes
   // before enriching) and screenFn (skip off-ICP before enriching) — both save Apollo credits.
-  const { leads: fetched, lockedSkipped, stoppedEarly, stopReason, preEnrichDupesSkipped, screenedOut, nextPage } = await apolloFetchLeads(apolloApiKey, search, Math.ceil(limit * 1.5), existingKeys, screenFn, startPage);
+  const { leads: fetched, lockedSkipped, stoppedEarly, stopReason, preEnrichDupesSkipped, screenedOut, nextPage, pagesScanned } = await apolloFetchLeads(apolloApiKey, search, Math.ceil(limit * 1.5), existingKeys, screenFn, startPage);
   const earlyNote = stoppedEarly ? ` (Apollo stopped the pull early: ${stopReason} — the leads enriched before that ARE saved below)` : "";
 
   // Advance the pagination cursor so the NEXT pull resumes past where this one scanned — this is the
   // fix for credit burn (we were re-scanning + re-enriching page 1's already-ingested people every
-  // pull). Only advance when the pull actually progressed (not on an early error, which keeps us in
-  // place to retry). Wraps to page 1 when the result set is exhausted (handled in apolloFetchLeads).
-  if (!stoppedEarly) {
+  // pull). Advance whenever we made forward progress (scanned >=1 page), EVEN if the pull then
+  // stopped early mid-enrichment — otherwise an error after scanning pages would freeze the cursor and
+  // the next pull would re-enrich everyone we already paid for this run (reintroducing the leak). Only
+  // a search error on the very first page (pagesScanned 0) leaves the cursor put, to retry. Wraps to 1
+  // when the result set is exhausted (handled in apolloFetchLeads).
+  if (pagesScanned > 0) {
     await prisma.workspace.update({ where: { id: workspaceId }, data: { apolloPagePtr: nextPage } }).catch(() => {});
   }
 

@@ -51,7 +51,7 @@ Respond with ONLY a JSON object, no markdown:
 For return_date (ooo only): use the date the person says they are BACK / returning. Resolve relative phrases against today's date and always pick the SOONEST future date that matches — "Monday" / "next week" / "the 20th" / "back on 6/20" all become an absolute YYYY-MM-DD in the future. If they give a range, use the day they return. If no return date is stated, use null.`;
 
   try {
-    const { text } = await callAnthropic(anthropicKey, prompt, { maxTokens: 80, model });
+    const { text } = await callAnthropic(anthropicKey, prompt, { maxTokens: 150, model });
     const jsonStr = text.replace(/```(?:json)?\s*/g, "").replace(/```/g, "").trim();
     const parsed = JSON.parse(jsonStr) as { classification?: string; return_date?: string | null };
     const c = (parsed.classification ?? "").toLowerCase();

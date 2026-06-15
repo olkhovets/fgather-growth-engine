@@ -78,7 +78,7 @@ export async function recordReplyObservation(
   const lead = await prisma.lead.findFirst({
     where: {
       leadBatch: { workspaceId },
-      email: fromEmail.trim(),
+      email: { equals: fromEmail.trim(), mode: "insensitive" },
     },
     select: { persona: true, vertical: true },
   });
