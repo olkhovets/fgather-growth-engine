@@ -201,11 +201,17 @@ export async function apolloFetchLeads(
   existingKeys?: Set<string>,
   // Optional ICP fit-screen run on title/company/industry BEFORE enrichment, so off-ICP people
   // never cost an enrichment credit. Returns a keep-mask aligned to the input. Fail-safe to keep.
-  screenFn?: (cands: Array<{ jobTitle?: string | null; company?: string | null; industry?: string | null }>) => Promise<boolean[]>
-): Promise<{ leads: NormalizedLead[]; lockedSkipped: number; pagesScanned: number; totalEntries: number; stoppedEarly: boolean; stopReason: string | null; preEnrichDupesSkipped: number; screenedOut: number }> {
+  screenFn?: (cands: Array<{ jobTitle?: string | null; company?: string | null; industry?: string | null }>) => Promise<boolean[]>,
+  // Pagination cursor: the page to START scanning from. api_search returns people in a stable
+  // order, so restarting at page 1 every pull re-scans (and re-enriches, wasting credits) people we
+  // already ingested. Resuming deeper marches forward into fresh people. Caller persists `nextPage`.
+  startPage = 1
+): Promise<{ leads: NormalizedLead[]; lockedSkipped: number; pagesScanned: number; totalEntries: number; stoppedEarly: boolean; stopReason: string | null; preEnrichDupesSkipped: number; screenedOut: number; nextPage: number; reachedEnd: boolean }> {
   const collected: NormalizedLead[] = [];
   let lockedSkipped = 0;
-  let page = 1;
+  let page = startPage;
+  let lastScannedPage = startPage - 1;
+  let reachedEnd = false;
   let totalEntries = 0;
   const PER_PAGE = 100;
   const filter: ProviderFilter = search.providerFilter ?? "all";
@@ -238,7 +244,8 @@ export async function apolloFetchLeads(
   let preEnrichDupesSkipped = 0;
   let screenedOut = 0;
   const personName = (p: ApolloPerson) => p.name || [p.first_name, p.last_name].filter(Boolean).join(" ");
-  outer: while (collected.length < limit && page <= MAX_PAGES) {
+  const lastAllowedPage = startPage + MAX_PAGES - 1;
+  outer: while (collected.length < limit && page <= lastAllowedPage) {
     let res: Awaited<ReturnType<typeof apolloSearchPage>>;
     try {
       res = await apolloSearchPage(apiKey, search, page);
@@ -246,8 +253,9 @@ export async function apolloFetchLeads(
       stoppedEarly = true; stopReason = err instanceof Error ? err.message : "search failed";
       break;
     }
+    lastScannedPage = page;
     totalEntries += res.rawCount;
-    if (res.rawCount === 0) break;
+    if (res.rawCount === 0) { reachedEnd = true; break; } // ran past the end of the result set
 
     let people = res.people;
 
@@ -306,9 +314,13 @@ export async function apolloFetchLeads(
         }
       }
     }
-    if (res.rawCount < PER_PAGE) break;
+    if (res.rawCount < PER_PAGE) { reachedEnd = true; break; } // last (partial) page of results
     page += 1;
   }
+  // Where the NEXT pull should resume. If we ran out of results, wrap back to page 1. Otherwise
+  // continue past the last page we scanned. Cap well under Apollo's ~50k-record (page ~500) ceiling.
+  let nextPage = reachedEnd ? 1 : lastScannedPage + 1;
+  if (nextPage > 450) nextPage = 1;
 
-  return { leads: collected, lockedSkipped, pagesScanned: page - 1, totalEntries, stoppedEarly, stopReason, preEnrichDupesSkipped, screenedOut };
+  return { leads: collected, lockedSkipped, pagesScanned: lastScannedPage - startPage + 1, totalEntries, stoppedEarly, stopReason, preEnrichDupesSkipped, screenedOut, nextPage, reachedEnd };
 }

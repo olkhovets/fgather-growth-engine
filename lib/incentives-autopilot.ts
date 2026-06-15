@@ -80,13 +80,14 @@ export async function runIncentivesAutopilotForWorkspace(
       }
     }
 
-    // 2. Append fresh leads, SPLIT 50/50 between two parallel tracks so we can compare which books
-    //    more demos: the INCENTIVE track (gift-card offer) and the VALUE-FIRST track (no money, leads
-    //    with a brand-specific consumer read). The two calls run sequentially, so the incentive call
-    //    stamps sentAt first and the value-first call naturally picks up the NEXT fresh leads (no
-    //    overlap). Incentives sell, but value-first may reach people a gift offer reads as spam to.
-    const incLimit = Math.ceil(thisRunLimit / 2);
-    const vfLimit = Math.floor(thisRunLimit / 2);
+    // 2. Append fresh leads. INCENTIVES ARE THE PRIMARY TRACK (Peter: they work well, stick to them).
+    //    We keep a SMALL value-first slice (~20%) as an ongoing low-cost A/B so we still learn whether
+    //    a no-money angle reaches people a gift offer reads as spammy to — but incentives get the bulk.
+    //    Sequential calls: the incentive call stamps sentAt first, so value-first picks up the NEXT
+    //    fresh leads (no overlap). Set VALUE_FIRST_SHARE to 0 to turn the experiment off entirely.
+    const VALUE_FIRST_SHARE = 0.2;
+    const vfLimit = Math.floor(thisRunLimit * VALUE_FIRST_SHARE);
+    const incLimit = thisRunLimit - vfLimit;
     const res = await fetch(`${baseUrl()}/api/incentives/launch`, {
       method: "POST",
       headers: { "Content-Type": "application/json", "x-cron-secret": secret },

@@ -41,8 +41,9 @@ export async function ingestForWorkspace(
   // people are dropped BEFORE we spend an enrichment credit on them. Fail-safe: keep on error.
   const wsScreen = await prisma.workspace.findUnique({
     where: { id: workspaceId },
-    select: { anthropicKey: true, anthropicModel: true, icp: true, productSummary: true },
+    select: { anthropicKey: true, anthropicModel: true, icp: true, productSummary: true, apolloPagePtr: true },
   });
+  const startPage = Math.max(1, wsScreen?.apolloPagePtr ?? 1);
   let screenFn: ((cands: Array<{ jobTitle?: string | null; company?: string | null; industry?: string | null }>) => Promise<boolean[]>) | undefined;
   if (wsScreen?.anthropicKey && wsScreen.icp?.trim()) {
     const { decrypt: dec } = await import("@/lib/encryption");
@@ -60,8 +61,16 @@ export async function ingestForWorkspace(
 
   // Over-fetch a bit so that after dedupe we still land near `limit`. Pass existingKeys (skip dupes
   // before enriching) and screenFn (skip off-ICP before enriching) — both save Apollo credits.
-  const { leads: fetched, lockedSkipped, stoppedEarly, stopReason, preEnrichDupesSkipped, screenedOut } = await apolloFetchLeads(apolloApiKey, search, Math.ceil(limit * 1.5), existingKeys, screenFn);
+  const { leads: fetched, lockedSkipped, stoppedEarly, stopReason, preEnrichDupesSkipped, screenedOut, nextPage } = await apolloFetchLeads(apolloApiKey, search, Math.ceil(limit * 1.5), existingKeys, screenFn, startPage);
   const earlyNote = stoppedEarly ? ` (Apollo stopped the pull early: ${stopReason} — the leads enriched before that ARE saved below)` : "";
+
+  // Advance the pagination cursor so the NEXT pull resumes past where this one scanned — this is the
+  // fix for credit burn (we were re-scanning + re-enriching page 1's already-ingested people every
+  // pull). Only advance when the pull actually progressed (not on an early error, which keeps us in
+  // place to retry). Wraps to page 1 when the result set is exhausted (handled in apolloFetchLeads).
+  if (!stoppedEarly) {
+    await prisma.workspace.update({ where: { id: workspaceId }, data: { apolloPagePtr: nextPage } }).catch(() => {});
+  }
 
   if (fetched.length === 0) {
     // Surface WHY nothing came back so the blocker is visible in Activity (the most common real
