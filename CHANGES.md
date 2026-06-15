@@ -1,5 +1,15 @@
 # Engine Changelog
 
+## Session 2026-06-15 (eve) — persona rotation finished + REAL blocker found: Apollo out of credits (deployed)
+
+1. **Finished persona-search-rotation** (commit 201141e). `ingestForWorkspace` stamps `Lead.persona = personaTag`; `incentives-autopilot` rotates `PERSONAS[idx % len]` into `search.person_titles` each pull, passes `persona.key` as `personaTag`, increments `apolloPersonaIndex`. Verified the cursor advances live (0 → 3).
+2. **Discovered the real volume blocker: Apollo is OUT OF CREDITS.** `people/bulk_match` → HTTP 422 "insufficient credits." The "search exhausted" framing was a misdiagnosis — `api_search` page 1 returns 100 people, 100% absent from our DB; deep pages (200+) still full. Every pull nets 0 because we can't unlock emails, not because there are no people.
+3. **Surfaced the credit blocker** (commit 1c32b51). Ingest now detects the 422, logs an explicit Activity entry + actionable message instead of a vague "pulled 0."
+
+**Engine is stalled on volume:** all 10,607 leads sent; new pulls fail on credits; recycle pool temporarily dry (39 eligible were recently recycled, re-qualify in ~7d). 85 total replies on record.
+
+**ACTION NEEDED FROM PETER (billing): top up / upgrade Apollo lead credits** — the #1 gate on new-lead volume. Until then the engine can only recycle existing leads on a 7-day cycle.
+
 ## Session 2026-06-10 — Incentives Lab deliverability + Apollo volume (deployed)
 
 The Incentives Lab plumbing already worked (button creates one Instantly campaign per
