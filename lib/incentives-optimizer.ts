@@ -28,6 +28,34 @@ async function variantPerf(workspaceId: string, field: "incentiveAmount" | "ince
   return Object.values(m).map((v) => ({ ...v, rate: v.sent > 0 ? v.positive / v.sent : 0 })).sort((a, b) => b.rate - a.rate || b.positive - a.positive);
 }
 
+/**
+ * Apollo COST efficiency over recent pulls. The engine spends a credit per enrichment, so a pull that
+ * is mostly duplicates/locked is money burned for nothing. We were blind to this once (re-scanning
+ * page 1 every pull cost ~9 credits per net-new lead before anyone noticed). This reads the ingest
+ * activity logs and computes yield = new leads / enrichment attempts, so the optimizer can FLAG a
+ * cost leak the moment it appears instead of waiting for the bill. Reads the last 24h of pulls.
+ */
+async function apolloEfficiency(workspaceId: string) {
+  const since = new Date(Date.now() - 24 * 60 * 60 * 1000);
+  const logs = await prisma.activityLog.findMany({
+    where: { workspaceId, type: "ingest", createdAt: { gte: since } },
+    orderBy: { createdAt: "desc" }, take: 40, select: { metaJson: true },
+  });
+  let inserted = 0, wasted = 0;
+  for (const l of logs) {
+    try {
+      const m = l.metaJson ? JSON.parse(l.metaJson) : {};
+      inserted += Number(m.ingested) || 0;
+      wasted += (Number(m.duplicatesSkipped) || 0) + (Number(m.lockedSkipped) || 0);
+    } catch { /* skip unparseable */ }
+  }
+  const attempts = inserted + wasted;
+  const yieldPct = attempts > 0 ? Math.round((inserted / attempts) * 100) : null;
+  // Flag only with enough volume to be meaningful, and when most spend is waste.
+  const leak = attempts >= 200 && yieldPct !== null && yieldPct < 35;
+  return { pulls: logs.length, inserted, wasted, attempts, yieldPct, leak };
+}
+
 export async function optimizeIncentivesForWorkspace(workspaceId: string): Promise<Record<string, unknown>> {
   const ws = await prisma.workspace.findUnique({ where: { id: workspaceId }, select: { incentivesDailyCap: true, incentiveConfigJson: true } });
   const dailyCap = ws?.incentivesDailyCap ?? 500;
@@ -75,7 +103,13 @@ export async function optimizeIncentivesForWorkspace(workspaceId: string): Promi
     actions.push(`exploring — ${positives} positive replies so far, below ${PROMOTE_MIN_POSITIVES} needed to promote`);
   }
 
-  const summary = `Optimizer: sent24=${sent24}, bounce=${bounceRate}%, fresh=${freshPool}, positives=${positives}/${totalSent}, cap=${newCap}. ${actions.join("; ") || "no changes"}`;
-  await logActivity(workspaceId, "autopilot", summary, { sent24, bounced24, bounceRate, freshPool, positives, totalSent, campaignStatus, dailyCap: newCap, byAmount, byStyle, byGift, actions });
-  return { workspaceId, sent24, bounced24, bounceRate, freshPool, positives, totalSent, campaignStatus, dailyCap: newCap, byAmount, byStyle, byGift, actions };
+  // 4. COST watch: surface Apollo lead-pull efficiency so a credit leak can't run silently again.
+  const apollo = await apolloEfficiency(workspaceId);
+  if (apollo.leak) {
+    actions.push(`COST WARNING: Apollo pulls only ${apollo.yieldPct}% efficient (${apollo.inserted} new vs ${apollo.wasted} wasted on dupes/locked in last ${apollo.pulls} pulls) — credits leaking. Check the page cursor / search; pause pulling if the search is mined out.`);
+  }
+
+  const summary = `Optimizer: sent24=${sent24}, bounce=${bounceRate}%, fresh=${freshPool}, positives=${positives}/${totalSent}, cap=${newCap}, apolloYield=${apollo.yieldPct ?? "n/a"}%. ${actions.join("; ") || "no changes"}`;
+  await logActivity(workspaceId, "autopilot", summary, { sent24, bounced24, bounceRate, freshPool, positives, totalSent, campaignStatus, dailyCap: newCap, byAmount, byStyle, byGift, apollo, actions });
+  return { workspaceId, sent24, bounced24, bounceRate, freshPool, positives, totalSent, campaignStatus, dailyCap: newCap, byAmount, byStyle, byGift, apollo, actions };
 }
