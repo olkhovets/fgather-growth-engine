@@ -1,5 +1,9 @@
 # Engine Changelog
 
+## Session 2026-06-15 (late eve) — full-codebase efficiency/accuracy audit (6 fixes deployed)
+
+Ran 6 parallel auditors over Apollo, sending, cron/races, Claude usage, analytics, webhooks. Fixed the high-impact confirmed bugs (commit 40aed01): (1) webhook bounce match was case-sensitive → uppercase emails never suppressed; (2) Apollo cursor froze on mid-pull errors → re-enriched paid leads (leak regression); (3) value-first leads polluted the incentive A/B + promote gate; (4) daily cap under-counted recycle/OOO re-contacts; (5) classifyReply token limit truncated → lost positive replies; (6) learning-loop email match case-sensitive. Outstanding items (non-atomic guard races, webhook idempotency, dashboard reply-rate reconciliation, bounce-rate-0-on-low-volume) documented in memory/audit_2026_06_15.md.
+
 ## Session 2026-06-15 (late eve) — Apollo credit-burn fix (page cursor) + favor incentives 80/20 (deployed + verified)
 
 **Apollo was burning ~9 credits per net-new lead.** Diagnosed from ingest logs: every pull restarted at api_search page 1 and re-scanned the same already-ingested people; their name|company keys had drifted, so pre-enrich dedup missed them and we paid to re-enrich, then dropped them as email-dupes (last 8 pulls before the fix: 418 inserted vs 2,013 wasted dupe-enrichments). Fix: persistent pagination cursor (`Workspace.apolloPagePtr`) — each pull resumes past where the last scanned, marching forward into fresh people. Wraps to page 1 when exhausted; capped under Apollo's ~50k-record ceiling.
