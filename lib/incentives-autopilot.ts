@@ -80,22 +80,40 @@ export async function runIncentivesAutopilotForWorkspace(
       }
     }
 
-    // 2. Append up to thisRunLimit fresh leads into the rolling campaign (workspace-wide, saved config).
+    // 2. Append fresh leads, SPLIT 50/50 between two parallel tracks so we can compare which books
+    //    more demos: the INCENTIVE track (gift-card offer) and the VALUE-FIRST track (no money, leads
+    //    with a brand-specific consumer read). The two calls run sequentially, so the incentive call
+    //    stamps sentAt first and the value-first call naturally picks up the NEXT fresh leads (no
+    //    overlap). Incentives sell, but value-first may reach people a gift offer reads as spam to.
+    const incLimit = Math.ceil(thisRunLimit / 2);
+    const vfLimit = Math.floor(thisRunLimit / 2);
     const res = await fetch(`${baseUrl()}/api/incentives/launch`, {
       method: "POST",
       headers: { "Content-Type": "application/json", "x-cron-secret": secret },
-      body: JSON.stringify({ workspaceId: ws.id, sendLimit: thisRunLimit, providerFilter: PROVIDER, warmedInboxesOnly: true }),
+      body: JSON.stringify({ workspaceId: ws.id, sendLimit: incLimit, providerFilter: PROVIDER, warmedInboxesOnly: true }),
     });
     const launch = await res.json().catch(() => ({} as Record<string, unknown>));
     const appended = (launch.totalUploaded as number) ?? 0;
     const launchError = typeof launch.error === "string" ? launch.error : null;
     const distribution = Array.isArray(launch.distribution) ? launch.distribution : [];
 
+    // VALUE-FIRST track: the no-money A/B counterweight, into its own "Value-First (rolling)" campaign.
+    let valueFirst = 0;
+    if (vfLimit > 0) {
+      const vres = await fetch(`${baseUrl()}/api/incentives/launch`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-cron-secret": secret },
+        body: JSON.stringify({ workspaceId: ws.id, sendLimit: vfLimit, providerFilter: PROVIDER, warmedInboxesOnly: true, valueFirst: true }),
+      });
+      const vl = await vres.json().catch(() => ({} as Record<string, unknown>));
+      valueFirst = (vl.totalUploaded as number) ?? 0;
+    }
+
     // OOO REQUEUE (every run, independent of the fresh pool): re-contact leads who sent an
     // out-of-office reply and whose stated return date has now passed — so we land when they're
     // actually back, not on a blind schedule. Capped small; counts against the daily budget.
     let oooRequeued = 0;
-    const oooLimit = Math.min(thisRunLimit, Math.max(0, remainingToday - appended));
+    const oooLimit = Math.min(thisRunLimit, Math.max(0, remainingToday - appended - valueFirst));
     if (oooLimit > 0) {
       const ores = await fetch(`${baseUrl()}/api/incentives/launch`, {
         method: "POST",
@@ -109,7 +127,7 @@ export async function runIncentivesAutopilotForWorkspace(
     // RECYCLE FALLBACK: if there were no fresh leads (or OOO leads) to append, re-contact the oldest
     // non-repliers (past the cooldown) with the current credentialed emails, into a recycle campaign.
     let recycled = 0;
-    if (appended === 0 && oooRequeued === 0) {
+    if (appended === 0 && valueFirst === 0 && oooRequeued === 0) {
       const rres = await fetch(`${baseUrl()}/api/incentives/launch`, {
         method: "POST",
         headers: { "Content-Type": "application/json", "x-cron-secret": secret },
@@ -119,11 +137,11 @@ export async function runIncentivesAutopilotForWorkspace(
       recycled = (rl.totalUploaded as number) ?? 0;
     }
 
-    const totalSent = appended + oooRequeued;
+    const totalSent = appended + valueFirst + oooRequeued;
     await logActivity(ws.id, "autopilot",
-      `Incentives autopilot: pulled ${ingested}, appended ${appended}${oooRequeued ? `, OOO-requeued ${oooRequeued}` : ""}${recycled ? `, recycled ${recycled}` : ""}/${thisRunLimit} (${sentToday + totalSent}/${dailyCap} today)${launchError && !recycled && !oooRequeued ? ` (issue: ${launchError})` : ""}`,
-      { incentives: true, ingested, appended, oooRequeued, recycled, thisRunLimit, sentToday: sentToday + totalSent, dailyCap, mode: launch.mode, distribution, launchError, freshBefore: freshCount });
-    return { workspaceId: ws.id, ingested, appended, oooRequeued, recycled, sentToday: sentToday + totalSent, dailyCap, mode: launch.mode, distribution, launchError };
+      `Incentives autopilot: pulled ${ingested}, appended ${appended} (incentive)${valueFirst ? ` + ${valueFirst} (value-first)` : ""}${oooRequeued ? `, OOO-requeued ${oooRequeued}` : ""}${recycled ? `, recycled ${recycled}` : ""}/${thisRunLimit} (${sentToday + totalSent}/${dailyCap} today)${launchError && !recycled && !oooRequeued && !valueFirst ? ` (issue: ${launchError})` : ""}`,
+      { incentives: true, ingested, appended, valueFirst, oooRequeued, recycled, thisRunLimit, sentToday: sentToday + totalSent, dailyCap, mode: launch.mode, distribution, launchError, freshBefore: freshCount });
+    return { workspaceId: ws.id, ingested, appended, valueFirst, oooRequeued, recycled, sentToday: sentToday + totalSent, dailyCap, mode: launch.mode, distribution, launchError };
   } catch (err) {
     const msg = err instanceof Error ? err.message : "incentives autopilot failed";
     await logActivity(ws.id, "autopilot", `Incentives autopilot failed: ${msg}`).catch(() => {});

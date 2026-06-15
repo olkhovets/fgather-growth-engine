@@ -77,6 +77,36 @@ export const ALLOWED_AMOUNTS = [50, 100, 150, 200, 250, 500];
  */
 export const GIFT_TYPES = ["Uber Eats card", "Amazon gift card", "Visa gift card", "DoorDash card"];
 
+/**
+ * VALUE-FIRST track — the A/B counterweight to incentives. No money, no links: lead with the VALUE
+ * (a brand-specific consumer read, the speed/cost story, the founder pedigree) and a reply-first
+ * CTA. Same credentialed proof, same hard rules (no em dashes, no AI words). We run this in parallel
+ * with the incentive track and compare which books more demos (incentives sell, but value-first may
+ * reach people a gift-card offer reads as spammy to). {{firstName}}/{{companyName}} are merge vars.
+ */
+export const VALUE_FIRST_SUBJECTS: Array<{ label: string; template: string }> = [
+  { label: "vf-what-customers-want", template: "what your customers actually want, {{firstName}}" },
+  { label: "vf-quick-read", template: "a quick consumer read for {{companyName}}" },
+  { label: "vf-research-behind", template: "the research behind Belk and Bagel Brands" },
+  { label: "vf-worth-20", template: "{{firstName}}, worth 20 minutes?" },
+];
+
+export const VALUE_FIRST_BODIES: Array<{ label: string; template: string }> = [
+  { label: "Brand read teaser", template: "We run AI consumer research for brands like Belk, Staples, and Bagel Brands, real answers in days, not six weeks. Before any call I can pull a short read on what your category's buyers actually want right now. Want me to put one together for {{companyName}}?\nReply and it's yours." },
+  { label: "The gap", template: "Most teams market on what they think customers want, not what they actually need. Gather closes that gap with real consumer research in days, the kind you'd brief to an agency. Belk, Empire Today, and Bagel Brands run it, and we're backed by Menlo. Worth 20 minutes to show you on {{companyName}}?" },
+  { label: "Founder pedigree", template: "Gather is from the team that built Gartner Peer Insights. We run AI consumer research for Belk, Staples, and Bagel Brands, answers in days not months, backed by Menlo and Anthropic. Happy to show you what it would look like for {{companyName}}.\nWorth a quick chat?" },
+  { label: "Surveys miss the why", template: "Surveys tell you what, not why. Gather runs AI-moderated interviews against a 60M-person panel and turns them into content in days. Staples, Belk, and Bagel Brands use it. Want me to walk {{companyName}} through it in 20 minutes?" },
+  { label: "One study, twelve outputs", template: "With Gather, one consumer study becomes a dozen ship-ready assets, the report, the landing page, the ad copy. Brands like Staples, Belk, and Bagel Brands run it, and we're Menlo-backed. Worth showing you on {{companyName}}?\nReply if you're open to it." },
+  { label: "Speed and cost", template: "Traditional consumer research runs six to eight weeks and up to $100k. Gather does it in days at a tenth of that, which is why Staples, Belk, and Bagel Brands use us. Twenty minutes to show you what that means for {{companyName}}?" },
+  { label: "Quick teardown", template: "I can put together a quick read on how {{companyName}}'s buyers actually decide, the kind of thing we run for Belk and Bagel Brands in days. We're Menlo-backed, built on Anthropic. Want me to bring it to a 20-minute call?" },
+  { label: "AI marketing hire", template: "Think of Gather as an AI marketing hire: it runs real consumer research and turns it into on-brand content, in days. Belk, Empire Today, and Bagel Brands already use it, and we're Menlo-backed. Worth 20 minutes to see it on {{companyName}}?" },
+];
+
+export const VALUE_FIRST_FOLLOWUPS: Array<{ body: string; delayDays: number }> = [
+  { delayDays: 3, body: "Quick follow up, {{firstName}}. Belk, Staples, and Bagel Brands use Gather to learn what their customers actually want, in days, not weeks. Happy to show you what that looks like for {{companyName}}. Worth a reply?" },
+  { delayDays: 3, body: "Last note from me. Gather is from the team behind Gartner Peer Insights, backed by Menlo and Anthropic. I think it would help {{companyName}}, and I can show you in 20 minutes. Want me to set it up?" },
+];
+
 /** Render the gift phrase into a body (after amount/firstName/companyName are filled). */
 export function renderGift(text: string, gift: string): string {
   return text.replace(/\{\{\s*gift\s*\}\}/g, gift);
@@ -95,7 +125,7 @@ export function renderIncentive(template: string, amount: number): string {
 
 /** Short stable label for a subject style (for per-style A/B tracking). */
 export function subjectStyleLabel(template: string): string {
-  const preset = SUBJECT_PRESETS.find((s) => s.template === template);
+  const preset = SUBJECT_PRESETS.find((s) => s.template === template) || VALUE_FIRST_SUBJECTS.find((s) => s.template === template);
   if (preset) return preset.label;
   return template.replace(/\{\{\s*amount\s*\}\}/g, "$").slice(0, 24);
 }

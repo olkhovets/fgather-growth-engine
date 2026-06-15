@@ -4,7 +4,7 @@ import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { getInstantlyClientForWorkspaceId } from "@/lib/instantly";
 import { logActivity } from "@/lib/activity";
-import { normalizeIncentiveConfig, renderIncentive, subjectStyleLabel, INCENTIVE_FOLLOWUPS, GIFT_TYPES, renderGift, BODY_PRESETS } from "@/lib/incentives";
+import { normalizeIncentiveConfig, renderIncentive, subjectStyleLabel, INCENTIVE_FOLLOWUPS, GIFT_TYPES, renderGift, BODY_PRESETS, VALUE_FIRST_SUBJECTS, VALUE_FIRST_BODIES, VALUE_FIRST_FOLLOWUPS } from "@/lib/incentives";
 import { classifyEmailProviders } from "@/lib/email-provider";
 import { getWorkspaceWebhookUrl, registerCampaignWebhooks, WEBHOOK_EVENTS_PER_CAMPAIGN } from "@/lib/campaign-webhooks";
 
@@ -50,6 +50,10 @@ export async function POST(request: Request) {
     // machinery (re-contacts already-sent leads, stamps recycledAt/recycleCount to cap re-touches).
     const oooRequeue = body.oooRequeue === true;
     const reEngage = recycle || oooRequeue; // both re-contact already-sent leads, not fresh ones
+    // VALUE-FIRST mode: the no-money A/B track. Leads with a brand-specific consumer read instead of
+    // a gift card; reply-first, credentialed. Sends into a separate "Value-First (rolling)" campaign
+    // so positives are cleanly comparable to the incentive track. Runs on FRESH leads, like incentives.
+    const valueFirst = body.valueFirst === true;
     const cooldownDays = ws.recycleCooldownDays ?? 21;
 
     // batchId optional: a specific batch (manual launch) or workspace-wide fresh leads (autopilot).
@@ -166,10 +170,14 @@ export async function POST(request: Request) {
     // so we don't flood the shared Instantly account and can append more leads to it over time.
     const freshCampaign = body.freshCampaign === true;
 
+    // Content set depends on the track. Value-first uses its own subjects/bodies/follow-ups and NO
+    // money (amount 0 sentinel — its templates carry no {{amount}}/{{gift}} tokens, so the fillers
+    // are no-ops). Incentive track uses the configured subjects/amounts + rotating credentialed bodies.
+    const followups = valueFirst ? VALUE_FIRST_FOLLOWUPS : INCENTIVE_FOLLOWUPS;
     // Build the A/B matrix: every (subject style × amount) combo, diagonal order for balanced
     // assignment when leads < combos. No 8-cap needed now — it's all one campaign.
-    const subjects = config.subjectTemplates;
-    const amts = config.amounts;
+    const subjects = valueFirst ? VALUE_FIRST_SUBJECTS.map((s) => s.template) : config.subjectTemplates;
+    const amts = valueFirst ? [0] : config.amounts;
     const S = subjects.length, A = amts.length;
     const seen = new Set<string>();
     const combos: Array<{ subjectTemplate: string; amount: number }> = [];
@@ -196,7 +204,9 @@ export async function POST(request: Request) {
     // deliverability + a real body A/B). Priority: operator-pinned bodyTemplates → all stock
     // credentialed presets (when the stored body is just a stock preset, i.e. not customized) →
     // the single stored body (respects a hand-written custom body).
-    const bodySet = (config.bodyTemplates && config.bodyTemplates.length)
+    const bodySet = valueFirst
+      ? VALUE_FIRST_BODIES.map((b) => b.template)
+      : (config.bodyTemplates && config.bodyTemplates.length)
       ? config.bodyTemplates
       : BODY_PRESETS.some((p) => p.template === config.bodyTemplate)
         ? BODY_PRESETS.map((p) => p.template)
@@ -212,14 +222,14 @@ export async function POST(request: Request) {
         inc_subject: fill(subjectTemplate, amount, firstName, companyName, gift),
         inc_body1: fillBody(bodyTpl, amount, firstName, companyName, gift),
       };
-      INCENTIVE_FOLLOWUPS.forEach((f, k) => { cv[`inc_body${k + 2}`] = fillBody(f.body, amount, firstName, companyName, gift); });
+      followups.forEach((f, k) => { cv[`inc_body${k + 2}`] = fillBody(f.body, amount, firstName, companyName, gift); });
       payloads.push({ email: l.email, first_name: firstName, company_name: l.company ?? undefined, custom_variables: cv });
       const key = `${amount}|${style}|${gift}`;
       (stampByCombo[key] ||= { amount, style, gift, ids: [] }).ids.push(l.id);
     });
 
     // Find the existing rolling campaign to append into (unless the operator forces a fresh one).
-    const ROLLING_NAME = oooRequeue ? "Incentives Lab (OOO)" : recycle ? "Incentives Lab (recycle)" : "Incentives Lab (rolling)";
+    const ROLLING_NAME = valueFirst ? "Value-First (rolling)" : oooRequeue ? "Incentives Lab (OOO)" : recycle ? "Incentives Lab (recycle)" : "Incentives Lab (rolling)";
     const existing = freshCampaign
       ? null
       : await prisma.sentCampaign.findFirst({ where: { workspaceId: ws.id, name: ROLLING_NAME }, orderBy: { createdAt: "desc" }, select: { instantlyCampaignId: true } });
@@ -229,12 +239,12 @@ export async function POST(request: Request) {
     // one — so the gap before follow-up k must live on the PRECEDING step. We therefore put
     // FOLLOWUPS[i].delayDays on step i (last step gets 0). Putting delay=0 on step 1 made step 2
     // fire minutes after step 1.
-    const varNames = ["inc_subject", "inc_body1", ...INCENTIVE_FOLLOWUPS.map((_, k) => `inc_body${k + 2}`)];
-    const stepBodies = ["{{inc_body1}}", ...INCENTIVE_FOLLOWUPS.map((_, k) => `{{inc_body${k + 2}}}`)];
+    const varNames = ["inc_subject", "inc_body1", ...followups.map((_, k) => `inc_body${k + 2}`)];
+    const stepBodies = ["{{inc_body1}}", ...followups.map((_, k) => `{{inc_body${k + 2}}}`)];
     const mergeSteps = stepBodies.map((body, i) => ({
       subject: i === 0 ? "{{inc_subject}}" : "",
       body,
-      delayDays: INCENTIVE_FOLLOWUPS[i]?.delayDays ?? 0,
+      delayDays: followups[i]?.delayDays ?? 0,
     }));
 
     let campaignId: string;
