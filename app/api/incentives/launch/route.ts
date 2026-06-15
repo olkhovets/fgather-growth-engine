@@ -4,7 +4,7 @@ import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { getInstantlyClientForWorkspaceId } from "@/lib/instantly";
 import { logActivity } from "@/lib/activity";
-import { normalizeIncentiveConfig, renderIncentive, subjectStyleLabel, INCENTIVE_FOLLOWUPS, GIFT_TYPES, renderGift } from "@/lib/incentives";
+import { normalizeIncentiveConfig, renderIncentive, subjectStyleLabel, INCENTIVE_FOLLOWUPS, GIFT_TYPES, renderGift, BODY_PRESETS } from "@/lib/incentives";
 import { classifyEmailProviders } from "@/lib/email-provider";
 import { getWorkspaceWebhookUrl, registerCampaignWebhooks, WEBHOOK_EVENTS_PER_CAMPAIGN } from "@/lib/campaign-webhooks";
 
@@ -178,15 +178,25 @@ export async function POST(request: Request) {
     type LeadPayload = { email: string; first_name?: string; company_name?: string; custom_variables: Record<string, string> };
     const payloads: LeadPayload[] = [];
     const stampByCombo: Record<string, { amount: number; style: string; gift: string; ids: string[] }> = {};
+    // Rotate the step-1 body so a few thousand sends aren't all the same opener (better
+    // deliverability + a real body A/B). Priority: operator-pinned bodyTemplates → all stock
+    // credentialed presets (when the stored body is just a stock preset, i.e. not customized) →
+    // the single stored body (respects a hand-written custom body).
+    const bodySet = (config.bodyTemplates && config.bodyTemplates.length)
+      ? config.bodyTemplates
+      : BODY_PRESETS.some((p) => p.template === config.bodyTemplate)
+        ? BODY_PRESETS.map((p) => p.template)
+        : [config.bodyTemplate];
     leads.forEach((l, i) => {
       const { subjectTemplate, amount } = combos[i % combos.length];
       const style = subjectStyleLabel(subjectTemplate);
       const gift = GIFT_TYPES[i % GIFT_TYPES.length]; // rotate gift type independently (3rd A/B dimension)
+      const bodyTpl = bodySet[i % bodySet.length];    // rotate body independently
       const firstName = (l.name ?? "").trim().split(/\s+/)[0] || "there";
       const companyName = (l.company ?? "").trim() || "your team";
       const cv: Record<string, string> = {
         inc_subject: fill(subjectTemplate, amount, firstName, companyName, gift),
-        inc_body1: fillBody(config.bodyTemplate, amount, firstName, companyName, gift),
+        inc_body1: fillBody(bodyTpl, amount, firstName, companyName, gift),
       };
       INCENTIVE_FOLLOWUPS.forEach((f, k) => { cv[`inc_body${k + 2}`] = fillBody(f.body, amount, firstName, companyName, gift); });
       payloads.push({ email: l.email, first_name: firstName, company_name: l.company ?? undefined, custom_variables: cv });

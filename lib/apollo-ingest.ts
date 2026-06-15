@@ -130,13 +130,22 @@ export async function ingestForWorkspace(
     dedupe: true,
   });
 
-  // Tag this batch's leads with the persona that produced them (rotating title set), so downstream
-  // copy can be tailored per persona and so we can track reply rates by persona.
-  if (personaTag && batchId) {
-    await prisma.lead.updateMany({
-      where: { leadBatchId: batchId },
-      data: { persona: personaTag },
-    });
+  // Tag each lead with a persona bucket derived from its ACTUAL title (so we keep the full search
+  // variety but can still tailor copy + report reply rates per persona). One updateMany per bucket.
+  if (batchId) {
+    const { personaForTitle } = await import("@/lib/apollo-personas");
+    const inserted = await prisma.lead.findMany({ where: { leadBatchId: batchId }, select: { id: true, jobTitle: true } });
+    const byPersona = new Map<string, string[]>();
+    for (const l of inserted) {
+      const key = personaForTitle(l.jobTitle) || personaTag || "growth-general";
+      if (!byPersona.has(key)) byPersona.set(key, []);
+      byPersona.get(key)!.push(l.id);
+    }
+    await Promise.all(
+      Array.from(byPersona.entries()).map(([persona, ids]) =>
+        prisma.lead.updateMany({ where: { id: { in: ids } }, data: { persona } })
+      )
+    );
   }
 
   await logActivity(workspaceId, "ingest",

@@ -6,6 +6,21 @@
  */
 export type Persona = { key: string; label: string; titles: string[] };
 
+/**
+ * Classify a lead's actual job title into one of the persona buckets, so we can tag leads for
+ * tailored copy + per-persona reporting WITHOUT narrowing the Apollo search (we pull the full
+ * variety of titles, then bucket each person by what they actually are). Returns a persona key,
+ * defaulting to "growth-general" when nothing else matches.
+ */
+export function personaForTitle(title: string | null | undefined): string {
+  const t = (title || "").toLowerCase();
+  if (!t) return "growth-general";
+  if (/insight|research|analyt|intelligence|voice of customer/.test(t)) return "consumer-insights";
+  if (/brand|social|content/.test(t)) return "brand-social";
+  if (/product marketing|messaging|positioning/.test(t)) return "product-marketing";
+  return "growth-general";
+}
+
 export const PERSONAS: Persona[] = [
   {
     key: "consumer-insights",

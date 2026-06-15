@@ -6,7 +6,8 @@
 
 export type IncentiveConfig = {
   subjectTemplates: string[]; // subject STYLES to A/B (each contains {{amount}})
-  bodyTemplate: string;       // the chosen body preset (or a custom one)
+  bodyTemplate: string;       // the chosen body preset (or a custom one) — legacy single body
+  bodyTemplates?: string[];   // multiple body presets to ROTATE per lead (variety across sends)
   amounts: number[];          // dollar amounts to A/B
 };
 
@@ -110,11 +111,15 @@ export function normalizeIncentiveConfig(input: Partial<IncentiveConfig> & { sub
   subjectTemplates = Array.from(new Set(subjectTemplates)).slice(0, 4);
 
   const bodyTemplate = (input?.bodyTemplate || "").trim() || DEFAULT_INCENTIVE_CONFIG.bodyTemplate;
+  // Optional rotation set: dedupe, keep non-empty, cap at the number of presets. Falls back to the
+  // single bodyTemplate when absent so old configs keep working.
+  let bodyTemplates = Array.isArray(input?.bodyTemplates) ? input!.bodyTemplates.map((b) => String(b).trim()).filter(Boolean) : [];
+  bodyTemplates = Array.from(new Set(bodyTemplates)).slice(0, BODY_PRESETS.length);
 
   let amounts = Array.isArray(input?.amounts) ? input!.amounts.map(Number).filter((n) => Number.isFinite(n) && n > 0) : [];
   amounts = Array.from(new Set(amounts)).filter((a) => ALLOWED_AMOUNTS.includes(a)).sort((a, b) => a - b);
   if (amounts.length === 0) amounts = [...DEFAULT_INCENTIVE_CONFIG.amounts];
   amounts = amounts.slice(0, 5);
 
-  return { subjectTemplates, bodyTemplate, amounts };
+  return { subjectTemplates, bodyTemplate, ...(bodyTemplates.length ? { bodyTemplates } : {}), amounts };
 }
