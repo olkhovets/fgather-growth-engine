@@ -1,5 +1,16 @@
 # Engine Changelog
 
+## Session 2026-06-15 (late eve) — value-first track parallel to incentives (deployed + verified live)
+
+Peter: incentives sell, but balance both approaches. Built a no-money A/B track and split volume 50/50.
+
+- **lib/incentives.ts:** VALUE_FIRST_SUBJECTS (4), VALUE_FIRST_BODIES (8 distinct hooks: brand-read teaser, the gap, founder pedigree, surveys-miss-why, one-study-twelve-outputs, speed+cost, teardown, AI-marketing-hire), VALUE_FIRST_FOLLOWUPS (2). All credentialed, reply-first, NO money, no links, no em dashes, no AI words. Lead with VALUE (a brand-specific consumer read) instead of a gift.
+- **launch route:** new `valueFirst` mode — own subjects/bodies/followups, amount-0 sentinel (templates carry no money tokens), sends into a separate `Value-First (rolling)` campaign. Reuses the merge-var sequence + webhook machinery.
+- **autopilot:** splits each run's fresh volume 50/50 — incentive call first (stamps sentAt), value-first call picks up the next leads (no overlap). Value-first counts toward the daily cap. Recycle fallback only when BOTH tracks are dry.
+- **Tracking:** two separate rolling campaigns → per-campaign positives directly compare the two approaches.
+
+**Verified live:** forced an Apollo refill (40 leads), triggered a run → "appended 5 (incentive) + 5 (value-first)", `Value-First (rolling)` campaign created.
+
 ## Session 2026-06-15 (late eve) — OOO requeue on stated return date (deployed + verified live)
 
 Found that the OOO requeue plumbing was **dead**: OOO replies set `repliedAt` + `requeueAt`, but every send query excluded `repliedAt != null` (and the main send also requires `sentAt: null`), so OOO leads were never re-contacted regardless of `requeueAt`.
