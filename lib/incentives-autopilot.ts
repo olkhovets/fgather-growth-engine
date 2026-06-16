@@ -41,26 +41,15 @@ export async function runIncentivesAutopilotForWorkspace(
       const waitMin = Math.ceil((intervalMin * 60 * 1000 - (Date.now() - cfg.incentivesLastRunAt.getTime())) / 60000);
       return { workspaceId: ws.id, skipped: `interval (next run in ~${waitMin} min)` };
     }
-    // 0b. Daily cap: count what's already gone out today, leave the rest for tomorrow. Count BOTH
-    // fresh sends (sentAt today) AND re-contacts (recycle/OOO stamp recycledAt today, not sentAt) —
-    // otherwise recycle/OOO volume escapes the cap entirely and a fresh-exhausted workspace can send
-    // unbounded re-contacts, blowing past the warmed-inbox capacity the cap exists to protect.
-    const startOfDay = new Date(); startOfDay.setHours(0, 0, 0, 0);
-    const sentToday = await prisma.lead.count({
-      where: {
-        leadBatch: { workspaceId: ws.id }, incentiveAmount: { not: null },
-        OR: [{ sentAt: { gte: startOfDay } }, { recycledAt: { gte: startOfDay } }],
-      },
-    });
-    const remainingToday = dailyCap - sentToday;
-    if (remainingToday <= 0) return { workspaceId: ws.id, skipped: `daily cap reached (${sentToday}/${dailyCap})` };
-    const thisRunLimit = Math.min(perRun, remainingToday);
-
     // Stamp the run NOW (before the slow ingest/append) so overlapping cron ticks serialize on the
     // interval check above, instead of both pulling Apollo or both appending.
     await prisma.workspace.update({ where: { id: ws.id }, data: { incentivesLastRunAt: new Date() } });
 
-    // 1. Replenish leads when running low. ALL-PROVIDERS mode (operator chose volume over the
+    // 1. Replenish leads when running low — done BEFORE the daily-cap gate so the lead POOL keeps
+    //    filling even when we're done SENDING for the day. (Otherwise a maxed send-cap blocks Apollo
+    //    pulls entirely, so an Apollo top-up wouldn't take effect until the cap reset — leaving the
+    //    business day to open with an empty pool.) The pull has its own 20-min throttle, so this
+    //    doesn't over-pull. ALL-PROVIDERS mode (operator chose volume over the
     //    deliverability filter), so every fresh lead is sendable — count them all.
     const PROVIDER = "all" as const;
     const freshCount = await prisma.lead.count({
@@ -85,6 +74,20 @@ export async function runIncentivesAutopilotForWorkspace(
         ingested = r.inserted;
       }
     }
+
+    // 1b. Daily SEND cap (checked AFTER replenish): count what's gone out today, leave the rest for
+    // tomorrow. Counts BOTH fresh sends (sentAt today) AND re-contacts (recycle/OOO stamp recycledAt,
+    // not sentAt) — otherwise that volume escapes the cap and a fresh-exhausted workspace over-sends.
+    const startOfDay = new Date(); startOfDay.setHours(0, 0, 0, 0);
+    const sentToday = await prisma.lead.count({
+      where: {
+        leadBatch: { workspaceId: ws.id }, incentiveAmount: { not: null },
+        OR: [{ sentAt: { gte: startOfDay } }, { recycledAt: { gte: startOfDay } }],
+      },
+    });
+    const remainingToday = dailyCap - sentToday;
+    if (remainingToday <= 0) return { workspaceId: ws.id, ingested, skipped: `daily cap reached (${sentToday}/${dailyCap})` };
+    const thisRunLimit = Math.min(perRun, remainingToday);
 
     // 2. Append fresh leads. INCENTIVES ARE THE PRIMARY TRACK (Peter: they work well, stick to them).
     //    We keep a SMALL value-first slice (~20%) as an ongoing low-cost A/B so we still learn whether

@@ -251,7 +251,9 @@ function createInstantlyClient(apiKey: string) {
       const schedule = options?.schedule;
       const from = schedule?.from ?? "09:00";
       const to = schedule?.to ?? "17:00";
-      const days = schedule?.days ?? [true, true, true, true, true, false, false]; // Mon-Fri
+      // Instantly day index: 0=Sunday ... 6=Saturday. We send Sun–Fri (Sunday ON per Peter's
+      // historical findings; Saturday OFF). NOTE: index 0 is SUNDAY, not Monday.
+      const days = schedule?.days ?? [true, true, true, true, true, true, false];
       const timezone = schedule?.timezone ?? "America/Chicago";
       const campaign_schedule = {
         schedules: [
