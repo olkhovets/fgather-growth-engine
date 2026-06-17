@@ -135,9 +135,13 @@ export async function GET(request: Request) {
     ? baseUrlEnv.replace(/\/$/, "")
     : "https://peter-engine-working-copy.vercel.app";
   const authHeaders: Record<string, string> = secret ? { Authorization: `Bearer ${secret}` } : {};
-  // Daily pipeline: Apollo ingest → autopilot (generate+send for autopilot workspaces)
-  // → optimization agents (A/B routing, experiment evaluate/generate).
-  for (const path of ["/api/apollo/ingest", "/api/orchestrate/run", "/api/optimize/step", "/api/optimize/variants/evaluate", "/api/optimize/variants/generate"]) {
+  // Daily pipeline: Apollo ingest → server-side iterator (bounce>5% throttle / scale-when-clean
+  // / resume-paused guardrail, run BEFORE sending so a high-bounce campaign is throttled before
+  // more volume goes out) → autopilot (generate+send for autopilot workspaces) → optimization
+  // agents (A/B routing, experiment evaluate/generate). Including /optimize/iterate here keeps the
+  // deliverability guardrail running autonomously even when the external operator routine can't
+  // reach the host (e.g. network egress restrictions on the scheduled runner).
+  for (const path of ["/api/apollo/ingest", "/api/optimize/iterate", "/api/orchestrate/run", "/api/optimize/step", "/api/optimize/variants/evaluate", "/api/optimize/variants/generate"]) {
     try {
       await fetch(`${baseUrl}${path}`, { headers: authHeaders });
     } catch {
