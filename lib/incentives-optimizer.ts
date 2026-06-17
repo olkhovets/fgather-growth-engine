@@ -64,7 +64,10 @@ export async function optimizeIncentivesForWorkspace(workspaceId: string): Promi
 
   const since = new Date(Date.now() - 24 * 60 * 60 * 1000);
   const [sent24, bounced24, freshPool, totalSent, positives] = await Promise.all([
-    prisma.lead.count({ where: { leadBatch: { workspaceId }, sentAt: { gte: since } } }),
+    // sent24 must count re-contacts too (recycle/OOO stamp recycledAt, not sentAt) — otherwise the
+    // bounce-rate denominator and the throttle/scale logic are blind to recycle volume (reads 0 sent
+    // on a recycle-only day, so the deliverability guardrail can't see recycle bounces).
+    prisma.lead.count({ where: { leadBatch: { workspaceId }, OR: [{ sentAt: { gte: since } }, { recycledAt: { gte: since } }] } }),
     prisma.lead.count({ where: { leadBatch: { workspaceId }, bouncedAt: { gte: since } } }),
     prisma.lead.count({ where: { leadBatch: { workspaceId }, sentAt: null, suppressed: false, repliedAt: null, email: { not: "" } } }),
     prisma.lead.count({ where: { leadBatch: { workspaceId }, incentiveAmount: { gt: 0 }, sentAt: { not: null } } }),

@@ -46,10 +46,12 @@ export async function GET() {
 
     // 24h deliverability health for the guardrail readout.
     const startOfDay = new Date(); startOfDay.setUTCHours(0, 0, 0, 0);
+    // Count re-contacts too (recycle/OOO stamp recycledAt, not sentAt) so the dashboard 24h volume,
+    // bounce rate, and today's count reflect ALL real sends — not just fresh ones.
     const [sentRecent, bouncedRecent, sentToday] = await Promise.all([
-      prisma.lead.count({ where: { leadBatch: { workspaceId: workspace.id }, sentAt: { gte: since } } }),
+      prisma.lead.count({ where: { leadBatch: { workspaceId: workspace.id }, OR: [{ sentAt: { gte: since } }, { recycledAt: { gte: since } }] } }),
       prisma.lead.count({ where: { leadBatch: { workspaceId: workspace.id }, bouncedAt: { gte: since } } }),
-      prisma.lead.count({ where: { leadBatch: { workspaceId: workspace.id }, sentAt: { gte: startOfDay } } }),
+      prisma.lead.count({ where: { leadBatch: { workspaceId: workspace.id }, OR: [{ sentAt: { gte: startOfDay } }, { recycledAt: { gte: startOfDay } }] } }),
     ]);
     const bounceRate = sentRecent >= 20 ? Math.round((bouncedRecent / sentRecent) * 1000) / 10 : 0;
 
