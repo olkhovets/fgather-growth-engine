@@ -4,7 +4,7 @@ import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { getInstantlyClientForWorkspaceId } from "@/lib/instantly";
 import { logActivity } from "@/lib/activity";
-import { normalizeIncentiveConfig, renderIncentive, subjectStyleLabel, INCENTIVE_FOLLOWUPS, GIFT_TYPES, renderGift, BODY_PRESETS, VALUE_FIRST_SUBJECTS, VALUE_FIRST_BODIES, VALUE_FIRST_FOLLOWUPS } from "@/lib/incentives";
+import { normalizeIncentiveConfig, renderIncentive, subjectStyleLabel, INCENTIVE_FOLLOWUPS, GIFT_TYPES, renderGift, BODY_PRESETS, VALUE_FIRST_SUBJECTS, VALUE_FIRST_BODIES, VALUE_FIRST_FOLLOWUPS, SHORT_BODIES, SOFT_CTA_BODIES, SHORT_SUBJECTS } from "@/lib/incentives";
 import { classifyEmailProviders } from "@/lib/email-provider";
 import { getWorkspaceWebhookUrl, registerCampaignWebhooks, WEBHOOK_EVENTS_PER_CAMPAIGN } from "@/lib/campaign-webhooks";
 
@@ -211,11 +211,29 @@ export async function POST(request: Request) {
       : BODY_PRESETS.some((p) => p.template === config.bodyTemplate)
         ? BODY_PRESETS.map((p) => p.template)
         : [config.bodyTemplate];
+
+    // CONTROLLABLE ColdIQ experiments (incentive track only — value-first keeps its own copy). A
+    // configurable SHARE of leads get an experiment body (short / soft-CTA) and, if enabled, a short
+    // lowercase subject, instead of the proven credentialed copy. experimentShare 0 = fully off, so
+    // the main approach is untouched until dialed up. Deterministic by index so the split is stable.
+    const exp = valueFirst ? [] : (config.experiments ?? []);
+    const expShare = valueFirst ? 0 : (config.experimentShare ?? 0);
+    const expBodies = [
+      ...(exp.includes("short") ? SHORT_BODIES.map((b) => b.template) : []),
+      ...(exp.includes("soft-cta") ? SOFT_CTA_BODIES.map((b) => b.template) : []),
+    ];
+    const expSubjects = exp.includes("short-subjects") ? SHORT_SUBJECTS.map((s) => s.template) : [];
+    const expCut = Math.round(expShare * 100);
+
     leads.forEach((l, i) => {
-      const { subjectTemplate, amount } = combos[i % combos.length];
+      const inExperiment = expShare > 0 && expBodies.length > 0 && (i % 100) < expCut;
+      const { amount } = combos[i % combos.length];
+      // Subject: experiment leads use a short lowercase subject when that family is on; else the combo subject.
+      const subjectTemplate = inExperiment && expSubjects.length ? expSubjects[i % expSubjects.length] : combos[i % combos.length].subjectTemplate;
       const style = subjectStyleLabel(subjectTemplate);
       const gift = GIFT_TYPES[i % GIFT_TYPES.length]; // rotate gift type independently (3rd A/B dimension)
-      const bodyTpl = bodySet[i % bodySet.length];    // rotate body independently
+      // Body: experiment leads pull from the enabled experiment pool; everyone else gets credentialed.
+      const bodyTpl = inExperiment ? expBodies[i % expBodies.length] : bodySet[i % bodySet.length];
       const firstName = (l.name ?? "").trim().split(/\s+/)[0] || "there";
       const companyName = (l.company ?? "").trim() || "your team";
       const cv: Record<string, string> = {

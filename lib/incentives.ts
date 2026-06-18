@@ -9,7 +9,15 @@ export type IncentiveConfig = {
   bodyTemplate: string;       // the chosen body preset (or a custom one) — legacy single body
   bodyTemplates?: string[];   // multiple body presets to ROTATE per lead (variety across sends)
   amounts: number[];          // dollar amounts to A/B
+  // CONTROLLABLE ColdIQ experiments. `experiments` = which families are live ("short" / "soft-cta"
+  // / "short-subjects"); `experimentShare` = fraction of leads (0-1) that get an experiment variant
+  // instead of the proven credentialed copy. Default OFF / 0 so the main approach is untouched until
+  // deliberately dialed up. Lets useful ColdIQ ideas through in a measured way without scrapping core.
+  experiments?: string[];
+  experimentShare?: number;
 };
+
+export const KNOWN_EXPERIMENTS = ["short", "soft-cta", "short-subjects"] as const;
 
 /**
  * Subject-line STYLES to A/B. Two families:
@@ -63,9 +71,11 @@ export const BODY_PRESETS: Array<{ label: string; template: string }> = [
  * sentences, re-offers the money, adds one fresh angle (proof point, then speed), and carries NO
  * links. Sent as in-thread replies (blank subject) a few days apart. {{amount}} filled at launch.
  */
+// Each follow-up adds a DISTINCT new angle (ColdIQ: follow up with value, not a nag), while the
+// standing ${{amount}} {{gift}} offer carries through. FU1 = speed/cost; FU2 = founder pedigree + scope.
 export const INCENTIVE_FOLLOWUPS: Array<{ body: string; delayDays: number }> = [
-  { delayDays: 3, body: "Quick follow up, {{firstName}}. Belk, Staples, and Bagel Brands use Gather to learn what their customers actually want, in days. We're Menlo-backed. That ${{amount}} {{gift}} for a 20-minute demo still stands. Worth a reply?" },
-  { delayDays: 3, body: "Last note from me. Gather is from the team behind Gartner Peer Insights, backed by Menlo and Anthropic, and I'm confident it helps {{companyName}}. The ${{amount}} {{gift}} for a 20-minute demo is still yours. Want me to set it up?" },
+  { delayDays: 3, body: "Following up, {{firstName}}. Traditional consumer research runs six to eight weeks and up to $100k. Gather does it in days at a tenth of that, which is why Belk and Staples use us. The ${{amount}} {{gift}} for 20 minutes still stands. Worth a reply?" },
+  { delayDays: 3, body: "Last note from me. With Gather one consumer study becomes a dozen ship-ready assets, and it's from the team that built Gartner Peer Insights, backed by Menlo. Confident it helps {{companyName}}. The ${{amount}} {{gift}} is still yours. Want me to set it up?" },
 ];
 
 export const ALLOWED_AMOUNTS = [50, 100, 150, 200, 250, 500];
@@ -107,6 +117,33 @@ export const VALUE_FIRST_FOLLOWUPS: Array<{ body: string; delayDays: number }> =
   { delayDays: 3, body: "Last note from me. Gather is from the team behind Gartner Peer Insights, backed by Menlo and Anthropic. I think it would help {{companyName}}, and I can show you in 20 minutes. Want me to set it up?" },
 ];
 
+/**
+ * COLDIQ-INSPIRED EXPERIMENT POOLS (opt-in via incentiveConfig.experiments + experimentShare).
+ * These test ColdIQ's published best practices AGAINST our proven credentialed copy without
+ * replacing it — they only enter the rotation for the configured experiment share. Still
+ * credentialed + incentive-backed (we don't scrap the main approach), just shaped per ColdIQ:
+ * short (20-39 words), soft reply-first CTA (no "20-min demo" ask), lowercase 3-5 word subjects.
+ */
+// SHORT bodies — ColdIQ data: 20-39 words gets the highest reply rate. Tight, still credentialed + gift.
+export const SHORT_BODIES: Array<{ label: string; template: string }> = [
+  { label: "short-speed", template: "Quick one, {{firstName}}. Gather runs real consumer research for Belk and Bagel Brands in days, not weeks, backed by Menlo. I'll put a ${{amount}} {{gift}} behind 20 minutes on {{companyName}}. Worth a reply?" },
+  { label: "short-gap", template: "Most teams guess what customers want. Gather gives {{companyName}} the real answer in days, the way Staples and Belk do it. Confident enough to back it with a ${{amount}} {{gift}}. Worth a look?" },
+  { label: "short-cost", template: "{{firstName}}, we run AI consumer research for Belk and Bagel Brands, answers in days at a tenth of agency cost. A ${{amount}} {{gift}} for 20 minutes on {{companyName}}. In?" },
+];
+// SOFT-CTA bodies — ColdIQ: don't ask for the demo; offer to show a peer result. Reply-first.
+export const SOFT_CTA_BODIES: Array<{ label: string; template: string }> = [
+  { label: "soft-peer", template: "{{firstName}}, we just ran consumer research for a brand a lot like {{companyName}}, in days, not the usual six weeks. Want me to walk you through what we found? Backed by Menlo, and there's a ${{amount}} {{gift}} for your time." },
+  { label: "soft-gap", template: "Most teams market on what they think customers want, not what they actually need. Gather closes that gap in days for Belk and Bagel Brands. Want to see what that looks like for {{companyName}}? Happy to send a ${{amount}} {{gift}} for 20 minutes." },
+  { label: "soft-pedigree", template: "Gather is from the team behind Gartner Peer Insights. We find what consumers actually want before brands like Belk spend on a campaign. Want to see what we'd find for {{companyName}}? A ${{amount}} {{gift}} for the time." },
+];
+// SHORT lowercase subjects — ColdIQ: 3-5 words, lowercase, about the recipient's world.
+export const SHORT_SUBJECTS: Array<{ label: string; template: string }> = [
+  { label: "s-quick-one", template: "quick one, {{firstName}}" },
+  { label: "s-worth-look", template: "{{firstName}}, worth a look?" },
+  { label: "s-consumer-research", template: "{{companyName}} consumer research" },
+  { label: "s-idea", template: "a quick idea for {{companyName}}" },
+];
+
 /** Render the gift phrase into a body (after amount/firstName/companyName are filled). */
 export function renderGift(text: string, gift: string): string {
   return text.replace(/\{\{\s*gift\s*\}\}/g, gift);
@@ -125,7 +162,7 @@ export function renderIncentive(template: string, amount: number): string {
 
 /** Short stable label for a subject style (for per-style A/B tracking). */
 export function subjectStyleLabel(template: string): string {
-  const preset = SUBJECT_PRESETS.find((s) => s.template === template) || VALUE_FIRST_SUBJECTS.find((s) => s.template === template);
+  const preset = SUBJECT_PRESETS.find((s) => s.template === template) || VALUE_FIRST_SUBJECTS.find((s) => s.template === template) || SHORT_SUBJECTS.find((s) => s.template === template);
   if (preset) return preset.label;
   return template.replace(/\{\{\s*amount\s*\}\}/g, "$").slice(0, 24);
 }
@@ -151,5 +188,13 @@ export function normalizeIncentiveConfig(input: Partial<IncentiveConfig> & { sub
   if (amounts.length === 0) amounts = [...DEFAULT_INCENTIVE_CONFIG.amounts];
   amounts = amounts.slice(0, 5);
 
-  return { subjectTemplates, bodyTemplate, ...(bodyTemplates.length ? { bodyTemplates } : {}), amounts };
+  // Experiment controls: only keep known families; clamp share to [0,1] (default 0 = off).
+  const experiments = Array.isArray(input?.experiments)
+    ? input!.experiments.filter((e): e is string => typeof e === "string" && (KNOWN_EXPERIMENTS as readonly string[]).includes(e))
+    : [];
+  let experimentShare = typeof input?.experimentShare === "number" && Number.isFinite(input.experimentShare) ? input.experimentShare : 0;
+  experimentShare = Math.max(0, Math.min(1, experimentShare));
+
+  return { subjectTemplates, bodyTemplate, ...(bodyTemplates.length ? { bodyTemplates } : {}), amounts,
+    ...(experiments.length ? { experiments } : {}), ...(experimentShare > 0 ? { experimentShare } : {}) };
 }
