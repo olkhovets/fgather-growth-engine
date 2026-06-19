@@ -205,9 +205,14 @@ export async function apolloFetchLeads(
   // Pagination cursor: the page to START scanning from. api_search returns people in a stable
   // order, so restarting at page 1 every pull re-scans (and re-enriches, wasting credits) people we
   // already ingested. Resuming deeper marches forward into fresh people. Caller persists `nextPage`.
-  startPage = 1
+  startPage = 1,
+  // Emails already in the workspace (lowercased). Enriched results matching these are NOT counted
+  // toward `limit` — so `collected` is exactly `limit` NEW leads. Lets the caller ask for `limit`
+  // and get ~`limit` (no over-fetch + slice-discard of already-paid-for leads).
+  seenEmails?: Set<string>
 ): Promise<{ leads: NormalizedLead[]; lockedSkipped: number; pagesScanned: number; totalEntries: number; stoppedEarly: boolean; stopReason: string | null; preEnrichDupesSkipped: number; screenedOut: number; nextPage: number; reachedEnd: boolean }> {
   const collected: NormalizedLead[] = [];
+  const emailSeen = new Set(seenEmails ? Array.from(seenEmails) : []); // existing + collected-this-run, for dedup
   let lockedSkipped = 0;
   let page = startPage;
   let lastScannedPage = startPage - 1;
@@ -220,7 +225,11 @@ export async function apolloFetchLeads(
   // at ~9% Google density, 25 pages tops out around ~225 Google leads. Unfiltered pulls enrich
   // every person, so they hit `limit` quickly and don't need the extra pages. The longer function
   // budget (maxDuration 300 on the ingest route) is what makes the deeper scan safe.
-  const MAX_PAGES = filter === "all" ? 25 : 80;
+  // Scale the page budget to the ASK so a larger `limit` can actually be fulfilled (we early-stop the
+  // moment `limit` NEW leads are collected, so small pulls stay fast and we never over-scan). At
+  // ~40 new leads/page for "all", ~limit/25 pages reaches the target; cap at 40 pages for the 300s
+  // function budget. Filtered pulls (google/no-gateways) drop most pre-enrich, so they scan deeper.
+  const MAX_PAGES = filter === "all" ? Math.min(40, Math.ceil(limit / 25) + 5) : 80;
 
   // Domain -> provider cache (shared across pages). When a provider filter is active we
   // classify the company domain by MX BEFORE enriching, so we never spend enrichment credits
@@ -304,6 +313,12 @@ export async function apolloFetchLeads(
       for (const e of enriched) {
         const lead = toNormalizedLead(e);
         if (lead) {
+          // Dedup by email against existing + this-run: a dupe was still enriched (email unknown
+          // until now), but we DON'T count it toward `limit` — so `collected` is `limit` NEW leads,
+          // not `limit` total. In forward (cursor) territory dupes are rare, so this is efficient.
+          const ek = lead.email.toLowerCase().trim();
+          if (emailSeen.has(ek)) continue;
+          emailSeen.add(ek);
           // Stamp provider only when a filter is active (cache already warm). When filter is
           // "all" we skip MX here to keep ingest fast — the daily cron backfills providers.
           if (filter !== "all") lead.emailProvider = await provFor((lead.email.split("@")[1] || ""));

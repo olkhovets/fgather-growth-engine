@@ -62,9 +62,11 @@ export async function ingestForWorkspace(
     };
   }
 
-  // Over-fetch a bit so that after dedupe we still land near `limit`. Pass existingKeys (skip dupes
-  // before enriching) and screenFn (skip off-ICP before enriching) — both save Apollo credits.
-  const { leads: fetched, lockedSkipped, stoppedEarly, stopReason, preEnrichDupesSkipped, screenedOut, nextPage, pagesScanned } = await apolloFetchLeads(apolloApiKey, search, Math.ceil(limit * 1.5), existingKeys, screenFn, startPage);
+  // Collect EXACTLY `limit` NEW leads (no over-fetch). apolloFetchLeads now dedups enriched emails
+  // against `seen` and only counts new ones, so asking for `limit` returns ~`limit` (not 1.5x then
+  // sliced — which paid to enrich leads we then discarded). existingKeys = pre-enrich name|company
+  // dedup (free); screenFn = pre-enrich ICP screen (free); seen = post-enrich email dedup.
+  const { leads: fetched, lockedSkipped, stoppedEarly, stopReason, preEnrichDupesSkipped, screenedOut, nextPage, pagesScanned } = await apolloFetchLeads(apolloApiKey, search, limit, existingKeys, screenFn, startPage, seen);
   const earlyNote = stoppedEarly ? ` (Apollo stopped the pull early: ${stopReason} — the leads enriched before that ARE saved below)` : "";
 
   // Advance the pagination cursor so the NEXT pull resumes past where this one scanned — this is the
