@@ -41,11 +41,14 @@ export async function ingestForWorkspace(
   // people are dropped BEFORE we spend an enrichment credit on them. Fail-safe: keep on error.
   const wsScreen = await prisma.workspace.findUnique({
     where: { id: workspaceId },
-    select: { anthropicKey: true, anthropicModel: true, icp: true, productSummary: true, apolloPagePtr: true },
+    select: { anthropicKey: true, anthropicModel: true, icp: true, productSummary: true, apolloPagePtr: true, screenIngestLeads: true },
   });
   const startPage = Math.max(1, wsScreen?.apolloPagePtr ?? 1);
+  // Controllable AI ICP fit-screen. When ON it now runs LENIENT (drops only clear non-consumer/B2B).
+  // When OFF (screenIngestLeads=false) we skip it entirely and trust the Apollo search filters —
+  // max volume, no good B2C leads lost to an over-eager screen.
   let screenFn: ((cands: Array<{ jobTitle?: string | null; company?: string | null; industry?: string | null }>) => Promise<boolean[]>) | undefined;
-  if (wsScreen?.anthropicKey && wsScreen.icp?.trim()) {
+  if (wsScreen?.screenIngestLeads !== false && wsScreen?.anthropicKey && wsScreen.icp?.trim()) {
     const { decrypt: dec } = await import("@/lib/encryption");
     const { screenLeadsForFit } = await import("@/lib/lead-screener");
     const aKey = dec(wsScreen.anthropicKey);

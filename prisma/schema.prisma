@@ -102,6 +102,7 @@ model Workspace {
   recycleCooldownDays  Int      @default(21)   // min days since last contact before an already-sent non-replier can be recycled
   apolloPersonaIndex   Int      @default(0)    // (deprecated) old persona-rotation cursor; persona is now tagged per-lead by title
   apolloPagePtr        Int      @default(1)    // pagination cursor: where the next Apollo pull resumes, so we march forward through results instead of re-scanning (and re-enriching) page 1 every time
+  screenIngestLeads    Boolean  @default(true) // run the AI ICP fit-screen on ingest. OFF = trust the Apollo search filters + keep everything (max volume); the screen had been dropping ~half of clearly-good B2C leads
   schedulingLink   String?  // real Calendly/booking link. Blank = NEVER include links. Set = used only in follow-up steps, never step 1.
   notifyOnActivity Boolean  @default(false) // email the operator on every activity-log event
   createdAt       DateTime @default(now())

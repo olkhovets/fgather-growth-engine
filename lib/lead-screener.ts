@@ -29,7 +29,7 @@ export async function screenLeadsForFit(
 
   await Promise.all(batches.map(async ({ start, batch }) => {
     const list = batch.map((l, i) => `${i}. ${l.jobTitle ?? "?"} at ${l.company ?? "?"} (${l.industry ?? "industry unknown"})`).join("\n");
-    const prompt = `You screen cold-outreach leads for fit. Keep only leads that genuinely match the Ideal Customer Profile; drop clear mismatches.
+    const prompt = `You are a LENIENT gatekeeper for cold-outreach leads. The Apollo search already filtered by title and consumer industry, so the DEFAULT is KEEP. Only drop a lead when the company is CLEARLY not a consumer/B2C brand.
 
 PRODUCT: ${productSummary || "(n/a)"}
 IDEAL CUSTOMER PROFILE: ${icp}
@@ -37,9 +37,12 @@ IDEAL CUSTOMER PROFILE: ${icp}
 LEADS (index. title at company (industry)):
 ${list}
 
-Return ONLY a JSON object: {"keep":[indices of good-fit leads]}. Be inclusive when unsure (keep), but drop obvious mismatches (wrong industry, clearly outside the ICP).`;
+KEEP every consumer-facing brand: DTC, CPG, food/beverage, beauty/cosmetics, fashion/apparel, footwear, retail, ecommerce, wellness/fitness, consumer electronics, restaurants, hospitality, consumer apps, household/home goods, pet, etc. Use the COMPANY NAME: if it's a recognizable consumer brand (e.g. Converse, Crocs, Spanx, Aveda, Tropicana), KEEP it even when the industry is blank.
+ONLY DROP when the company is clearly B2B software/SaaS, a marketing/research/staffing agency or consultancy, a distributor/3PL/logistics firm, a bank/insurer, or otherwise plainly NOT selling to consumers. When in any doubt, KEEP.
+
+Return ONLY a JSON object: {"keep":[indices to keep]}.`;
     try {
-      const { text } = await callAnthropic(anthropicKey, prompt, { maxTokens: 400, model });
+      const { text } = await callAnthropic(anthropicKey, prompt, { maxTokens: 800, model });
       const j = text.slice(text.indexOf("{"), text.lastIndexOf("}") + 1);
       const parsed = JSON.parse(j) as { keep?: number[] };
       const keepIdx = Array.isArray(parsed.keep) ? parsed.keep : batch.map((_, i) => i);
