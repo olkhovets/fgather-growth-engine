@@ -1,5 +1,15 @@
 # Engine Changelog
 
+## Session 2026-06-20 (evening run) — STILL BLOCKED: egress allowlist fix not yet applied (ACTION NEEDED FROM PETER)
+
+Second run of the day, same hard block: `peter-engine-working-copy.vercel.app` returns `403 Host not in allowlist` on every call, so iterator/autopilot/diagnosis still cannot run. Nothing shipped — I won't push blind changes to a live email engine I can't verify, and I have no read on positives/bounce/winners while the app host is unreachable.
+
+New diagnostics this run (narrows the fix):
+- `api.instantly.ai`, `api.anthropic.com`, `api.apollo.io` ARE reachable from the session — **only the Vercel app host is blocked.** The session has no `.env` secrets, so it can't talk to those APIs directly; unblocking the app host is the fix.
+- **GitHub Issues are confirmed DISABLED** on this repo (issue creation → `410 Issues has been disabled`), and no PushNotification tool exists in this session. So this changelog commit (→ Vercel deploy email) is genuinely the only channel to reach you. Enabling Issues would give the routine a better escalation path.
+
+**THE FIX (only Peter, ~2 min):** add `peter-engine-working-copy.vercel.app` (optionally `*.vercel.app`) to the environment's network egress allowlist in the Claude Code on the web env settings — https://code.claude.com/docs/en/claude-code-on-the-web (network policy). Next run resumes automatically and dedupes against these entries.
+
 ## Session 2026-06-20 — ROUTINE BLOCKED: live engine host not in egress allowlist (ACTION NEEDED FROM PETER)
 
 The twice-daily routine could not run. The cloud session's network egress policy blocks the live engine host, so every step failed before it started:
