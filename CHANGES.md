@@ -1,5 +1,20 @@
 # Engine Changelog
 
+## Session 2026-06-20 — ROUTINE BLOCKED: live engine host not in egress allowlist (ACTION NEEDED FROM PETER)
+
+The twice-daily routine could not run. The cloud session's network egress policy blocks the live engine host, so every step failed before it started:
+
+```
+$ curl https://peter-engine-working-copy.vercel.app/api/optimize/iterate -H "Authorization: Bearer ggx_..."
+Host not in allowlist: peter-engine-working-copy.vercel.app. Add this host to your network egress settings to allow access.   (HTTP 403)
+```
+
+Confirmed against `/api/optimize/iterate` and `/api/health`, sandbox both on and off — same `403 Host not in allowlist` from the egress proxy every time. GitHub Issues are disabled on this repo and the routine's push-notification tool was not available in this session, so this changelog commit (which triggers a Vercel deploy email) is the channel used to reach you.
+
+**What did NOT run this cycle:** iterator (`/api/optimize/iterate`), autopilot (`/api/orchestrate/run`), diagnosis (bounce / fresh-pool / positives / winner tracking). No engine code was shipped — I will not push blind changes to a live email engine I cannot verify post-deploy.
+
+**FIX (only Peter can do this):** add `peter-engine-working-copy.vercel.app` to the environment's **network egress allowlist** in the Claude Code on the web environment settings (consider also `api.instantly.ai`, `api.anthropic.com`, `api.apollo.io` if the routine should reach them directly). Docs: https://code.claude.com/docs/en/claude-code-on-the-web (network policy). Once allowlisted, the next scheduled run resumes normally; it will dedupe against this entry rather than re-flag.
+
 ## Session 2026-06-15 (late eve) — full-codebase efficiency/accuracy audit (6 fixes deployed)
 
 Ran 6 parallel auditors over Apollo, sending, cron/races, Claude usage, analytics, webhooks. Fixed the high-impact confirmed bugs (commit 40aed01): (1) webhook bounce match was case-sensitive → uppercase emails never suppressed; (2) Apollo cursor froze on mid-pull errors → re-enriched paid leads (leak regression); (3) value-first leads polluted the incentive A/B + promote gate; (4) daily cap under-counted recycle/OOO re-contacts; (5) classifyReply token limit truncated → lost positive replies; (6) learning-loop email match case-sensitive. Outstanding items (non-atomic guard races, webhook idempotency, dashboard reply-rate reconciliation, bounce-rate-0-on-low-volume) documented in memory/audit_2026_06_15.md.
