@@ -1,0 +1,60 @@
+import { NextResponse } from "next/server";
+import { prisma } from "@/lib/prisma";
+import { getAggregatedMemory } from "@/lib/performance-memory";
+import { getLinkedInSignal, getCrossChannelSignals } from "@/lib/cross-channel";
+import { buildBudgetPlan } from "@/lib/budget-shifter";
+
+export const dynamic = "force-dynamic";
+
+/**
+ * Read-only monitoring snapshot for the autonomous loop. Guarded by SNAPSHOT_KEY
+ * (Bearer or ?key=) so loop-me can see KPIs + the budget plan + the cross-channel
+ * brain WITHOUT an operator session. Side-effect-free: it never sends, never logs,
+ * never spends. If SNAPSHOT_KEY is unset the endpoint is closed (no public data).
+ */
+export async function GET(request: Request) {
+  const key = process.env.SNAPSHOT_KEY;
+  const url = new URL(request.url);
+  const provided = (request.headers.get("authorization") || "").replace(/^Bearer\s+/i, "").trim() || url.searchParams.get("key") || "";
+  if (!key || provided !== key) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  const since = new Date(Date.now() - 24 * 60 * 60 * 1000);
+  const workspaces = await prisma.workspace.findMany({ select: { id: true, user: { select: { email: true } } } });
+
+  const out = [];
+  for (const ws of workspaces) {
+    try {
+      const [memory, li, cross, budget, sent24, positives24] = await Promise.all([
+        getAggregatedMemory(ws.id),
+        getLinkedInSignal(ws.id),
+        getCrossChannelSignals(ws.id),
+        buildBudgetPlan(ws.id),
+        prisma.lead.count({ where: { leadBatch: { workspaceId: ws.id }, sentAt: { gte: since } } }),
+        prisma.lead.count({ where: { leadBatch: { workspaceId: ws.id }, repliedAt: { gte: since }, replyStatus: "positive" } }),
+      ]);
+
+      const emailPositives = Object.values(memory.byPersona).reduce((a, m) => a + (m.positive_reply_count ?? 0), 0);
+
+      out.push({
+        workspace: ws.user?.email ?? ws.id,
+        health: {
+          emailSentLast24h: sent24,
+          emailPositivesLast24h: positives24,
+          emailWorking: sent24 > 0,
+          linkedinConnected: li.hasData,
+          linkedinLastSync: li.snapshot.at,
+        },
+        email: { totalPositives: emailPositives, byPersonaTop: cross.priorityPersonas.slice(0, 5) },
+        linkedin: li.totals,
+        crossChannel: { suggestion: cross.suggestion, priorityPersonas: cross.priorityPersonas.slice(0, 5) },
+        budgetPlan: budget,
+      });
+    } catch (err) {
+      out.push({ workspace: ws.user?.email ?? ws.id, error: err instanceof Error ? err.message : "snapshot failed" });
+    }
+  }
+
+  return NextResponse.json({ at: new Date().toISOString(), workspaces: out });
+}

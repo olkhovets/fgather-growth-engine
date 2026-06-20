@@ -3,12 +3,15 @@
 import Link from "next/link";
 import { signOut } from "next-auth/react";
 
-type NavKey = "dashboard" | "apollo" | "launch" | "experiments" | "incentives" | "deliverability" | "activity" | "features" | "help" | "settings";
+type NavKey = "dashboard" | "apollo" | "launch" | "crosschannel" | "results" | "poach" | "experiments" | "incentives" | "deliverability" | "activity" | "features" | "help" | "settings";
 
 const ICONS: Record<string, React.ReactNode> = {
   dashboard: <path strokeLinecap="round" strokeLinejoin="round" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" />,
   apollo: <path strokeLinecap="round" strokeLinejoin="round" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />,
   launch: <path strokeLinecap="round" strokeLinejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" />,
+  crosschannel: <path strokeLinecap="round" strokeLinejoin="round" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" />,
+  results: <path strokeLinecap="round" strokeLinejoin="round" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />,
+  poach: <path strokeLinecap="round" strokeLinejoin="round" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />,
   experiments: <path strokeLinecap="round" strokeLinejoin="round" d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z" />,
   incentives: <path strokeLinecap="round" strokeLinejoin="round" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />,
   deliverability: <path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />,
@@ -19,14 +22,13 @@ const ICONS: Record<string, React.ReactNode> = {
 };
 
 const LINKS: Array<{ key: NavKey; href: string; label: string }> = [
-  { key: "dashboard", href: "/dashboard", label: "Dashboard" },
-  { key: "apollo", href: "/dashboard/apollo", label: "Lead source" },
+  { key: "dashboard", href: "/dashboard", label: "Overview" },
+  { key: "apollo", href: "/dashboard/apollo", label: "Leads" },
   { key: "launch", href: "/dashboard/launch", label: "Generate & send" },
-  { key: "experiments", href: "/dashboard/experiments", label: "Experiments" },
-  { key: "incentives", href: "/dashboard/incentives", label: "Incentives Lab" },
+  { key: "results", href: "/dashboard/results", label: "Results" },
+  { key: "poach", href: "/dashboard/poach", label: "Competitors" },
   { key: "deliverability", href: "/dashboard/deliverability", label: "Deliverability" },
   { key: "activity", href: "/dashboard/activity", label: "Activity log" },
-  { key: "features", href: "/dashboard/features", label: "Feature Requests" },
   { key: "help", href: "/dashboard/help", label: "How it works" },
   { key: "settings", href: "/onboarding", label: "Settings" },
 ];

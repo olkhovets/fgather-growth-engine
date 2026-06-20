@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useSession, signOut } from "next-auth/react";
 import { useState, useEffect, useCallback } from "react";
 import { useAuthGuard } from "@/hooks/useAuthGuard";
+import OfferLab from "@/components/OfferLab";
 
 type Sample = { name: string | null; company: string | null; step1Subject: string | null; step1Body: string | null };
 type BatchStatus = {
@@ -360,8 +361,9 @@ export default function LaunchPage() {
           <div className="mb-6">
             <h1 className="text-xl font-semibold" style={{ color: "var(--text-primary)" }}>Generate &amp; send</h1>
             <p className="text-sm mt-0.5" style={{ color: "var(--text-secondary)" }}>
-              Generate sequences, review the output, then approve each send. Nothing goes out without your click.
+              The one place leads become sent emails. Generate sequences, review, approve — or send with a gift offer. Nothing goes out without your click.
             </p>
+            <Link href="/dashboard/experiments" className="text-xs underline mt-1 inline-block" style={{ color: "var(--text-tertiary)" }}>Advanced: manage A/B experiments →</Link>
           </div>
 
           {/* Mode banner */}
@@ -482,6 +484,17 @@ export default function LaunchPage() {
               </div>
             )}
           </div>
+
+          {/* Send with a gift offer — incentives folded into the one pipeline (reuses the proven /api/incentives backend) */}
+          <details className="mb-6 card p-4">
+            <summary className="cursor-pointer text-sm font-medium" style={{ color: "var(--text-primary)" }}>
+              Send with a gift offer (incentives) — A&#47;B amounts &amp; subject styles
+            </summary>
+            <p className="text-xs mt-1 mb-3" style={{ color: "var(--text-tertiary)" }}>
+              A credentialed 3-step sequence that offers a gift card for a demo, into one rolling campaign. This is the same engine as the standard send below — just with an offer attached.
+            </p>
+            <OfferLab />
+          </details>
 
           {/* Destination: append new leads into an existing live Instantly campaign */}
           {instantlyCampaigns.length > 0 && (
