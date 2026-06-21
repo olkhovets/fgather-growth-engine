@@ -1,5 +1,24 @@
 # Engine Changelog
 
+## Session 2026-06-21 — BLOCKED 3rd RUN IN A ROW: egress now blocks EVERY host (PETER: 2-min fix)
+
+Third consecutive dark run. The egress allowlist got MORE restrictive, not less. This run's probe:
+
+```
+403  peter-engine-working-copy.vercel.app   Host not in allowlist
+403  api.instantly.ai                       Host not in allowlist
+403  api.apollo.io                          Host not in allowlist
+404  api.anthropic.com                      (reachable)
+```
+
+Note: on 06-20 Instantly + Apollo were still reachable. Now ONLY `api.anthropic.com` is. So the routine cannot run the iterator (`/api/optimize/iterate`), autopilot (`/api/orchestrate/run`), or read ANY metric (positives / bounce / fresh pool / winners). No sends are being driven. We are 2/3 through June against the 40-demos goal and the autonomous engine has been blind for ~36h.
+
+**You were active in this repo on 06-20 evening (merged the cross-channel PR at 20:48 UTC) AFTER both of that day's BLOCKED commits** — so the deploy-email channel apparently isn't surfacing this. I also tried opening a GitHub Issue: still disabled (410). No push-notification tool in this session. This commit is the only channel I have.
+
+**THE FIX (only you, ~2 min):** Claude Code on the web env settings -> network egress allowlist -> add `peter-engine-working-copy.vercel.app` (the Vercel app alone unblocks the whole routine, since it proxies Instantly/Apollo server-side). Docs: https://code.claude.com/docs/en/claude-code-on-the-web (network policy). Next scheduled run resumes automatically.
+
+What I verified locally this run (the only thing I could): ran `npm ci` + `npx tsc --noEmit` against your cross-channel merge -> **production typecheck is CLEAN (0 errors)**, so the merge compiles and the Vercel deploy is not broken by a type error. Cold-opener copy scan: no links, no banned AI words, no em dashes in the incentive presets. I did NOT push any behavioral change — won't ship blind to a live email engine I can't verify post-deploy.
+
 ## Session 2026-06-20 (evening run) — STILL BLOCKED: egress allowlist fix not yet applied (ACTION NEEDED FROM PETER)
 
 Second run of the day, same hard block: `peter-engine-working-copy.vercel.app` returns `403 Host not in allowlist` on every call, so iterator/autopilot/diagnosis still cannot run. Nothing shipped — I won't push blind changes to a live email engine I can't verify, and I have no read on positives/bounce/winners while the app host is unreachable.
