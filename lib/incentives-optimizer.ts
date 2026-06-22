@@ -41,21 +41,33 @@ async function apolloEfficiency(workspaceId: string) {
   const since = new Date(Date.now() - 24 * 60 * 60 * 1000);
   const logs = await prisma.activityLog.findMany({
     where: { workspaceId, type: "ingest", createdAt: { gte: since } },
-    orderBy: { createdAt: "desc" }, take: 40, select: { metaJson: true },
+    orderBy: { createdAt: "desc" }, take: 40, select: { metaJson: true, message: true, createdAt: true },
   });
-  let inserted = 0, wasted = 0;
+  let inserted = 0, wasted = 0, zeroPulls = 0, lockedOnly = 0;
+  let creditsOut = false;
+  // Capture the most-recent pull's reason so a STALLED pipeline (every pull returning 0 leads) is
+  // visible in the report itself — the routine agent runs on CRON_SECRET and cannot read the Activity
+  // log (session-only), so without this the blocker (out-of-credits vs mined-out vs locked) is silent.
+  let latestMessage: string | null = logs[0]?.message ?? null;
   for (const l of logs) {
     try {
       const m = l.metaJson ? JSON.parse(l.metaJson) : {};
-      inserted += Number(m.ingested) || 0;
+      const ins = Number(m.ingested) || 0;
+      inserted += ins;
       wasted += (Number(m.duplicatesSkipped) || 0) + (Number(m.lockedSkipped) || 0);
+      if (ins === 0) zeroPulls++;
+      if (m.creditsOut === true) creditsOut = true;
+      if (ins === 0 && (Number(m.lockedSkipped) || 0) > 0) lockedOnly++;
     } catch { /* skip unparseable */ }
   }
   const attempts = inserted + wasted;
   const yieldPct = attempts > 0 ? Math.round((inserted / attempts) * 100) : null;
   // Flag only with enough volume to be meaningful, and when most spend is waste.
   const leak = attempts >= 200 && yieldPct !== null && yieldPct < 35;
-  return { pulls: logs.length, inserted, wasted, attempts, yieldPct, leak };
+  // STALLED: several recent pulls but not a single new lead landed. This starves the whole engine
+  // (no fresh pool → sends collapse), so it is a louder, higher-priority signal than the cost leak.
+  const stalled = logs.length >= 3 && inserted === 0;
+  return { pulls: logs.length, inserted, wasted, attempts, yieldPct, leak, stalled, zeroPulls, lockedOnly, creditsOut, latestMessage };
 }
 
 export async function optimizeIncentivesForWorkspace(workspaceId: string): Promise<Record<string, unknown>> {
@@ -110,6 +122,17 @@ export async function optimizeIncentivesForWorkspace(workspaceId: string): Promi
 
   // 4. COST watch: surface Apollo lead-pull efficiency so a credit leak can't run silently again.
   const apollo = await apolloEfficiency(workspaceId);
+  // 4a. PIPELINE STALL (existential): every recent pull returned 0 new leads, so the fresh pool is
+  // starving and sends are collapsing. Name the actual cause from the latest ingest log so the routine
+  // can act (out-of-credits = Peter must top up; mined-out = rotate the search; locked = plan/credits).
+  if (apollo.stalled) {
+    const cause = apollo.creditsOut
+      ? "Apollo enrichment is OUT OF CREDITS — only a top-up/upgrade (Peter) unblocks new pulls"
+      : apollo.lockedOnly > 0
+        ? "Apollo is returning people but their emails are LOCKED — check Apollo plan/email-access credits"
+        : `no new leads landing — likely search mined out or 0 matches (rotate the Apollo search). Latest: ${apollo.latestMessage ?? "n/a"}`;
+    actions.push(`PIPELINE STALL: ${apollo.pulls} Apollo pulls in 24h, 0 new leads — fresh pool starving, sends collapsing. ${cause}.`);
+  }
   if (apollo.leak) {
     actions.push(`COST WARNING: Apollo pulls only ${apollo.yieldPct}% efficient (${apollo.inserted} new vs ${apollo.wasted} wasted on dupes/locked in last ${apollo.pulls} pulls) — credits leaking. Check the page cursor / search; pause pulling if the search is mined out.`);
   }
