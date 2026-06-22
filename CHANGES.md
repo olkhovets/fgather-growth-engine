@@ -1,5 +1,24 @@
 # Engine Changelog
 
+## Session 2026-06-22 — BLOCKED 4th RUN IN A ROW: egress still blocks every operational host (PETER: 2-min fix)
+
+Fourth consecutive dark run, ~48h+ blind now. This run's probe is unchanged from 06-21:
+
+```
+403  peter-engine-working-copy.vercel.app   Host not in allowlist
+403  api.instantly.ai                       Host not in allowlist
+403  api.apollo.io                          Host not in allowlist
+404  api.anthropic.com                      (reachable)
+```
+
+So the routine still cannot run the iterator (`/api/optimize/iterate`), autopilot (`/api/orchestrate/run`), or read any metric (positives / bounce / fresh pool / winners). No sends are being driven or steered. We are now past 2/3 of June against the 40-demos goal with the autonomous engine offline.
+
+Re-confirmed this run: the block persists even with the sandbox disabled, so it is an environment **network-policy** setting, not a transient/sandbox issue. GitHub Issues still disabled (`410` on create), so I could not file an issue. No PushNotification tool exists in this session. This commit + the run's `<routine_summary>` are the only channels I have to reach you.
+
+**THE FIX (only you, ~2 min):** Claude Code on the web → this environment's settings → network egress allowlist → add `peter-engine-working-copy.vercel.app` (the Vercel app alone unblocks the whole routine; it proxies Instantly/Apollo server-side). Docs: https://code.claude.com/docs/en/claude-code-on-the-web (network policy). The next scheduled run resumes the full loop automatically. Separately, enabling GitHub Issues on this repo would give the routine a cleaner escalation channel than changelog commits.
+
+No behavioral change shipped this run — I won't push blind to a live email engine I can't verify post-deploy.
+
 ## Session 2026-06-21 — BLOCKED 3rd RUN IN A ROW: egress now blocks EVERY host (PETER: 2-min fix)
 
 Third consecutive dark run. The egress allowlist got MORE restrictive, not less. This run's probe:
