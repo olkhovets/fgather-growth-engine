@@ -28,17 +28,27 @@ type IncResults = { amounts?: IncRow[]; styles?: IncRow[]; gifts?: IncRow[] };
 const fmt = (n: number) => n.toLocaleString();
 const money = (n: number) => `$${Math.round(n).toLocaleString()}`;
 
-function Stat({ label, value, sub }: { label: string; value: string; sub?: string }) {
-  return (
-    <div className="card p-4">
-      <p className="text-xs uppercase tracking-wide mb-1" style={{ color: "var(--text-tertiary)" }}>{label}</p>
-      <p className="text-2xl font-semibold" style={{ color: "var(--text-primary)" }}>{value}</p>
-      {sub && <p className="text-xs mt-0.5" style={{ color: "var(--text-tertiary)" }}>{sub}</p>}
-    </div>
-  );
-}
 function SectionTitle({ children }: { children: React.ReactNode }) {
   return <h2 className="text-sm font-semibold uppercase tracking-wide mb-3 mt-8" style={{ color: "var(--text-tertiary)" }}>{children}</h2>;
+}
+
+function Glance({ title, accent, stats, good, bad }: { title: string; accent: string; stats: Array<{ label: string; value: string }>; good?: string | null; bad?: string | null }) {
+  return (
+    <div className="card p-5 mb-4" style={{ borderLeft: `3px solid ${accent}` }}>
+      <p className="text-xs uppercase tracking-wide mb-3" style={{ color: "var(--text-tertiary)" }}>{title}</p>
+      <div className="flex flex-wrap gap-x-8 gap-y-3 mb-3">
+        {stats.map((s, i) => (
+          <div key={i}>
+            <p className="text-2xl font-semibold" style={{ color: "var(--text-primary)" }}>{s.value}</p>
+            <p className="text-xs" style={{ color: "var(--text-tertiary)" }}>{s.label}</p>
+          </div>
+        ))}
+      </div>
+      {good && <p className="text-sm" style={{ color: "#16a34a" }}>✅ {good}</p>}
+      {bad && <p className="text-sm mt-1" style={{ color: "#dc2626" }}>⚠️ {bad}</p>}
+      {!good && !bad && <p className="text-sm" style={{ color: "var(--text-tertiary)" }}>Not enough data yet for a read.</p>}
+    </div>
+  );
 }
 
 export default function ResultsPage() {
@@ -133,6 +143,18 @@ export default function ResultsPage() {
   const showE = tab === "all" || tab === "email";
   const showL = tab === "all" || tab === "linkedin";
 
+  // Manager-glance reads: what's working / what's wrong, per channel.
+  const emailObjections = Object.values(byPersona).reduce((a, m) => a + (m.objection_count ?? 0), 0);
+  const emailBest = emailPersonaRows.find(([, m]) => (m.positive_reply_count ?? 0) > 0);
+  const emailGood = emailBest ? `${emailBest[0]} converting best (${emailBest[1].positive_reply_count} positive repl${emailBest[1].positive_reply_count === 1 ? "y" : "ies"})` : null;
+  const emailCooling = emailPersonaRows.find(([, m]) => (m.objection_count ?? 0) >= 3 && (m.positive_reply_count ?? 0) === 0);
+  const emailBad = emailPositives === 0
+    ? "No positive replies classified yet — confirm sending is on and the reply webhook is live."
+    : emailCooling ? `${emailCooling[0]} is pushing back (${emailCooling[1].objection_count} objections, 0 positives) — rework the offer for them.` : null;
+  const liLeak = (signal?.budgetPlan?.moves || []).find((m) => m.startsWith("⚠"));
+  const liGood = li?.hasData ? `Strong demand: ${fmt(li.totals.clicks)} clicks at ${li.totals.ctrPct}% CTR (${personas[0]?.label ?? "top persona"} leading)` : null;
+  const liBad = liLeak || null;
+
   return (
     <div className="flex min-h-screen" style={{ background: "var(--bg)" }}>
       <DashboardSidebar active="results" userEmail={session.user?.email} />
@@ -190,14 +212,23 @@ export default function ResultsPage() {
             </>
           )}
 
-          {/* Channel summary */}
-          <SectionTitle>Channels</SectionTitle>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-            <Stat label="Email positives" value={fmt(emailPositives)} sub={`${fmt(emailReplies)} total replies`} />
-            <Stat label="LinkedIn clicks" value={li?.hasData ? fmt(li.totals.clicks) : "—"} sub={li?.hasData ? `${li.totals.ctrPct}% CTR` : "no data yet"} />
-            <Stat label="LinkedIn spend" value={li?.hasData ? money(li.totals.spend) : "—"} sub={li?.hasData ? `${fmt(li.totals.impressions)} impressions` : ""} />
-            <Stat label="LinkedIn leads" value={li?.hasData ? fmt(li.totals.leads) : "—"} sub={li?.hasData ? `${fmt(li.totals.conversions)} conversions` : ""} />
-          </div>
+          {/* At-a-glance, per channel (manager read before a meeting) */}
+          <SectionTitle>{tab === "email" ? "Email" : tab === "linkedin" ? "LinkedIn" : "At a glance"}</SectionTitle>
+          {showE && (
+            <Glance title="Email — at a glance" accent="var(--text-tertiary)"
+              stats={[{ label: "positive replies", value: fmt(emailPositives) }, { label: "total replies", value: fmt(emailReplies) }, { label: "objections", value: fmt(emailObjections) }]}
+              good={emailGood} bad={emailBad} />
+          )}
+          {showL && li?.hasData && (
+            <Glance title="LinkedIn — at a glance" accent="var(--accent)"
+              stats={[{ label: "spend", value: money(li.totals.spend) }, { label: "clicks", value: fmt(li.totals.clicks) }, { label: "CTR", value: `${li.totals.ctrPct}%` }, { label: "leads", value: fmt(li.totals.leads) }, { label: "conversions", value: fmt(li.totals.conversions) }]}
+              good={liGood} bad={liBad} />
+          )}
+          {showL && li?.hasData && (
+            <p className="text-xs mb-2" style={{ color: "var(--text-tertiary)" }}>
+              Per-ad detail is below. For creative-level depth (per-headline CTR, demographics, scorecard), open the <a className="underline" style={{ color: "var(--accent)" }} href="chrome-extension://mlclbccbclecbpkkfheagihjbmphgici/dashboard.html">full ad-drafter dashboard</a>.
+            </p>
+          )}
 
           {/* Connect LinkedIn — shown until data is flowing */}
           {showL && !li?.hasData && (
