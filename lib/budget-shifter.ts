@@ -16,7 +16,7 @@ const PER_AD = 50;
 const CTR_GOOD = 0.0065;
 const CTR_OK = 0.004;
 
-type AdSet = { name?: string; type?: string; impressions?: number; clicks?: number; ctr?: number; spend?: number; leads?: number; cpl?: number; conversions?: number };
+type AdSet = { name?: string; type?: string; impressions?: number; clicks?: number; ctr?: number; spend?: number; leads?: number; cpl?: number; conversions?: number; status?: string };
 
 export type AdAllocation = {
   name: string;
@@ -25,7 +25,7 @@ export type AdAllocation = {
   ctrPct: number;
   leads: number;
   cpl: number;
-  verdict: "scale" | "keep" | "pause";
+  verdict: "scale" | "keep" | "pause" | "paused";
   recommendedBudget: number;
 };
 
@@ -46,7 +46,8 @@ export async function buildBudgetPlan(workspaceId: string): Promise<BudgetPlan> 
     return { runningAds: 0, totalBudget: 0, freedFromPauses: 0, allocations: [], moves: [], hasData: false };
   }
 
-  const totalBudget = adSets.length * PER_AD;
+  const isPaused = (a: AdSet) => (a.status || "").toUpperCase() === "PAUSED";
+  const totalBudget = adSets.filter((a) => !isPaused(a)).length * PER_AD;
 
   // Tier each ad — CONVERSION-AWARE, not just CTR. A great CTR with zero downstream
   // conversion is money drawing clicks that don't become demos, not a winner. Judge
@@ -59,7 +60,9 @@ export async function buildBudgetPlan(workspaceId: string): Promise<BudgetPlan> 
     const conv = a.conversions ?? 0;
     const clicks = a.clicks ?? Math.round((a.impressions ?? 0) * ctr);
     let verdict: AdAllocation["verdict"];
-    if (ctr < CTR_OK) {
+    if (isPaused(a)) {
+      verdict = "paused"; // already off in Campaign Manager — show it, don't re-recommend, don't count its budget
+    } else if (ctr < CTR_OK) {
       verdict = "pause"; // LinkedIn is throttling it regardless of type
     } else if (type === "lead_gen") {
       verdict = leads > 0 ? "scale" : clicks >= 150 ? "pause" : "keep"; // clicks but no form fills = waste
@@ -120,5 +123,5 @@ export async function buildBudgetPlan(workspaceId: string): Promise<BudgetPlan> 
   }
   if (paused.length === 0 && survivors.length > 0) moves.push("No ad is below the kill line — hold budgets, keep watching conversion (not just CTR).");
 
-  return { runningAds: adSets.length, totalBudget, freedFromPauses, allocations, moves, hasData: true };
+  return { runningAds: adSets.filter((a) => !isPaused(a)).length, totalBudget, freedFromPauses, allocations, moves, hasData: true };
 }
