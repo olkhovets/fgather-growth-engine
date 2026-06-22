@@ -21,16 +21,19 @@ const ICONS: Record<string, React.ReactNode> = {
   settings: <><path strokeLinecap="round" strokeLinejoin="round" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" /><path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></>,
 };
 
-const LINKS: Array<{ key: NavKey; href: string; label: string }> = [
-  { key: "dashboard", href: "/dashboard", label: "Overview" },
-  { key: "apollo", href: "/dashboard/apollo", label: "Leads" },
-  { key: "launch", href: "/dashboard/launch", label: "Generate & send" },
-  { key: "results", href: "/dashboard/results", label: "Results" },
+// The core workflow — a numbered, obvious left-to-right path. This IS the engine:
+// who we target → what we send → what came back.
+const PIPELINE: Array<{ key: NavKey; href: string; label: string; hint: string }> = [
+  { key: "apollo", href: "/dashboard/apollo", label: "Leads", hint: "who we target" },
+  { key: "launch", href: "/dashboard/launch", label: "Generate & send", hint: "write + send" },
+  { key: "results", href: "/dashboard/results", label: "Results", hint: "what came back" },
+];
+// Secondary — sources + utility, demoted so the pipeline stays the obvious path.
+const MORE: Array<{ key: NavKey; href: string; label: string }> = [
   { key: "poach", href: "/dashboard/poach", label: "Competitors" },
   { key: "deliverability", href: "/dashboard/deliverability", label: "Deliverability" },
   { key: "activity", href: "/dashboard/activity", label: "Activity log" },
   { key: "help", href: "/dashboard/help", label: "How it works" },
-  { key: "settings", href: "/onboarding", label: "Settings" },
 ];
 
 /** Single source of truth for the dashboard sidebar — replaces 5 copy-pasted copies. */
@@ -44,19 +47,42 @@ export default function DashboardSidebar({ active, userEmail }: { active: NavKey
         </Link>
       </div>
 
-      <nav className="flex-1 p-3 space-y-0.5">
-        {LINKS.map((l) => (
-          <Link key={l.key} href={l.href} className={`sidebar-link${active === l.key ? " active" : ""}`}>
-            <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}>
-              {ICONS[l.key]}
-            </svg>
-            {l.label}
-          </Link>
-        ))}
+      <nav className="flex-1 p-3 overflow-y-auto">
+        <p className="px-3 pt-1 pb-2 text-[10px] font-semibold tracking-[0.12em]" style={{ color: "var(--text-tertiary)" }}>PIPELINE</p>
+        <div className="space-y-0.5 relative">
+          {PIPELINE.map((l, i) => {
+            const on = active === l.key;
+            return (
+              <Link key={l.key} href={l.href} className={`sidebar-link${on ? " active" : ""}`} style={{ alignItems: "center" }}>
+                <span className="flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-full text-[11px] font-semibold"
+                  style={{ background: on ? "var(--accent)" : "var(--surface-subtle)", color: on ? "#fff" : "var(--text-tertiary)" }}>{i + 1}</span>
+                <span className="flex-1 leading-tight">
+                  {l.label}
+                  <span className="block text-[10px] font-normal" style={{ color: "var(--text-tertiary)" }}>{l.hint}</span>
+                </span>
+              </Link>
+            );
+          })}
+        </div>
+        <p className="px-3 pt-5 pb-2 text-[10px] font-semibold tracking-[0.12em]" style={{ color: "var(--text-tertiary)" }}>MORE</p>
+        <div className="space-y-0.5">
+          {MORE.map((l) => (
+            <Link key={l.key} href={l.href} className={`sidebar-link${active === l.key ? " active" : ""}`}>
+              <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}>
+                {ICONS[l.key]}
+              </svg>
+              {l.label}
+            </Link>
+          ))}
+        </div>
       </nav>
 
       <div className="p-3 border-t" style={{ borderColor: "var(--border)" }}>
-        <div className="flex items-center gap-3 rounded-lg px-3 py-2">
+        <Link href="/onboarding" className={`sidebar-link${active === "settings" ? " active" : ""}`}>
+          <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}>{ICONS.settings}</svg>
+          Settings
+        </Link>
+        <div className="flex items-center gap-3 rounded-lg px-3 py-2 mt-1">
           <div className="h-7 w-7 rounded-full flex items-center justify-center text-xs font-semibold text-white flex-shrink-0" style={{ background: "var(--accent)" }}>
             {userEmail?.[0]?.toUpperCase() ?? "U"}
           </div>
