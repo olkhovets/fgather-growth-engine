@@ -4,6 +4,15 @@ Newest entries on top. Each hourly run appends one short block. See LOOP_PLAYBOO
 
 ---
 
+## 2026-06-22 (hourly) — ✅ LINKEDIN UNSTUCK (background bridge + status sync working)
+- **Background bridge works hands-off:** lastSync 17:27Z fresh (no dashboard open), now carrying live ON/OFF status.
+- **Pauses took:** runningAds 38 → **17 active, 21 paused, 0 pause-recommendations.** The throttled losers are off; budget shifter now accurate ($850/day across 17 live ads, all keep/scale). The live-status feature (PR #2) + manager-glance Results (PR #3) are deployed + on main (durable).
+- Routes healthy. Agent: no new commit (still 50cd8ad = my merge); cloud agent hasn't run since egress save — awaiting next scheduled run to confirm.
+- **Remaining gap = EMAIL:** still 0 sent/24h. That's Peter's trigger (autopilot/offer send — I won't auto-fire). And the conversion leak persists on the 17 active ads (point one at /r).
+- **Data is flowing → loop can DROP TO DAILY.** Left hourly for now; recommend daily since LinkedIn's stable and the rest is Peter-gated. No ephemeral code shipped (durability gate — autonomous runs can't merge to main).
+
+---
+
 ## 2026-06-22 (hourly, later) — no-op; osascript un-freeze confirmed dead end
 - State unchanged: lastSync 15:07Z, 38 ads, 8 still pause-flagged, email 0. Routes healthy. Agent still 4th-blocked (egress saved by Peter but agent hasn't run since — awaiting next scheduled run to confirm).
 - The 8 pauses are QUEUED but not executed — they only drain when the ad-drafter dashboard is open in Profile 4. osascript open tried 3x, never reaches Profile 4 (lastSync never moves). Marked dead-end in playbook; stop retrying.
