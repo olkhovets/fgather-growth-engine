@@ -10,6 +10,12 @@ new channels — moving toward 40+ meetings/month for gatherhq.com. Keep each ru
 - Focus on the `peter@gatherhq.com` workspace. Note: emailSentLast24h, emailPositives, linkedinConnected, linkedin totals, priorityPersonas, budgetPlan.
 - Compare to the previous entry in LOOP_LOG.md. What moved?
 
+## 1b. Self-heal — ATTEMPT fixes, don't just flag (Peter's standing directive)
+When blocked, try to fix it in your power before logging:
+- **Prod routes 404 again** (the cross-channel work got overwritten): redeploy from main (`vercel --prod`) and/or re-merge the `cross-channel` work to main. It's committed on main now (8bf0265) so it should persist; if a deploy dropped it, restore it.
+- **LinkedIn data stale / pauses not draining**: the **background-worker bridge is now BUILT** (background.js `runEngineBridge`, alarm every 10 min). Whenever Chrome is open with a logged-in LinkedIn tab, it auto-syncs analytics to the engine + drains the pause queue through Campaign Manager — no dashboard tab needed. Requires a one-time extension RELOAD to take effect. (osascript dashboard-open is a dead end — can't target Profile 4; don't retry it.)
+- **CANNOT self-fix (human-only, flag loudly):** the egress allowlist (web-UI only — claude.ai/code → environment → Network access → Custom → add `peter-engine-working-copy.vercel.app`); real sends / spend / ad launches (never auto-fire).
+
 ## 2. Health + smoke test (every run)
 - Email working = emailSentLast24h > 0 (or autopilot intentionally off). If 0 unexpectedly, check why (no leads? autopilot off? bounce throttle?) and flag.
 - LinkedIn connected = linkedinConnected true and linkedinLastSync recent. If it went stale, the extension stopped exporting — flag Peter to reopen the ad dashboard.

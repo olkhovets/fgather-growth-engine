@@ -4,6 +4,46 @@ Newest entries on top. Each hourly run appends one short block. See LOOP_PLAYBOO
 
 ---
 
+## 2026-06-22 (hourly, later) — no-op; osascript un-freeze confirmed dead end
+- State unchanged: lastSync 15:07Z, 38 ads, 8 still pause-flagged, email 0. Routes healthy. Agent still 4th-blocked (egress saved by Peter but agent hasn't run since — awaiting next scheduled run to confirm).
+- The 8 pauses are QUEUED but not executed — they only drain when the ad-drafter dashboard is open in Profile 4. osascript open tried 3x, never reaches Profile 4 (lastSync never moves). Marked dead-end in playbook; stop retrying.
+- **The durable fix Peter steered to:** background-worker bridge (sync + pause-drain in the extension service worker, no tab needed) — proposed, awaiting his "build it." That makes pausing-from-the-app reliable without babysitting Chrome. LinkedIn Marketing API is too hard (Peter's call) so CM-via-extension is the go-forward approach.
+- **NEEDS PETER:** (1) build-it go on the background bridge; (2) meanwhile open ad-drafter dashboard in Profile 4 to drain the 8 queued pauses; (3) "Run now" the cloud routine to confirm egress fix.
+
+---
+
+## 2026-06-22 (hourly :17) — DATA UN-FROZE, leak actively worsening
+- **LinkedIn data flowing again** (lastSync 15:07Z today, was 06-19). Dashboard is open → web-page pauses will now execute.
+- Fresh numbers: **$15,463 spent (+$1.6k), 3,214 clicks (+689), 11 leads, 2 conversions, 2.4% CTR.** Leak worse in absolute terms — ~$1,190/conversion. Growth & General Marketing persona = 2,613 clicks (the demand), barely converting.
+- Budget plan: 8 ads below the 0.40% kill line ready to pause (executable NOW via Results → Pause, since the dashboard's open).
+- **No code shipped — by design.** Autonomous runs can't durably merge to main (fenced), so any CLI deploy is ephemeral + gets wiped by the agent. Surfacing > churning. Future runs: surface, don't ephemeral-ship.
+- **NEEDS PETER (now executable / urgent):** (1) **Pause the 8 throttled ads** on Results — the dashboard's open so it'll actually fire, stops ~$400/day of throttled spend. (2) **Point a website-visit ad at `…/r`** — you're paying for 3,200+ clicks that hit no capture; /r captures them. (3) Egress allowlist (cloud agent still blind). (4) Offer send / email autopilot (your trigger). Loop can drop to DAILY now that data flows — say the word.
+
+---
+
+## 2026-06-22 — Peter said "fix as much as possible, self-heal in future"
+- Confirmed: egress allowlist is **web-UI only** (not repo-configurable) — researched via claude-code-guide. Cannot self-fix; gave exact claude.ai/code steps. Cloud agent now blind ~48h (4 blocked-run commits on main: ebd95b5, ef5e839).
+- Attempted LinkedIn un-freeze on Peter's machine: opened CM + ad-drafter dashboard (my version mlclbccbclecbpkkfheagihjbmphgici, has auto-export) via osascript. Did NOT confirm a sync (lastSync still 19:57Z 06-19) — likely opened in wrong Chrome profile / no CDP to verify. Best-effort only.
+- **Loop re-empowered:** widened back to HOURLY (job 89f504e5), self-healing mode — attempts fixes (redeploy if routes drop, osascript un-freeze) instead of only flagging. Added §1b Self-heal to playbook.
+- **HELD THE LINE on sends:** did NOT fire offer send / email autopilot / ad launches even under broad "fix everything" authorization — real money + real cold email stays Peter's trigger.
+- **Keystone for Peter (unlocks the most): add the Vercel host to the egress allowlist** (2 min, web UI) → cloud agent resumes with orchestrator access. Then re-open ad-drafter dashboard on a logged-in LinkedIn tab to un-freeze data.
+
+---
+
+## 2026-06-21 (daily) — no-op, still frozen
+- Snapshot unchanged (LinkedIn 19:57Z 06-19, email 0 sent, 10 leads, 7 positives). App healthy, cross-channel layer live + on main. No deploy/build/spend.
+- Still gated on Peter: (1) egress allowlist (agent dead), (2) re-open ad-drafter on a LinkedIn tab to unfreeze data + fire pauses, (3) point an ad at /r + fix post-click conversion, (4) offer send, (5) email autopilot. No code lever left.
+
+---
+
+## 2026-06-20 — RESTORED + made durable (root cause fixed)
+- Cross-channel work was being lost because it was only ever `vercel --prod`'d from the uncommitted working tree; the twice-daily agent's deploy from `main` overwrote it.
+- Fix (Peter-authorized): committed all 34 files, rebased onto latest `live/main` (agent commits preserved), pushed branch `cross-channel`, opened PR #1, **merged to `main`** (commit 8bf0265 under merge 14076b0). Restored prod via `vercel --prod`. Verified: routes live, /api/snapshot returns JSON, loop's eyes back.
+- **Now durable** — future agent/git deploys from main include the cross-channel layer. The "deploy via CLI only" mistake is corrected.
+- (Note: classifier correctly fenced `git push live main`; merge was done via `gh pr merge` after explicit user authorization.)
+
+---
+
 ## 2026-06-20 (daily run #1) — ⚠ PRODUCTION LOST THE CROSS-CHANNEL WORK
 - **Anomaly:** all my routes now 404 on prod — `/api/snapshot`, `/api/poach/*`, `/api/linkedin/connection|cross-channel/brain`, `/api/microsite/capture`, `/r`. Loop is BLIND (can't read KPIs).
 - **Root cause:** my cross-channel work was deployed to prod ONLY via `vercel --prod` from the **uncommitted** working tree. Nothing was ever committed (git shows all my files as modified/untracked; last commits are Peter's upstream). A newer deploy (git-connected `live` repo or a fresh deploy from the original source) overwrote my CLI deploys → prod reverted to a build with none of the cross-channel features.

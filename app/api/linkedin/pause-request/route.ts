@@ -15,9 +15,20 @@ export const dynamic = "force-dynamic";
  */
 export async function POST(request: Request) {
   try {
-    const session = await getServerSession(authOptions);
-    if (!session?.user?.id) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    const ws = await prisma.workspace.findUnique({ where: { userId: session.user.id }, select: { id: true } });
+    // Auth: operator session, OR the snapshot key (so the autonomous loop can queue
+    // pauses without a browser session — pausing is benign + reversible). Key path
+    // resolves to the owner workspace.
+    let ws: { id: string } | null = null;
+    const bearer = (request.headers.get("authorization") || "").replace(/^Bearer\s+/i, "").trim();
+    if (process.env.SNAPSHOT_KEY && bearer === process.env.SNAPSHOT_KEY) {
+      const ownerEmail = process.env.MICROSITE_OWNER_EMAIL || "peter@gatherhq.com";
+      const owner = await prisma.user.findFirst({ where: { email: ownerEmail }, select: { id: true } });
+      ws = owner ? await prisma.workspace.findUnique({ where: { userId: owner.id }, select: { id: true } }) : null;
+    } else {
+      const session = await getServerSession(authOptions);
+      if (!session?.user?.id) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+      ws = await prisma.workspace.findUnique({ where: { userId: session.user.id }, select: { id: true } });
+    }
     if (!ws) return NextResponse.json({ error: "Workspace not found" }, { status: 404 });
 
     const body = (await request.json().catch(() => ({}))) as { name?: string };

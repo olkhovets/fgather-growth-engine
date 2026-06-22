@@ -14,7 +14,7 @@ import { useAuthGuard } from "@/hooks/useAuthGuard";
 type PersonaMem = { positive_reply_count?: number; reply_count_total?: number; objection_count?: number; open_rate_pct_avg?: number };
 type PerfMemory = { byPersona?: Record<string, PersonaMem>; byVertical?: Record<string, PersonaMem>; suggestion?: string | null };
 type PriorityPersona = { key: string; label: string; emailPositives: number; liClicks: number; liCtr: number; reason: string };
-type AdAllocation = { name: string; type: string; ctrPct: number; leads: number; verdict: "scale" | "keep" | "pause"; recommendedBudget: number };
+type AdAllocation = { name: string; type: string; ctrPct: number; leads: number; verdict: "scale" | "keep" | "pause" | "paused"; recommendedBudget: number };
 type BudgetPlan = { runningAds: number; totalBudget: number; freedFromPauses: number; allocations: AdAllocation[]; moves: string[]; hasData: boolean };
 type SignalResponse = {
   linkedin: { hasData: boolean; totals: { spend: number; impressions: number; clicks: number; leads: number; conversions: number; ctrPct: number }; snapshot: { at: string | null; account: string | null } };
@@ -250,7 +250,7 @@ export default function ResultsPage() {
                         <td className="px-4 py-2.5 font-medium">{a.name}</td>
                         <td className="px-4 py-2.5">{a.ctrPct}%</td>
                         <td className="px-4 py-2.5">{a.leads}</td>
-                        <td className="px-4 py-2.5" style={{ color: a.verdict === "scale" ? "#16a34a" : a.verdict === "pause" ? "#dc2626" : "var(--text-secondary)", fontWeight: 600 }}>{a.verdict}</td>
+                        <td className="px-4 py-2.5" style={{ color: a.verdict === "scale" ? "#16a34a" : a.verdict === "pause" ? "#dc2626" : a.verdict === "paused" ? "var(--text-tertiary)" : "var(--text-secondary)", fontWeight: 600 }}>{a.verdict === "paused" ? "paused ✓" : a.verdict}</td>
                         <td className="px-4 py-2.5 text-right">{a.verdict === "pause" ? "$0" : `$${a.recommendedBudget}`}</td>
                         <td className="px-4 py-2.5 text-right">
                           {a.verdict === "pause" ? (
