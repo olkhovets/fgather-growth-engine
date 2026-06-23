@@ -321,6 +321,17 @@ export async function POST(request: Request) {
       const styleConfig = STYLE_GUIDES[resolvedStyle] ?? STYLE_GUIDES["direct-ask"];
       const usePS = styleConfig.usePS;
 
+      // specialist-proof carries a gift-for-demo, and we VARY the amount per lead
+      // (like the Incentives Lab) so Results' offer A/B reveals which gift converts.
+      const GIFT_AMOUNTS = [50, 100, 200];
+      const GIFT_TYPES = ["Uber Eats card", "DoorDash card", "Amazon gift card"];
+      const useGift = resolvedStyle === "specialist-proof";
+      const giftAmount = useGift ? GIFT_AMOUNTS[leadIndex % GIFT_AMOUNTS.length] : null;
+      const giftType = useGift ? GIFT_TYPES[Math.floor(leadIndex / GIFT_AMOUNTS.length) % GIFT_TYPES.length] : null;
+      const giftBlock = useGift
+        ? `\n\nGIFT FOR THIS EMAIL (use this exact gift, it is the [GIFT] placeholder): a $${giftAmount} ${giftType}. Work it in tastefully, e.g. "I'll put a $${giftAmount} ${giftType} behind a 20-minute demo." Do not change the amount or invent a different one.`
+        : "";
+
       // Assign this lead a balanced set of active experiment variants for attribution
       const { ids: experimentIds, block: experimentBlock } = assignExperiments(activeExperiments, leadIndex);
 
@@ -377,7 +388,7 @@ ${usePS ? `- Include a P.S. line in step 1 — reference something real and spec
 - Write as a human peer, not a marketer
 - Sign off every email with the SENDER'S name (yours), never the recipient's name. Use exactly: ${signoff}
 
-${styleConfig.prompt}${learningsText}${experimentBlock}${customInstructionsText}${wildcardBlock}`;
+${styleConfig.prompt}${learningsText}${experimentBlock}${customInstructionsText}${giftBlock}${wildcardBlock}`;
       let companyContextBlock = "";
       let companyContextRaw: string | null = null;
       if (useWebScraping && lead.website?.trim()) {
@@ -579,7 +590,7 @@ Return ONLY valid JSON: { ${stepExample} }`;
           }
         }
 
-        const update: Record<string, string | null> = {
+        const update: Record<string, string | number | null> = {
           stepsJson: JSON.stringify(stepsArray),
           emailStyle: resolvedStyle, // always save — inferred or explicit
           experimentIdsJson: experimentIds.length > 0 ? JSON.stringify(experimentIds) : null, // for variant attribution
@@ -596,6 +607,7 @@ Return ONLY valid JSON: { ${stepExample} }`;
           update.step3Body = stepsArray[2].body || null;
         }
 
+        if (useGift && giftAmount) { update.incentiveAmount = giftAmount; update.incentiveGiftType = giftType; }
         await prisma.lead.update({
           where: { id: lead.id },
           data: update,
