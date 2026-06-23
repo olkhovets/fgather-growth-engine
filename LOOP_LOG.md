@@ -4,6 +4,13 @@ Newest entries on top. Each hourly run appends one short block. See LOOP_PLAYBOO
 
 ---
 
+## 2026-06-23 (daily) — new "specialist-proof" email style shipped; agent still active
+- Built + merged (PR #5, deployed) a new generation style from Peter's high-performing template: per-company specialization + REAL Gather proof (Belk/Staples/Bagel Brands/Menlo/ex-Gartner-Peer-Insights — explicitly NO invented ARR/metrics) + gift-for-demo + reply-first (no links). Now the DEFAULT style for B2C ICP (exec/brand/marketing/consumer) so recycles + new sends use it.
+- Cloud agent still shipping (c4c430b among recent). LinkedIn flowing. Email still 0 sent.
+- **NEEDS PETER (the send):** re-emailing the ~8,000 prior leads = the recycle/send trigger — HIS to fire (I can't auth 8k sends + won't blast volume unpaced + copy claims need his sign-off). Set the gift $ in Generate & send → Extra instructions. Pace it (warmed inboxes / provider filter / daily cap) — 8k at once risks the domains.
+
+---
+
 ## 2026-06-22 (hourly) — ✅ CLOUD AGENT BACK + everything green except email
 - **Cloud agent resumed:** latest main commit is real work (47d31e0 optimizer fix), not a blocked-run alert → egress allowlist fix took. Agent running again after ~48h.
 - **Durability confirmed:** my cross-channel routes still live (snapshot 401 gated, results 307) after the agent's deploy from main — the work persists now (PRs #1-4 on main).
