@@ -76,13 +76,6 @@ export default function OfferLab() {
   const [amtResults, setAmtResults] = useState<AmtRow[]>([]);
   const [styleResults, setStyleResults] = useState<StyleRow[]>([]);
   const [eligibility, setEligibility] = useState<{ total: number; google: number; noGateways: number; unclassified: number } | null>(null);
-  // Recycle: re-contact prior, never-replied leads (e.g. an old/bad campaign) with the current gift offer.
-  const [recycleEligibility, setRecycleEligibility] = useState<{ total: number; google: number; noGateways: number; cooldownDays: number } | null>(null);
-  const [recycleLimit, setRecycleLimit] = useState("400");
-  const [recycling, setRecycling] = useState(false);
-  // Recycle copy style: "templates" = the shared merge-template bodies; "specialist" = each lead's
-  // own AI-written per-company specialist-proof email (prepared via generation, costs Claude tokens).
-  const [recycleStyle, setRecycleStyle] = useState<"templates" | "specialist">("specialist");
 
   const loadResults = useCallback(() => {
     fetch("/api/incentives/results").then((r) => r.json()).then((d) => { setAmtResults(d.amounts ?? []); setStyleResults(d.styles ?? []); }).catch(() => {});
@@ -144,70 +137,6 @@ export default function OfferLab() {
     setEligibility(null);
     fetch(`/api/incentives/eligibility?batchId=${encodeURIComponent(batchId)}`).then((r) => r.json()).then((d) => { if (!d.error) setEligibility(d); }).catch(() => {});
   }, [batchId]);
-
-  // Recycle-eligible count: scoped to the selected batch (a specific prior campaign) or, if none picked,
-  // the whole workspace (every prior never-replied lead). Same filter the recycle launch uses.
-  useEffect(() => {
-    if (!session?.user?.id) return;
-    setRecycleEligibility(null);
-    const q = batchId ? `recycle=true&batchId=${encodeURIComponent(batchId)}` : "recycle=true";
-    fetch(`/api/incentives/eligibility?${q}`).then((r) => r.json()).then((d) => { if (!d.error) setRecycleEligibility(d); }).catch(() => {});
-  }, [batchId, session?.user?.id]);
-
-  const launchRecycle = async () => {
-    if (subjectTemplates.length === 0 || amounts.length === 0) { setMessage("Pick at least one subject style and one amount first."); return; }
-    setRecycling(true); setMessage(null);
-    try {
-      const res = await fetch("/api/incentives/launch", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ recycle: true, ...(batchId ? { batchId } : {}), sendLimit: parseInt(recycleLimit) || 400, providerFilter, warmedInboxesOnly, config: { subjectTemplates, bodyTemplate, amounts } }) });
-      const d = await res.json();
-      const inboxBit = d.warmedInboxes != null ? ` from ${d.warmedInboxes} warmed inboxes` : "";
-      const verb = d.mode === "appended" ? "Appended" : "Launched";
-      setMessage(d.error ? d.error : `Recycle: ${verb} ${d.totalUploaded} prior leads into "${d.campaignName}"${inboxBit}. Run this again to send the next batch (or leave it — you can repeat daily until the pool is drained).`);
-      refreshRecycleCount();
-      loadResults();
-    } catch { setMessage("Recycle failed."); } finally { setRecycling(false); }
-  };
-
-  const refreshRecycleCount = () => {
-    const q = batchId ? `recycle=true&batchId=${encodeURIComponent(batchId)}` : "recycle=true";
-    fetch(`/api/incentives/eligibility?${q}`).then((r) => r.json()).then((dd) => { if (!dd.error) setRecycleEligibility(dd); }).catch(() => {});
-  };
-
-  // Per-company recycle: prepare (AI-write specialist-proof for recycle-eligible leads, paced/chunked),
-  // then send those prepared into the tracked Specialist-Proof Recycle campaign. One click = one batch.
-  const launchRecyclePerCompany = async () => {
-    if (!batchId) { setMessage("Pick a lead batch above first — per-company writing needs a batch to scope to."); return; }
-    const target = Math.max(1, parseInt(recycleLimit) || 400);
-    setRecycling(true);
-    setMessage("Preparing per-company emails — AI writes each one, this can take a few minutes for a big batch…");
-    try {
-      // 1) Prepare: draft specialist-proof in chunks until we hit the target or run dry.
-      let prepared = 0;
-      const maxRounds = Math.ceil(target / 5) + 10; // generation does ~10/round; generous guard
-      for (let round = 0; round < maxRounds && prepared < target; round++) {
-        const r = await fetch("/api/leads/generate", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ batchId, style: "specialist-proof", recycle: true, useFastModel: true }) });
-        const d = await r.json();
-        if (d.error) { setMessage(`Preparation stopped: ${d.error}`); break; }
-        const done = d.done ?? 0;
-        prepared += done;
-        setMessage(`Prepared ${prepared} per-company emails…`);
-        if (done === 0) break; // nothing left needing a draft
-        await new Promise((res) => setTimeout(res, 300));
-      }
-      // 2) Send the prepared ones into the tracked campaign.
-      const res = await fetch("/api/incentives/launch", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ recycle: true, useGeneratedSteps: true, batchId, sendLimit: target, providerFilter, warmedInboxesOnly }) });
-      const d = await res.json();
-      if (d.error) { setMessage(d.error); }
-      else {
-        const inboxBit = d.warmedInboxes != null ? ` from ${d.warmedInboxes} warmed inboxes` : "";
-        const skipBit = d.skipped > 0 ? ` (${d.skipped} eligible but not yet prepared — run again to catch them)` : "";
-        const verb = d.mode === "appended" ? "Appended" : "Launched";
-        setMessage(`Per-company recycle: ${verb} ${d.totalUploaded} AI-written emails into "${d.campaignName}"${inboxBit}${skipBit}. Tracked in Results as the "specialist-proof" style arm.`);
-      }
-      refreshRecycleCount();
-      loadResults();
-    } catch { setMessage("Per-company recycle failed."); } finally { setRecycling(false); }
-  };
 
   const toggleSubject = (t: string) => setSubjectTemplates((p) => p.includes(t) ? p.filter((x) => x !== t) : [...p, t].slice(0, 4));
   const toggleAmount = (a: number) => setAmounts((p) => p.includes(a) ? p.filter((x) => x !== a) : [...p, a].sort((x, y) => x - y).slice(0, 5));
@@ -339,52 +268,6 @@ export default function OfferLab() {
             <input type="number" min={1} max={2000} value={sendLimit} onChange={(e) => setSendLimit(e.target.value.replace(/[^0-9]/g, ""))} className="w-24 rounded-lg border px-3 py-2 text-sm" style={{ background: "var(--surface)", borderColor: "var(--border)", color: "var(--text-primary)" }} /></div>
           <button onClick={launch} disabled={launching || !batchId} className="btn-primary">{launching ? "Launching…" : "Send with offer"}</button>
         </div>
-      </div>
-
-      <div className="card p-6 space-y-4 border-l-4" style={{ borderLeftColor: "#b45309" }}>
-        <div>
-          <h3 className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>Recycle prior leads (gift offer)</h3>
-          <p className="text-xs mt-0.5" style={{ color: "var(--text-secondary)" }}>
-            Re-contact people you already emailed (e.g. an old or under-performing campaign) with the offer + body above. Uses the same proven send path: skips anyone who replied, bounced, or is suppressed, only re-touches leads past the {recycleEligibility?.cooldownDays ?? 21}-day cooldown, caps at 2 re-touches each, and lands in a separate <strong>Incentives Lab (recycle)</strong> campaign. No Apollo credits used (no new leads pulled).
-          </p>
-        </div>
-        <p className="text-xs" style={{ color: "var(--text-tertiary)" }}>
-          Scope: {batchId ? <>the selected batch above (<strong style={{ color: "var(--text-primary)" }}>{batches.find((b) => b.id === batchId)?.name ?? batchId}</strong>).</> : <>every prior never-replied lead in the workspace. Pick a batch above to scope to one campaign.</>}
-        </p>
-        {recycleEligibility && (
-          <div className="rounded-lg border p-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs" style={{ borderColor: "var(--border)", background: "var(--surface)" }}>
-            <span><strong style={{ color: "var(--text-primary)" }}>{recycleEligibility.total.toLocaleString()}</strong> eligible to recycle</span>
-            <span style={{ color: providerFilter === "google" ? "#16a34a" : undefined }}>{recycleEligibility.google.toLocaleString()} Google</span>
-            <span style={{ color: providerFilter === "no-gateways" ? "#16a34a" : undefined }}>{recycleEligibility.noGateways.toLocaleString()} non-gateway</span>
-          </div>
-        )}
-        <div>
-          <label className="block text-xs font-medium mb-1.5" style={{ color: "var(--text-secondary)" }}>Email style</label>
-          <div className="flex flex-wrap gap-2">
-            <button onClick={() => setRecycleStyle("specialist")} className="text-xs rounded-full px-3 py-1.5 border text-left" style={{ borderColor: recycleStyle === "specialist" ? "var(--accent)" : "var(--border)", background: recycleStyle === "specialist" ? "var(--accent)" : "var(--surface)", color: recycleStyle === "specialist" ? "#fff" : "var(--text-secondary)" }}>Per-company (specialist-proof, AI-written)</button>
-            <button onClick={() => setRecycleStyle("templates")} className="text-xs rounded-full px-3 py-1.5 border text-left" style={{ borderColor: recycleStyle === "templates" ? "var(--accent)" : "var(--border)", background: recycleStyle === "templates" ? "var(--accent)" : "var(--surface)", color: recycleStyle === "templates" ? "#fff" : "var(--text-secondary)" }}>Templates (free, instant)</button>
-          </div>
-          <p className="text-xs mt-1.5" style={{ color: "var(--text-tertiary)" }}>
-            {recycleStyle === "specialist"
-              ? <><strong style={{ color: "var(--text-primary)" }}>Per-company:</strong> AI writes a unique email for each lead — a specific read on their company, then real Gather proof + the gift. Best reply rate. Costs Claude tokens to write each one, and needs a batch selected above. Tracked in Results as the “specialist-proof” arm.</>
-              : <><strong style={{ color: "var(--text-primary)" }}>Templates:</strong> the shared credentialed gift-offer bodies (free, sends instantly). Same proof + gift, not personalized per company.</>}
-          </p>
-        </div>
-        <div className="flex flex-wrap items-end gap-3">
-          <div><label className="block text-xs font-medium mb-1" style={{ color: "var(--text-secondary)" }}>Max per batch (rate)</label>
-            <input type="number" min={1} max={2000} value={recycleLimit} onChange={(e) => setRecycleLimit(e.target.value.replace(/[^0-9]/g, ""))} className="w-24 rounded-lg border px-3 py-2 text-sm" style={{ background: "var(--surface)", borderColor: "var(--border)", color: "var(--text-primary)" }} /></div>
-          {recycleStyle === "specialist" ? (
-            <button onClick={launchRecyclePerCompany} disabled={recycling || !batchId || (recycleEligibility != null && recycleEligibility.total === 0)} className="btn-primary">{recycling ? "Working…" : "Prepare & recycle (per-company)"}</button>
-          ) : (
-            <button onClick={launchRecycle} disabled={recycling || (recycleEligibility != null && recycleEligibility.total === 0)} className="btn-primary">{recycling ? "Recycling…" : "Recycle now (paced)"}</button>
-          )}
-        </div>
-        <p className="text-xs" style={{ color: "var(--text-tertiary)" }}>
-          {recycleStyle === "specialist"
-            ? "Each click writes (with AI) up to this many per-company emails, then sends them — paced through your warmed inboxes. A big batch takes a few minutes to write. Repeat to drain the pool."
-            : "Each click sends up to this many, paced through your warmed inboxes. Repeat daily (or click a few times) to drain the pool at a deliverability-safe rate."}
-          {recycleStyle === "specialist" && !batchId && <span style={{ color: "#b45309" }}> Select a lead batch above to enable per-company.</span>}
-        </p>
       </div>
 
       <div className="card p-6 space-y-3">
