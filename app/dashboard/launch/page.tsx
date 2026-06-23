@@ -7,6 +7,7 @@ import { useState, useEffect, useCallback } from "react";
 import { useAuthGuard } from "@/hooks/useAuthGuard";
 import OfferLab from "@/components/OfferLab";
 import RecycleCard from "@/components/RecycleCard";
+import SendsTodayCard from "@/components/SendsTodayCard";
 
 type Sample = { name: string | null; company: string | null; step1Subject: string | null; step1Body: string | null };
 type BatchStatus = {
@@ -457,6 +458,9 @@ export default function LaunchPage() {
               </div>
             )}
           </div>
+
+          {/* Daily send counter — always visible (fresh + recycle, last 24h) */}
+          <SendsTodayCard />
 
           {/* Recycle prior leads — a primary action, surfaced top-level (per-company specialist-proof default) */}
           <RecycleCard />
