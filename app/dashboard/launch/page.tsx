@@ -6,6 +6,7 @@ import { useSession, signOut } from "next-auth/react";
 import { useState, useEffect, useCallback } from "react";
 import { useAuthGuard } from "@/hooks/useAuthGuard";
 import OfferLab from "@/components/OfferLab";
+import RecycleCard from "@/components/RecycleCard";
 
 type Sample = { name: string | null; company: string | null; step1Subject: string | null; step1Body: string | null };
 type BatchStatus = {
@@ -456,6 +457,9 @@ export default function LaunchPage() {
               </div>
             )}
           </div>
+
+          {/* Recycle prior leads — a primary action, surfaced top-level (per-company specialist-proof default) */}
+          <RecycleCard />
 
           {/* Custom instructions — quick free-text addendum applied to every email */}
           <div className="mb-6 card p-4">
