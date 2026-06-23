@@ -160,7 +160,9 @@ export async function POST(request: Request) {
     const useVideo = useVideoParam === true;
     const useSampleOutput = useSampleOutputParam === true;
 
-    if (!batchId) {
+    // batchId is required normally, but recycle mode may run workspace-wide (no batch) so the
+    // autopilot can re-draft every eligible prior lead, not just one batch.
+    if (!batchId && recycleParam !== true) {
       return NextResponse.json({ error: "batchId is required" }, { status: 400 });
     }
     const offset = Math.max(0, Number(offsetParam) || 0);
@@ -195,12 +197,14 @@ export async function POST(request: Request) {
       }
     }
 
-    const batch = await prisma.leadBatch.findFirst({
-      where: { id: batchId, workspaceId: workspace.id },
-      select: { id: true },
-    });
-    if (!batch) {
-      return NextResponse.json({ error: "Batch not found" }, { status: 404 });
+    if (batchId) {
+      const batch = await prisma.leadBatch.findFirst({
+        where: { id: batchId, workspaceId: workspace.id },
+        select: { id: true },
+      });
+      if (!batch) {
+        return NextResponse.json({ error: "Batch not found" }, { status: 404 });
+      }
     }
 
     // Normal generation targets leads that have NO sequence yet. Recycle mode is the opposite:
@@ -210,9 +214,11 @@ export async function POST(request: Request) {
     const recycle = recycleParam === true;
     const cooldownDays = workspace.recycleCooldownDays ?? 21;
     const cutoff = new Date(Date.now() - cooldownDays * 24 * 60 * 60 * 1000);
+    // Scope: one batch (manual) or the whole workspace (autopilot recycle, no batchId).
+    const genScope = batchId ? { leadBatchId: batchId } : { leadBatch: { workspaceId: workspace.id } };
     const needsWorkWhere = recycle
       ? {
-          leadBatchId: batchId,
+          ...genScope,
           sentAt: { lt: cutoff },
           suppressed: false,
           repliedAt: null,
