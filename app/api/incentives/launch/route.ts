@@ -247,7 +247,9 @@ export async function POST(request: Request) {
     });
 
     // Find the existing rolling campaign to append into (unless the operator forces a fresh one).
-    const ROLLING_NAME = valueFirst ? "Value-First (rolling)" : oooRequeue ? "Incentives Lab (OOO)" : recycle ? "Incentives Lab (recycle)" : "Incentives Lab (rolling)";
+    const ROLLING_NAME = valueFirst
+      ? (recycle ? "Value-First (recycle)" : oooRequeue ? "Value-First (OOO)" : "Value-First (rolling)")
+      : oooRequeue ? "Incentives Lab (OOO)" : recycle ? "Incentives Lab (recycle)" : "Incentives Lab (rolling)";
     const existing = freshCampaign
       ? null
       : await prisma.sentCampaign.findFirst({ where: { workspaceId: ws.id, name: ROLLING_NAME }, orderBy: { createdAt: "desc" }, select: { instantlyCampaignId: true } });

@@ -141,7 +141,12 @@ export async function runIncentivesAutopilotForWorkspace(
       const rres = await fetch(`${baseUrl()}/api/incentives/launch`, {
         method: "POST",
         headers: { "Content-Type": "application/json", "x-cron-secret": secret },
-        body: JSON.stringify({ workspaceId: ws.id, sendLimit: thisRunLimit, providerFilter: PROVIDER, warmedInboxesOnly: true, recycle: true }),
+        // BIG SWING (2026-06-23): recycle with the VALUE-FIRST angle, not the incentive copy these
+        // non-repliers already ignored once. Re-sending the identical money pitch is low-yield by
+        // construction; switching to a no-money, brand-specific consumer read is a genuinely different
+        // lever — and with Apollo dry (fresh pool 0) recycle is the only volume, so this is the only
+        // way to read value-first at scale right now. Lands in its own "Value-First (recycle)" campaign.
+        body: JSON.stringify({ workspaceId: ws.id, sendLimit: thisRunLimit, providerFilter: PROVIDER, warmedInboxesOnly: true, recycle: true, valueFirst: true }),
       });
       const rl = await rres.json().catch(() => ({} as Record<string, unknown>));
       recycled = (rl.totalUploaded as number) ?? 0;
