@@ -30,13 +30,14 @@ export async function GET(request: Request) {
   const out = [];
   for (const ws of workspaces) {
     try {
-      const [memory, li, cross, budget, sent24, recycled24, positives24] = await Promise.all([
+      const [memory, li, cross, budget, sent24, recycled24, specialistRecycled24, positives24] = await Promise.all([
         getAggregatedMemory(ws.id),
         getLinkedInSignal(ws.id),
         getCrossChannelSignals(ws.id),
         buildBudgetPlan(ws.id),
         prisma.lead.count({ where: { leadBatch: { workspaceId: ws.id }, sentAt: { gte: since } } }),
         prisma.lead.count({ where: { leadBatch: { workspaceId: ws.id }, recycledAt: { gte: since } } }),
+        prisma.lead.count({ where: { leadBatch: { workspaceId: ws.id }, recycledAt: { gte: since }, incentiveSubjectStyle: "specialist-proof" } }),
         prisma.lead.count({ where: { leadBatch: { workspaceId: ws.id }, repliedAt: { gte: since }, replyStatus: "positive" } }),
       ]);
 
@@ -47,6 +48,7 @@ export async function GET(request: Request) {
         health: {
           emailSentLast24h: sent24,
           emailRecycledLast24h: recycled24,
+          emailSpecialistProofRecycledLast24h: specialistRecycled24,
           emailTotalLast24h: sent24 + recycled24,
           emailPositivesLast24h: positives24,
           emailWorking: sent24 + recycled24 > 0,
