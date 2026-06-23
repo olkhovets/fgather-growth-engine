@@ -135,18 +135,37 @@ export async function runIncentivesAutopilotForWorkspace(
     }
 
     // RECYCLE FALLBACK: if there were no fresh leads (or OOO leads) to append, re-contact the oldest
-    // non-repliers (past the cooldown) with the current credentialed emails, into a recycle campaign.
+    // non-repliers (past the cooldown). PER-COMPANY specialist-proof (Peter, 2026-06-23): each lead
+    // gets its OWN AI-written email (specific read on their company + real proof + gift), not the
+    // generic copy they ignored once. Two steps, paced by perRun so token spend stays bounded:
+    //   1) PREPARE: re-draft up to thisRunLimit eligible leads in specialist-proof (chunked ~10/call).
+    //   2) SEND: ship the prepared per-company sequences into "Specialist-Proof Recycle (rolling)".
+    // This auto-spends Claude tokens (one email written per lead) — intended; Peter wants the good
+    // style going to the recycled pool hands-off. With Apollo dry, recycle is the only volume.
     let recycled = 0;
     if (appended === 0 && valueFirst === 0 && oooRequeued === 0) {
+      // 1) Prepare (workspace-wide recycle generation). Cap the AI-writing per tick so we stay well
+      //    inside the 300s budget (each round writes ~10 and takes ~12s); the rest is drafted next tick.
+      //    Sends still draw from ALL prepared leads (this run's + prior runs'), so nothing is stranded.
+      let prepared = 0;
+      const prepTarget = Math.min(thisRunLimit, 80);
+      const maxRounds = Math.ceil(prepTarget / 10) + 2;
+      for (let round = 0; round < maxRounds && prepared < prepTarget; round++) {
+        const gres = await fetch(`${baseUrl()}/api/leads/generate`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "x-cron-secret": secret },
+          body: JSON.stringify({ workspaceId: ws.id, recycle: true, style: "specialist-proof", useFastModel: true }),
+        });
+        const gl = await gres.json().catch(() => ({} as Record<string, unknown>));
+        const done = (gl.done as number) ?? 0;
+        prepared += done;
+        if (done === 0) break; // pool of un-drafted eligible leads is exhausted
+      }
+      // 2) Send the prepared per-company sequences.
       const rres = await fetch(`${baseUrl()}/api/incentives/launch`, {
         method: "POST",
         headers: { "Content-Type": "application/json", "x-cron-secret": secret },
-        // BIG SWING (2026-06-23): recycle with the VALUE-FIRST angle, not the incentive copy these
-        // non-repliers already ignored once. Re-sending the identical money pitch is low-yield by
-        // construction; switching to a no-money, brand-specific consumer read is a genuinely different
-        // lever — and with Apollo dry (fresh pool 0) recycle is the only volume, so this is the only
-        // way to read value-first at scale right now. Lands in its own "Value-First (recycle)" campaign.
-        body: JSON.stringify({ workspaceId: ws.id, sendLimit: thisRunLimit, providerFilter: PROVIDER, warmedInboxesOnly: true, recycle: true, valueFirst: true }),
+        body: JSON.stringify({ workspaceId: ws.id, sendLimit: thisRunLimit, providerFilter: PROVIDER, warmedInboxesOnly: true, recycle: true, useGeneratedSteps: true }),
       });
       const rl = await rres.json().catch(() => ({} as Record<string, unknown>));
       recycled = (rl.totalUploaded as number) ?? 0;
