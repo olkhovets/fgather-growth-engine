@@ -45,6 +45,11 @@ export async function POST(request: Request) {
     // RECYCLE mode: re-contact already-sent, never-replied leads with the current (better) emails,
     // once they're past the cooldown. This re-uses the whole send pipeline but on a different pool.
     const recycle = body.recycle === true;
+    // GENERATED-STEPS recycle: instead of the merge-template bodies, ship each lead's own
+    // AI-written specialist-proof sequence (per-company read + gift), prepared earlier by
+    // /api/leads/generate (recycle mode). Only recycle leads already drafted in specialist-proof
+    // are eligible; the rest need preparing first. Lands in its own tracked rolling campaign.
+    const useGeneratedSteps = body.useGeneratedSteps === true && recycle;
     // OOO REQUEUE mode: re-contact leads who sent an out-of-office auto-reply and whose stated
     // return date has now passed — so we land when they're actually back. Shares the recycle
     // machinery (re-contacts already-sent leads, stamps recycledAt/recycleCount to cap re-touches).
@@ -90,7 +95,9 @@ export async function POST(request: Request) {
     const base = oooRequeue
       ? { replyStatus: "ooo", requeueAt: { lte: now }, suppressed: false, bouncedAt: null, email: { not: "" }, recycleCount: { lt: 2 }, OR: [{ recycledAt: null }, { recycledAt: { lt: cutoff } }], ...providerWhere }
       : recycle
-      ? { sentAt: { lt: cutoff }, suppressed: false, repliedAt: null, bouncedAt: null, email: { not: "" }, recycleCount: { lt: 2 }, OR: [{ recycledAt: null }, { recycledAt: { lt: cutoff } }], ...providerWhere }
+      ? { sentAt: { lt: cutoff }, suppressed: false, repliedAt: null, bouncedAt: null, email: { not: "" }, recycleCount: { lt: 2 }, OR: [{ recycledAt: null }, { recycledAt: { lt: cutoff } }], ...providerWhere,
+          // generated-steps mode only ships leads already drafted in specialist-proof
+          ...(useGeneratedSteps ? { emailStyle: "specialist-proof", stepsJson: { not: null } } : {}) }
       : { sentAt: null, suppressed: false, repliedAt: null, email: { not: "" }, ...providerWhere };
     const leadWhere = batchId ? { leadBatchId: batchId, ...base } : { leadBatch: { workspaceId: ws.id }, ...base };
     // When filtering by provider, load a generous pool (≥1500, not just sendLimit×6) so a small
@@ -165,6 +172,96 @@ export async function POST(request: Request) {
     // account-level webhook (it would fire for everyone's campaigns). Each campaign we create
     // registers its own scoped webhooks pointing at our ?secret= handler (shared helper).
     const webhookUrl = await getWorkspaceWebhookUrl(ws.id, ws.webhookSecret);
+
+    // ===== GENERATED-STEPS RECYCLE =====
+    // Ship each lead's own AI-written specialist-proof sequence (per-company read + gift) rather than
+    // the shared merge-templates. We reuse the exact same merge-variable delivery (one rolling campaign,
+    // per-lead custom_variables) so the shared Instantly account isn't flooded — the only difference is
+    // the body text comes from each lead's stepsJson. Per-lead incentiveAmount/Gift are already stamped
+    // by generation; we add incentiveSubjectStyle="specialist-proof" so Results tracks it as its own arm.
+    if (useGeneratedSteps) {
+      const recs = await prisma.lead.findMany({
+        where: { id: { in: leads.map((l) => l.id) } },
+        select: { id: true, email: true, name: true, company: true, stepsJson: true },
+      });
+      const parsed = recs
+        .map((l) => {
+          try {
+            const steps = JSON.parse(l.stepsJson || "[]") as Array<{ subject?: string; body?: string }>;
+            const clean = steps.filter((s) => (s?.body ?? "").trim().length > 0);
+            return clean.length > 0 ? { lead: l, steps: clean } : null;
+          } catch { return null; }
+        })
+        .filter((x): x is { lead: (typeof recs)[0]; steps: Array<{ subject?: string; body?: string }> } => x !== null);
+
+      if (parsed.length === 0) {
+        return NextResponse.json({ error: "No prepared specialist-proof leads to send. Click “Prepare per-company emails” first to draft them, then send." }, { status: 400 });
+      }
+
+      // Fixed sequence length = the shortest prepared sequence (so no lead ever sends an empty step),
+      // clamped to a sane 1–3 steps. Specialist-proof is reply-first and short by design.
+      const numSteps = Math.max(1, Math.min(3, Math.min(...parsed.map((p) => p.steps.length))));
+      const varNames = ["sp_subject", ...Array.from({ length: numSteps }, (_, k) => `sp_body${k + 1}`)];
+      const toHtml = (s: string) => s.replace(/\n/g, "<br>");
+
+      const payloads = parsed.map(({ lead, steps }) => {
+        const firstName = (lead.name ?? "").trim().split(/\s+/)[0] || "there";
+        const cv: Record<string, string> = { sp_subject: (steps[0].subject ?? "").trim() || `Quick one, ${firstName}` };
+        for (let k = 0; k < numSteps; k++) cv[`sp_body${k + 1}`] = toHtml((steps[k].body ?? "").trim());
+        return { email: lead.email, first_name: firstName, company_name: lead.company ?? undefined, custom_variables: cv };
+      });
+
+      // 3-day gap between steps (delay lives on the PRECEDING step; last step gets 0 — same Instantly
+      // quirk handled in the template path).
+      const mergeSteps = Array.from({ length: numSteps }, (_, i) => ({
+        subject: i === 0 ? "{{sp_subject}}" : "",
+        body: `{{sp_body${i + 1}}}`,
+        delayDays: i < numSteps - 1 ? 3 : 0,
+      }));
+
+      const SP_NAME = "Specialist-Proof Recycle (rolling)";
+      const existingSp = body.freshCampaign === true
+        ? null
+        : await prisma.sentCampaign.findFirst({ where: { workspaceId: ws.id, name: SP_NAME }, orderBy: { createdAt: "desc" }, select: { instantlyCampaignId: true } });
+
+      let spCampaignId: string;
+      let spMode: "created" | "appended";
+      let spWebhooks = 0;
+      if (existingSp?.instantlyCampaignId) {
+        spCampaignId = existingSp.instantlyCampaignId;
+        spMode = "appended";
+      } else {
+        const created = await client.createCampaign(SP_NAME, { sequenceSteps: mergeSteps, dailyLimit: 5000, ...(emailList && { email_list: emailList }) });
+        spCampaignId = created.id;
+        await client.addCampaignVariables(spCampaignId, varNames).catch(() => {});
+        await prisma.sentCampaign.create({ data: { workspaceId: ws.id, leadBatchId: batchId ?? null, instantlyCampaignId: spCampaignId, name: SP_NAME } });
+        spWebhooks = await registerCampaignWebhooks(client, spCampaignId, webhookUrl, SP_NAME);
+        spMode = "created";
+      }
+
+      const spAdd = await client.bulkAddLeadsToCampaign(spCampaignId, payloads, { verify_leads_on_import: true });
+      await client.activateCampaign(spCampaignId).catch(() => {});
+
+      // Re-engage stamp: bump recycle tracking + mark the style arm. Keep each lead's own amount/gift
+      // (set during generation) so the by-amount/by-gift A/B stays per-lead-accurate.
+      await prisma.lead.updateMany({
+        where: { id: { in: parsed.map((p) => p.lead.id) } },
+        data: { recycledAt: new Date(), recycleCount: { increment: 1 }, requeueAt: null, incentiveSubjectStyle: "specialist-proof" },
+      });
+
+      const spUploaded = spAdd.leads_uploaded ?? 0;
+      const spSkipped = leads.length - parsed.length;
+      await logActivity(ws.id, "send",
+        `Specialist-Proof recycle ${spMode === "created" ? "launched" : "appended"}: ${spUploaded} per-company leads into "${SP_NAME}" (${numSteps}-step)${spSkipped > 0 ? `, ${spSkipped} not yet prepared (skipped)` : ""}`,
+        { mode: spMode, campaignId: spCampaignId, preparedLeads: parsed.length, skipped: spSkipped, numSteps, webhooksRegistered: spWebhooks });
+
+      return NextResponse.json({
+        ok: true, mode: spMode, campaignId: spCampaignId, campaignName: SP_NAME, totalUploaded: spUploaded,
+        style: "specialist-proof", preparedLeads: parsed.length, skipped: spSkipped, eligibleLeads: leads.length,
+        warmedInboxes: emailList ? warmedCount : null,
+        webhooksRegistered: spMode === "created" ? spWebhooks : null, webhookEventsPerCampaign: WEBHOOK_EVENTS_PER_CAMPAIGN,
+      });
+    }
 
     // ONE rolling campaign holds every (subject style × amount) combo via per-lead merge variables,
     // so we don't flood the shared Instantly account and can append more leads to it over time.

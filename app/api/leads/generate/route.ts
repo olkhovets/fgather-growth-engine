@@ -141,7 +141,8 @@ export async function POST(request: Request) {
       useSampleOutput: useSampleOutputParam,
       style: styleParam,
       workspaceId: workspaceIdParam,
-    } = body as { batchId: string; offset?: number; limit?: number; campaignId?: string; useFastModel?: boolean; useWebScraping?: boolean; useLandingPage?: boolean; useVideo?: boolean; useSampleOutput?: boolean; style?: string; workspaceId?: string };
+      recycle: recycleParam,
+    } = body as { batchId: string; offset?: number; limit?: number; campaignId?: string; useFastModel?: boolean; useWebScraping?: boolean; useLandingPage?: boolean; useVideo?: boolean; useSampleOutput?: boolean; style?: string; workspaceId?: string; recycle?: boolean };
 
     // Auth: session for users, or CRON_SECRET + workspaceId for the autopilot orchestrator
     const cronSecret = process.env.CRON_SECRET;
@@ -169,7 +170,7 @@ export async function POST(request: Request) {
 
     const workspace = await prisma.workspace.findUnique({
       where: isCron ? { id: workspaceIdParam } : { userId: sessionUserId! },
-      select: { id: true, anthropicKey: true, anthropicModel: true, productSummary: true, icp: true, proofPointsJson: true, socialProofJson: true, playbookJson: true, senderName: true, customInstructions: true, schedulingLink: true },
+      select: { id: true, anthropicKey: true, anthropicModel: true, productSummary: true, icp: true, proofPointsJson: true, socialProofJson: true, playbookJson: true, senderName: true, customInstructions: true, schedulingLink: true, recycleCooldownDays: true },
     });
 
     if (!workspace?.anthropicKey) {
@@ -202,14 +203,34 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Batch not found" }, { status: 404 });
     }
 
-    const needsWorkWhere = {
-      leadBatchId: batchId,
-      OR: [
-        { stepsJson: null },
-        { stepsJson: "" },
-        { stepsJson: "[]" },
-      ],
-    };
+    // Normal generation targets leads that have NO sequence yet. Recycle mode is the opposite:
+    // it RE-writes already-sent, never-replied leads (past the cooldown, under the re-touch cap)
+    // in the requested style — so the standard 8k can be re-drafted in specialist-proof for a
+    // recycle send. The send path (incentives/launch useGeneratedSteps) then ships these.
+    const recycle = recycleParam === true;
+    const cooldownDays = workspace.recycleCooldownDays ?? 21;
+    const cutoff = new Date(Date.now() - cooldownDays * 24 * 60 * 60 * 1000);
+    const needsWorkWhere = recycle
+      ? {
+          leadBatchId: batchId,
+          sentAt: { lt: cutoff },
+          suppressed: false,
+          repliedAt: null,
+          bouncedAt: null,
+          email: { not: "" },
+          recycleCount: { lt: 2 },
+          OR: [{ recycledAt: null }, { recycledAt: { lt: cutoff } }],
+          // Don't re-draft a lead that's already in specialist-proof and waiting to be recycled.
+          NOT: { emailStyle: "specialist-proof", stepsJson: { not: null } },
+        }
+      : {
+          leadBatchId: batchId,
+          OR: [
+            { stepsJson: null },
+            { stepsJson: "" },
+            { stepsJson: "[]" },
+          ],
+        };
 
     const [total, chunk] = await Promise.all([
       prisma.lead.count({ where: needsWorkWhere }),
