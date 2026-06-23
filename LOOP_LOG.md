@@ -4,6 +4,15 @@ Newest entries on top. Each hourly run appends one short block. See LOOP_PLAYBOO
 
 ---
 
+## 2026-06-22 (hourly) — ✅ CLOUD AGENT BACK + everything green except email
+- **Cloud agent resumed:** latest main commit is real work (47d31e0 optimizer fix), not a blocked-run alert → egress allowlist fix took. Agent running again after ~48h.
+- **Durability confirmed:** my cross-channel routes still live (snapshot 401 gated, results 307) after the agent's deploy from main — the work persists now (PRs #1-4 on main).
+- **LinkedIn hands-off:** lastSync 18:27 fresh (background bridge), 17 active / 21 paused stable, status sync working.
+- **Only gap = EMAIL:** 0 sent/24h, 7 positives. Peter's trigger (autopilot/offer send — won't auto-fire). Conversion leak on the 17 active ads persists (point one at /r).
+- **Recommend DROP TO DAILY:** both autonomous engines (loop + cloud agent) are healthy and flowing; remaining levers are Peter-gated. No code shipped (autonomous runs don't auto-merge to main).
+
+---
+
 ## 2026-06-22 (hourly) — ✅ LINKEDIN UNSTUCK (background bridge + status sync working)
 - **Background bridge works hands-off:** lastSync 17:27Z fresh (no dashboard open), now carrying live ON/OFF status.
 - **Pauses took:** runningAds 38 → **17 active, 21 paused, 0 pause-recommendations.** The throttled losers are off; budget shifter now accurate ($850/day across 17 live ads, all keep/scale). The live-status feature (PR #2) + manager-glance Results (PR #3) are deployed + on main (durable).
