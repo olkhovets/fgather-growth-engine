@@ -76,6 +76,10 @@ export default function OfferLab() {
   const [amtResults, setAmtResults] = useState<AmtRow[]>([]);
   const [styleResults, setStyleResults] = useState<StyleRow[]>([]);
   const [eligibility, setEligibility] = useState<{ total: number; google: number; noGateways: number; unclassified: number } | null>(null);
+  // Recycle: re-contact prior, never-replied leads (e.g. an old/bad campaign) with the current gift offer.
+  const [recycleEligibility, setRecycleEligibility] = useState<{ total: number; google: number; noGateways: number; cooldownDays: number } | null>(null);
+  const [recycleLimit, setRecycleLimit] = useState("400");
+  const [recycling, setRecycling] = useState(false);
 
   const loadResults = useCallback(() => {
     fetch("/api/incentives/results").then((r) => r.json()).then((d) => { setAmtResults(d.amounts ?? []); setStyleResults(d.styles ?? []); }).catch(() => {});
@@ -137,6 +141,31 @@ export default function OfferLab() {
     setEligibility(null);
     fetch(`/api/incentives/eligibility?batchId=${encodeURIComponent(batchId)}`).then((r) => r.json()).then((d) => { if (!d.error) setEligibility(d); }).catch(() => {});
   }, [batchId]);
+
+  // Recycle-eligible count: scoped to the selected batch (a specific prior campaign) or, if none picked,
+  // the whole workspace (every prior never-replied lead). Same filter the recycle launch uses.
+  useEffect(() => {
+    if (!session?.user?.id) return;
+    setRecycleEligibility(null);
+    const q = batchId ? `recycle=true&batchId=${encodeURIComponent(batchId)}` : "recycle=true";
+    fetch(`/api/incentives/eligibility?${q}`).then((r) => r.json()).then((d) => { if (!d.error) setRecycleEligibility(d); }).catch(() => {});
+  }, [batchId, session?.user?.id]);
+
+  const launchRecycle = async () => {
+    if (subjectTemplates.length === 0 || amounts.length === 0) { setMessage("Pick at least one subject style and one amount first."); return; }
+    setRecycling(true); setMessage(null);
+    try {
+      const res = await fetch("/api/incentives/launch", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ recycle: true, ...(batchId ? { batchId } : {}), sendLimit: parseInt(recycleLimit) || 400, providerFilter, warmedInboxesOnly, config: { subjectTemplates, bodyTemplate, amounts } }) });
+      const d = await res.json();
+      const inboxBit = d.warmedInboxes != null ? ` from ${d.warmedInboxes} warmed inboxes` : "";
+      const verb = d.mode === "appended" ? "Appended" : "Launched";
+      setMessage(d.error ? d.error : `Recycle: ${verb} ${d.totalUploaded} prior leads into "${d.campaignName}"${inboxBit}. Run this again to send the next batch (or leave it — you can repeat daily until the pool is drained).`);
+      // Refresh the recycle count so the operator sees the pool shrink.
+      const q = batchId ? `recycle=true&batchId=${encodeURIComponent(batchId)}` : "recycle=true";
+      fetch(`/api/incentives/eligibility?${q}`).then((r) => r.json()).then((dd) => { if (!dd.error) setRecycleEligibility(dd); }).catch(() => {});
+      loadResults();
+    } catch { setMessage("Recycle failed."); } finally { setRecycling(false); }
+  };
 
   const toggleSubject = (t: string) => setSubjectTemplates((p) => p.includes(t) ? p.filter((x) => x !== t) : [...p, t].slice(0, 4));
   const toggleAmount = (a: number) => setAmounts((p) => p.includes(a) ? p.filter((x) => x !== a) : [...p, a].sort((x, y) => x - y).slice(0, 5));
@@ -268,6 +297,31 @@ export default function OfferLab() {
             <input type="number" min={1} max={2000} value={sendLimit} onChange={(e) => setSendLimit(e.target.value.replace(/[^0-9]/g, ""))} className="w-24 rounded-lg border px-3 py-2 text-sm" style={{ background: "var(--surface)", borderColor: "var(--border)", color: "var(--text-primary)" }} /></div>
           <button onClick={launch} disabled={launching || !batchId} className="btn-primary">{launching ? "Launching…" : "Send with offer"}</button>
         </div>
+      </div>
+
+      <div className="card p-6 space-y-4 border-l-4" style={{ borderLeftColor: "#b45309" }}>
+        <div>
+          <h3 className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>Recycle prior leads (gift offer)</h3>
+          <p className="text-xs mt-0.5" style={{ color: "var(--text-secondary)" }}>
+            Re-contact people you already emailed (e.g. an old or under-performing campaign) with the offer + body above. Uses the same proven send path: skips anyone who replied, bounced, or is suppressed, only re-touches leads past the {recycleEligibility?.cooldownDays ?? 21}-day cooldown, caps at 2 re-touches each, and lands in a separate <strong>Incentives Lab (recycle)</strong> campaign. No Apollo credits used (no new leads pulled).
+          </p>
+        </div>
+        <p className="text-xs" style={{ color: "var(--text-tertiary)" }}>
+          Scope: {batchId ? <>the selected batch above (<strong style={{ color: "var(--text-primary)" }}>{batches.find((b) => b.id === batchId)?.name ?? batchId}</strong>).</> : <>every prior never-replied lead in the workspace. Pick a batch above to scope to one campaign.</>}
+        </p>
+        {recycleEligibility && (
+          <div className="rounded-lg border p-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs" style={{ borderColor: "var(--border)", background: "var(--surface)" }}>
+            <span><strong style={{ color: "var(--text-primary)" }}>{recycleEligibility.total.toLocaleString()}</strong> eligible to recycle</span>
+            <span style={{ color: providerFilter === "google" ? "#16a34a" : undefined }}>{recycleEligibility.google.toLocaleString()} Google</span>
+            <span style={{ color: providerFilter === "no-gateways" ? "#16a34a" : undefined }}>{recycleEligibility.noGateways.toLocaleString()} non-gateway</span>
+          </div>
+        )}
+        <div className="flex flex-wrap items-end gap-3">
+          <div><label className="block text-xs font-medium mb-1" style={{ color: "var(--text-secondary)" }}>Max to send now (rate)</label>
+            <input type="number" min={1} max={2000} value={recycleLimit} onChange={(e) => setRecycleLimit(e.target.value.replace(/[^0-9]/g, ""))} className="w-24 rounded-lg border px-3 py-2 text-sm" style={{ background: "var(--surface)", borderColor: "var(--border)", color: "var(--text-primary)" }} /></div>
+          <button onClick={launchRecycle} disabled={recycling || (recycleEligibility != null && recycleEligibility.total === 0)} className="btn-primary">{recycling ? "Recycling…" : "Recycle now (paced)"}</button>
+        </div>
+        <p className="text-xs" style={{ color: "var(--text-tertiary)" }}>Each click sends up to this many, paced through your warmed inboxes. Repeat daily (or click a few times) to drain the pool at a deliverability-safe rate.</p>
       </div>
 
       <div className="card p-6 space-y-3">
