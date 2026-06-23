@@ -57,6 +57,19 @@ Step 1 closing: let the proof earn the demo invite — e.g. "Happy to show you w
 Include a P.S. that reinforces credibility — another proof point, a stat, or a relevant quote.`,
   },
 
+  "specialist-proof": {
+    usePS: false,
+    prompt: `EMAIL STYLE: Specialist-Proof (per-company read + real proof + gift-for-demo, reply-first)
+Sentence 1: a SPECIFIC read on what THIS company is actually doing — name their real angle/motion using the company research, e.g. "Seems like [Company] is all about [their actual play]." It must feel hand-written for them, never a template.
+Sentence 2: the honest tension — that angle usually drives [the upside], but the hard part is knowing what customers actually want BEFORE you spend, not after.
+Then 2-3 short lines of REAL Gather proof — use ONLY these, NEVER invent metrics or ARR numbers: brands like Belk, Staples, Bagel Brands and Empire Today run our AI consumer research; backed by Menlo; built by the team behind Gartner Peer Insights; real customer answers in days, not a six-week study; AI-moderated interviews against a 60M-person panel.
+Specialization line: ONE concrete thing Gather would do for THIS company specifically, tied to their product/category.
+Offer: frame the value as conviction, then a gift — e.g. "Confident it'd help [Company], so I'll put a [GIFT] behind a 20-minute demo." Use the workspace's incentive amount + gift type if provided (see custom instructions); otherwise offer a gift card for their time. NEVER promise revenue figures or guarantees we can't keep (no "add $X ARR or it's free", no fake case-study numbers).
+Subject: specific to them, e.g. "[Company] + faster customer answers" or "the consumer research behind Belk and Staples".
+Step 1 closing: reply-first only — "Worth it? Reply 'yes' and I'll send the details." (optionally invite a "no"). NO links, ever — Calendly is sent only after they reply.
+No P.S. Keep it tight, human, a little cocky. Banned AI words still apply.`,
+  },
+
   "direct-ask": {
     usePS: false,
     prompt: `EMAIL STYLE: Direct-Ask
@@ -77,14 +90,14 @@ function inferStyle(persona?: string | null, industry?: string | null, vertical?
   const p = (persona ?? "").toLowerCase();
   const ind = (industry ?? vertical ?? "").toLowerCase();
 
-  // C-suite and VPs respond well to social proof (peer validation)
-  if (/cmo|ceo|cfo|chief|vp |vice president/.test(p)) return "social-proof";
+  // C-suite and VPs — Gather's core ICP — get the per-company, proof + gift-for-demo style
+  if (/cmo|ceo|cfo|chief|vp |vice president/.test(p)) return "specialist-proof";
 
   // Analytical roles (data, product, strategy) respond to insight-hook
   if (/analyst|data|product|strategy|insight|research/.test(p)) return "insight-hook";
 
-  // Brand/marketing/content managers respond to social proof
-  if (/brand|content|creative|marketing manager|campaign/.test(p)) return "social-proof";
+  // Brand/marketing/content managers — the per-company proof + gift style
+  if (/brand|content|creative|marketing manager|campaign/.test(p)) return "specialist-proof";
 
   // Operations, agency, and growth roles respond to pain-led
   if (/operat|agency|growth|demand|lead gen|sdr|bdr/.test(p)) return "pain-led";
@@ -92,7 +105,7 @@ function inferStyle(persona?: string | null, industry?: string | null, vertical?
   // Industry signals
   if (/agency|consult|pr firm/.test(ind)) return "pain-led";
   if (/tech|saas|software|fintech/.test(ind)) return "insight-hook";
-  if (/retail|consumer|fmcg|cpg|fashion|food/.test(ind)) return "social-proof";
+  if (/retail|consumer|fmcg|cpg|fashion|food/.test(ind)) return "specialist-proof";
 
   // Default
   return "direct-ask";
