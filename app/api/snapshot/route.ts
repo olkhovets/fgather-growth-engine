@@ -21,17 +21,22 @@ export async function GET(request: Request) {
   }
 
   const since = new Date(Date.now() - 24 * 60 * 60 * 1000);
-  const workspaces = await prisma.workspace.findMany({ select: { id: true, user: { select: { email: true } } } });
+  const workspaces = await prisma.workspace.findMany({ select: {
+    id: true, user: { select: { email: true } },
+    autopilot: true, autopilotDailyLimit: true,
+    incentivesAutopilot: true, incentivesDailyCap: true, incentivesLastRunAt: true,
+  } });
 
   const out = [];
   for (const ws of workspaces) {
     try {
-      const [memory, li, cross, budget, sent24, positives24] = await Promise.all([
+      const [memory, li, cross, budget, sent24, recycled24, positives24] = await Promise.all([
         getAggregatedMemory(ws.id),
         getLinkedInSignal(ws.id),
         getCrossChannelSignals(ws.id),
         buildBudgetPlan(ws.id),
         prisma.lead.count({ where: { leadBatch: { workspaceId: ws.id }, sentAt: { gte: since } } }),
+        prisma.lead.count({ where: { leadBatch: { workspaceId: ws.id }, recycledAt: { gte: since } } }),
         prisma.lead.count({ where: { leadBatch: { workspaceId: ws.id }, repliedAt: { gte: since }, replyStatus: "positive" } }),
       ]);
 
@@ -41,10 +46,19 @@ export async function GET(request: Request) {
         workspace: ws.user?.email ?? ws.id,
         health: {
           emailSentLast24h: sent24,
+          emailRecycledLast24h: recycled24,
+          emailTotalLast24h: sent24 + recycled24,
           emailPositivesLast24h: positives24,
-          emailWorking: sent24 > 0,
+          emailWorking: sent24 + recycled24 > 0,
           linkedinConnected: li.hasData,
           linkedinLastSync: li.snapshot.at,
+        },
+        autopilot: {
+          standardOn: ws.autopilot,
+          standardDailyLimit: ws.autopilotDailyLimit,
+          offerOn: ws.incentivesAutopilot,
+          offerDailyCap: ws.incentivesDailyCap,
+          offerLastRunAt: ws.incentivesLastRunAt,
         },
         email: { totalPositives: emailPositives, byPersonaTop: cross.priorityPersonas.slice(0, 5) },
         linkedin: li.totals,
