@@ -4,6 +4,18 @@ Newest entries on top. Each hourly run appends one short block. See LOOP_PLAYBOO
 
 ---
 
+## 2026-06-24 (daily ~7am loop)
+- **Observed (peter@gatherhq.com):** Email working — 0 fresh (Apollo dry) but **3,838 recycled/24h, of which 2,985 are the NEW per-company specialist-proof** (`emailSpecialistProofRecycledLast24h`). The per-company autopilot recycle is live and ramped hard (20 → 2,985 since last night). Offer autopilot ON (cap 3,000, last run 14:42). LinkedIn healthy (bridge synced 14:09): $16,518 spent, 3,234 clicks, 2.36% CTR, 11 leads / 3 conversions. Smoke test all green (snapshot 200 / results 307 / ingest 200).
+- **⚠ Watch:** **0 positive replies on 3,838 recycled.** Volume only just ramped (replies lag, recycle drips over days), but 0 is notable — track next runs.
+- **Budget:** 7 ads ($350 notional), none below kill line (hold). Plan still leads with the **conversion leak** (~$1,181/conversion) — fix post-click path before adding spend.
+- **Shipped (PR #15, merged to main):** added the proven NAMED proof (Belk/Staples/Bagel Brands/Empire Today, Menlo, ex-Gartner-Peer-Insights team, 60M panel, days-not-weeks) to the `/r` microsite — it had generic "teams at consumer brands." `/r` is the intended landing for leaking website-visit clicks, so named credibility there directly attacks the conversion leak. Copy only (ColdIQ ICP-first/credibility). Channel #1 advanced.
+- **This session (context):** built per-company specialist-proof recycle (manual top-level card, default style) + wired it into the offer autopilot on Peter's explicit authorization — that's the 2,985 now flowing.
+- **NEEDS PETER:** (1) **0 positives on 3,838** — if it stays flat as per-company volume matures, recycle copy/targeting/deliverability needs a human look (not auto-fixable). (2) **Conversion leak** still #1 — point a website-visit ad at the now-stronger `…/r` and/or add lead forms before scaling spend. (3) Per-company autopilot recycle **auto-spends Claude tokens up to ~3,000/day** — turn offer autopilot OFF to stop. (4) Apollo dry → no net-new leads; top up credits to resume fresh outbound.
+
+## 2026-06-23 (daily, +) — gift A/B wired into specialist-proof (PR #6)
+- specialist-proof now rotates gift amount (50/100/200) + type per lead and stamps incentiveAmount/Type → Results offer A/B tracks which gift converts. Full experiment (per-company + real proof + varied gift + reply-first) is the default for B2C ICP, live + durable.
+- SEND still Peter's trigger (no creds, won't bypass). NEW leads: autopilot on Generate & send trickles it. The prior ~8k: needs the RECYCLE path (standard autopilot only works fresh/unsent leads) — offered to build a one-click "recycle prior leads w/ new style" action. MONITORING: each daily run, report deliverability/bounce, winning gift amount, reply rate, problems.
+
 ## 2026-06-23 (daily) — new "specialist-proof" email style shipped; agent still active
 - Built + merged (PR #5, deployed) a new generation style from Peter's high-performing template: per-company specialization + REAL Gather proof (Belk/Staples/Bagel Brands/Menlo/ex-Gartner-Peer-Insights — explicitly NO invented ARR/metrics) + gift-for-demo + reply-first (no links). Now the DEFAULT style for B2C ICP (exec/brand/marketing/consumer) so recycles + new sends use it.
 - Cloud agent still shipping (c4c430b among recent). LinkedIn flowing. Email still 0 sent.
