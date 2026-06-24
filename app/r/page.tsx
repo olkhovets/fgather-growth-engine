@@ -40,6 +40,9 @@ export default function ResearchMicrosite() {
           <li>The gap between your messaging and what the category actually rewards.</li>
           <li>One concrete message to test next, grounded in real interviews.</li>
         </ul>
+        <p style={{ fontSize: 13, color: "var(--text-tertiary, #6b7280)", marginTop: 16, lineHeight: 1.6 }}>
+          From the team behind Gartner Peer Insights, backed by Menlo. Brands like Belk, Staples, Bagel Brands and Empire Today run our AI-moderated consumer interviews against a 60M-person panel — answers in days, not a six-week study.
+        </p>
 
         {state === "done" ? (
           <div style={{ marginTop: 26, padding: 18, borderRadius: 12, background: "var(--surface, #141a2b)", border: "1px solid var(--border, #26304a)" }}>
@@ -60,7 +63,7 @@ export default function ResearchMicrosite() {
               {state === "sending" ? "Sending…" : "Get my free teardown"}
             </button>
             {state === "error" && <p style={{ color: "#f87171", fontSize: 14, margin: 0 }}>{err}</p>}
-            <p style={{ fontSize: 12, color: "var(--text-tertiary, #6b7280)", marginTop: 4 }}>Used by teams at consumer brands. No spam — just the teardown and a note if you want to go deeper.</p>
+            <p style={{ fontSize: 12, color: "var(--text-tertiary, #6b7280)", marginTop: 4 }}>Used by consumer brands like Belk, Staples, and Bagel Brands. No spam — just the teardown and a note if you want to go deeper.</p>
           </form>
         )}
       </div>
