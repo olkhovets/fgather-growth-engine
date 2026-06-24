@@ -4,6 +4,17 @@ Newest entries on top. Each hourly run appends one short block. See LOOP_PLAYBOO
 
 ---
 
+## 2026-06-24 (twice-daily, PM) — BIG SWING on recycle copy: long credentialed → short money-direct
+- **Numbers:** sent24=3838, bounce=0% (deliverability perfect), freshPool=**0**, totalSent=11,970, positives=**6** (0.050%). dailyCap=3000. **Positives FLAT vs last run (6 → 6) = stagnant.**
+- **The signal that drove the swing:** every positive Gather has ever booked came from SHORT, money-direct styles — we-pay-you (2/371), direct-offer (2/388), on-us (1/332), ai-marketing-hire (1) ≈ **0.5% (~10x overall)**. The long, credential-heavy **specialist-proof** style — which the recycle engine was hardcoded to — converted **0 across 2,985 sends**. value-first still 0/509. Iterator already promotes gift=Visa, amount=$100.
+- **Shipped (single readable lever, gift held constant):** new `direct-incentive` generation style — under 65 words, conviction-backed gift offer + ONE proof line + reply-first, first-name-only signoff. Pointed the recycle engine (the ONLY live volume while Apollo is dry) at it instead of specialist-proof. Generalized the recycle re-draft guard to the requested style so the switch strands nothing. typecheck: 0 new errors (114 pre-existing = Prisma-client-not-generated, resolve on Vercel).
+- **Why a swing, not a tweak:** 2 runs flat at 6 positives; the dominant volume was going 100% into a proven 0/2,985 loser. This is grounded in data (not blind) and reads on recycle volume without needing fresh leads or Peter. Did NOT touch inferStyle (fresh-pull default) — that's the next lever once Apollo is refilled.
+- **EXISTENTIAL BLOCKER (Peter-only, UNCHANGED):** Apollo enrichment still **OUT OF CREDITS** — 40 pulls/24h, 0 new leads, freshPool=0. Engine lives on recycle only. Top-up/upgrade unblocks fresh B2C pulls.
+- **Trend baseline for next run:** positives=6; watch `direct-incentive` vs `specialist-proof` positive-rate in byStyle as recycle volume shifts over. If direct-incentive also flatlines at meaningful n, the next swing is a non-money / value-first-only angle or a channel change.
+- **NEEDS PETER:** top up / upgrade Apollo so fresh leads flow again.
+
+---
+
 ## 2026-06-24 (twice-daily) — value-first vs incentive now READABLE; Apollo OUT OF CREDITS (pipeline stalled)
 - **Numbers:** sent24=3838, bounce=0% (deliverability perfect), freshPool=**0**, totalSent=11,970, positives=**6** (0.050%). dailyCap=3000.
 - **Shipped + verified live:** iterate report now surfaces the value-first arm head-to-head with incentives (was invisible — only the incentive campaign was reported). First read: **incentive 6/11,970 = 0.050%** vs **value-first 0/509 = 0.0%** (4 replies). The no-money hook is NOT beating incentives. Both convert ~0.05% — brutally low.

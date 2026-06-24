@@ -80,6 +80,20 @@ Subject line: ultra-short and direct, e.g. "Quick question" or "[Company] + Gath
 Step 1 closing: one crisp conditional demo ask — e.g. "Worth 15 minutes?" or "Open to seeing it?" One line, nothing more. No link.
 No P.S. — adding one undermines the directness. Keep the whole email under 80 words.`,
   },
+
+  // Direct-Incentive: the short, money-FORWARD style. Every positive reply Gather has booked came
+  // from blunt money-direct copy (we-pay-you / direct-offer / on-us ~0.5%), while the long
+  // credentialed specialist-proof style converted 0 across ~3k sends. This keeps the gift but
+  // strips the credential essay: lead with the conviction-backed offer, one proof line, the ask.
+  "direct-incentive": {
+    usePS: false,
+    prompt: `EMAIL STYLE: Direct-Incentive (short, money-forward, gift-for-demo, reply-first)
+No warm-up, no essay. The whole email is UNDER 65 words. Confident peer-to-peer, a little cocky.
+Sentence 1: the offer framed as CONVICTION, not a bribe — we are so sure Gather helps [Company] that we'll put the gift behind 20 minutes. Use the workspace's incentive amount + gift type (see custom instructions), e.g. "We're sure enough Gather helps [Company] that I'll put a [GIFT] behind 20 minutes."
+Sentence 2: ONE line of real proof, pick just one (never stack them): brands like Belk, Staples, Bagel Brands and Empire Today run our AI consumer research; backed by Menlo; team behind Gartner Peer Insights; real consumer answers in days, not a six-week study. NEVER invent metrics, ARR, or guarantees.
+Step 1 closing: reply-first only — one crisp line, e.g. "Worth a reply?" or "Reply 'yes' and I'll send the details." NO links, ever.
+No P.S. Banned AI words still apply. Money is framed as confidence, never "free gift, no catch".`,
+  },
 };
 
 /**
@@ -226,8 +240,10 @@ export async function POST(request: Request) {
           email: { not: "" },
           recycleCount: { lt: 2 },
           OR: [{ recycledAt: null }, { recycledAt: { lt: cutoff } }],
-          // Don't re-draft a lead that's already in specialist-proof and waiting to be recycled.
-          NOT: { emailStyle: "specialist-proof", stepsJson: { not: null } },
+          // Don't re-draft a lead already prepared in the requested recycle style and waiting to
+          // send (else we'd burn tokens rewriting the same lead each tick before it ships). Keyed
+          // to the style being drafted so switching the recycle style doesn't strand prior drafts.
+          ...(styleParam ? { NOT: { emailStyle: styleParam, stepsJson: { not: null } } } : {}),
         }
       : {
           leadBatchId: batchId,
@@ -352,7 +368,7 @@ export async function POST(request: Request) {
       // (like the Incentives Lab) so Results' offer A/B reveals which gift converts.
       const GIFT_AMOUNTS = [50, 100, 200];
       const GIFT_TYPES = ["Uber Eats card", "DoorDash card", "Amazon gift card"];
-      const useGift = resolvedStyle === "specialist-proof";
+      const useGift = resolvedStyle === "specialist-proof" || resolvedStyle === "direct-incentive";
       const giftAmount = useGift ? GIFT_AMOUNTS[leadIndex % GIFT_AMOUNTS.length] : null;
       const giftType = useGift ? GIFT_TYPES[Math.floor(leadIndex / GIFT_AMOUNTS.length) % GIFT_TYPES.length] : null;
       const giftBlock = useGift
@@ -373,7 +389,7 @@ export async function POST(request: Request) {
       // Style-specific sign-off: direct-ask uses first name only (brevity = credibility);
       // other styles append the company name for a light authority signal
       const senderFirstName = workspace.senderName?.trim().split(/\s+/)[0] ?? "Best";
-      const signoff = resolvedStyle === "direct-ask"
+      const signoff = (resolvedStyle === "direct-ask" || resolvedStyle === "direct-incentive")
         ? senderFirstName
         : `${senderFirstName}, Gather`;
 

@@ -149,13 +149,15 @@ export async function runIncentivesAutopilotForWorkspace(
     }
 
     // RECYCLE FALLBACK: if there were no fresh leads (or OOO leads) to append, re-contact the oldest
-    // non-repliers (past the cooldown). PER-COMPANY specialist-proof (Peter, 2026-06-23): each lead
-    // gets its OWN AI-written email (specific read on their company + real proof + gift), not the
-    // generic copy they ignored once. Two steps, paced by perRun so token spend stays bounded:
-    //   1) PREPARE: re-draft up to thisRunLimit eligible leads in specialist-proof (chunked ~10/call).
-    //   2) SEND: ship the prepared per-company sequences into "Specialist-Proof Recycle (rolling)".
-    // This auto-spends Claude tokens (one email written per lead) — intended; Peter wants the good
-    // style going to the recycled pool hands-off. With Apollo dry, recycle is the only volume.
+    // non-repliers (past the cooldown). DIRECT-INCENTIVE (2026-06-24): each lead gets its OWN
+    // AI-written email, but SHORT + money-forward (the only shape that has ever booked positives:
+    // we-pay-you/direct-offer/on-us ~0.5%), not the long credentialed specialist-proof essay that
+    // converted 0 across ~3k sends. Gift held constant so this is a clean copy-shape A/B. Two steps,
+    // paced by perRun so token spend stays bounded:
+    //   1) PREPARE: re-draft up to thisRunLimit eligible leads in direct-incentive (chunked ~10/call).
+    //   2) SEND: ship the prepared per-company sequences into the rolling recycle campaign.
+    // This auto-spends Claude tokens (one email written per lead) — intended; with Apollo dry,
+    // recycle is the only volume, so the recycle copy is the highest-leverage lever we control.
     let recycled = 0;
     if (appended === 0 && valueFirst === 0 && oooRequeued === 0) {
       // 1) Prepare (workspace-wide recycle generation). Cap the AI-writing per tick so we stay well
@@ -168,7 +170,7 @@ export async function runIncentivesAutopilotForWorkspace(
         const gres = await fetch(`${baseUrl()}/api/leads/generate`, {
           method: "POST",
           headers: { "Content-Type": "application/json", "x-cron-secret": secret },
-          body: JSON.stringify({ workspaceId: ws.id, recycle: true, style: "specialist-proof", useFastModel: true }),
+          body: JSON.stringify({ workspaceId: ws.id, recycle: true, style: "direct-incentive", useFastModel: true }),
         });
         const gl = await gres.json().catch(() => ({} as Record<string, unknown>));
         const done = (gl.done as number) ?? 0;
