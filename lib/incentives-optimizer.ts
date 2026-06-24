@@ -17,12 +17,13 @@ const PROMOTE_MIN_POSITIVES = 3; // need at least this many positive replies bef
 
 type VariantRow = { key: string; sent: number; positive: number; replies: number; rate: number };
 
-async function variantPerf(workspaceId: string, field: "incentiveAmount" | "incentiveSubjectStyle" | "incentiveGiftType"): Promise<VariantRow[]> {
-  // incentiveAmount > 0 excludes the value-first track (stamped amount 0) so it can't pollute the
-  // incentive A/B — value-first is measured separately via its own "Value-First (rolling)" campaign.
+async function variantPerf(workspaceId: string, field: "incentiveAmount" | "incentiveSubjectStyle" | "incentiveGiftType", valueFirst = false): Promise<VariantRow[]> {
+  // incentiveAmount > 0 selects the incentive track; incentiveAmount = 0 selects the value-first track
+  // (stamped amount 0 at launch). Splitting on this keeps the two A/Bs from polluting each other.
+  const amtFilter = valueFirst ? { incentiveAmount: 0 } : { incentiveAmount: { gt: 0 } };
   const [sent, reply] = await Promise.all([
-    prisma.lead.groupBy({ by: [field], where: { leadBatch: { workspaceId }, [field]: { not: null }, incentiveAmount: { gt: 0 }, sentAt: { not: null } }, _count: true }),
-    prisma.lead.groupBy({ by: [field, "replyStatus"], where: { leadBatch: { workspaceId }, [field]: { not: null }, incentiveAmount: { gt: 0 }, replyStatus: { not: null } }, _count: true }),
+    prisma.lead.groupBy({ by: [field], where: { leadBatch: { workspaceId }, [field]: { not: null }, ...amtFilter, sentAt: { not: null } }, _count: true }),
+    prisma.lead.groupBy({ by: [field, "replyStatus"], where: { leadBatch: { workspaceId }, [field]: { not: null }, ...amtFilter, replyStatus: { not: null } }, _count: true }),
   ]);
   const m: Record<string, VariantRow> = {};
   for (const r of sent) { const k = String((r as Record<string, unknown>)[field]); m[k] = { key: k, sent: r._count, positive: 0, replies: 0, rate: 0 }; }
@@ -90,6 +91,17 @@ export async function optimizeIncentivesForWorkspace(workspaceId: string): Promi
     variantPerf(workspaceId, "incentiveAmount"), variantPerf(workspaceId, "incentiveSubjectStyle"), variantPerf(workspaceId, "incentiveGiftType"),
   ]);
 
+  // VALUE-FIRST track (no money, incentiveAmount = 0) runs at ~20% of every autopilot send but was
+  // invisible here — the routine agent could not tell whether the no-money hook beats incentives, so
+  // the most important strategic call (scale value-first vs incentives) was being made blind. Surface
+  // both tracks' positive-reply rate head-to-head, plus value-first's own per-subject breakdown.
+  const [vfSent, vfPositive, vfReplies, vfByStyle] = await Promise.all([
+    prisma.lead.count({ where: { leadBatch: { workspaceId }, incentiveAmount: 0, sentAt: { not: null } } }),
+    prisma.lead.count({ where: { leadBatch: { workspaceId }, incentiveAmount: 0, replyStatus: "positive" } }),
+    prisma.lead.count({ where: { leadBatch: { workspaceId }, incentiveAmount: 0, replyStatus: { not: null } } }),
+    variantPerf(workspaceId, "incentiveSubjectStyle", true),
+  ]);
+
   const actions: string[] = [];
 
   // 1. Health: resume a paused rolling campaign.
@@ -120,6 +132,22 @@ export async function optimizeIncentivesForWorkspace(workspaceId: string): Promi
     actions.push(`exploring — ${positives} positive replies so far, below ${PROMOTE_MIN_POSITIVES} needed to promote`);
   }
 
+  // 3b. INCENTIVE vs VALUE-FIRST head-to-head — the lever for the next big swing. Only call a leader
+  // once both arms have enough volume to mean something; otherwise report it as still-gathering.
+  const incRate = totalSent > 0 ? positives / totalSent : 0;
+  const vfRate = vfSent > 0 ? vfPositive / vfSent : 0;
+  const MIN_ARM = 200; // sends per arm before a leader call is trustworthy
+  const enough = totalSent >= MIN_ARM && vfSent >= MIN_ARM;
+  const leader = !enough ? "insufficient-data" : vfRate > incRate ? "value-first" : incRate > vfRate ? "incentive" : "tie";
+  const valueFirst = { sent: vfSent, positive: vfPositive, replies: vfReplies, rate: vfRate, byStyle: vfByStyle };
+  const headToHead = { incentive: { sent: totalSent, positive: positives, rate: incRate }, valueFirst: { sent: vfSent, positive: vfPositive, rate: vfRate }, leader, minArm: MIN_ARM };
+  const pct = (r: number) => (r * 100).toFixed(3) + "%";
+  if (enough) {
+    actions.push(`A/B incentive vs value-first: incentive ${pct(incRate)} (${positives}/${totalSent}) vs value-first ${pct(vfRate)} (${vfPositive}/${vfSent}) positive-reply rate — leader: ${leader}.`);
+  } else {
+    actions.push(`A/B incentive vs value-first: gathering — incentive ${positives}/${totalSent}, value-first ${vfPositive}/${vfSent} (need ${MIN_ARM}/arm to call a winner).`);
+  }
+
   // 4. COST watch: surface Apollo lead-pull efficiency so a credit leak can't run silently again.
   const apollo = await apolloEfficiency(workspaceId);
   // 4a. PIPELINE STALL (existential): every recent pull returned 0 new leads, so the fresh pool is
@@ -138,6 +166,6 @@ export async function optimizeIncentivesForWorkspace(workspaceId: string): Promi
   }
 
   const summary = `Optimizer: sent24=${sent24}, bounce=${bounceRate}%, fresh=${freshPool}, positives=${positives}/${totalSent}, cap=${newCap}, apolloYield=${apollo.yieldPct ?? "n/a"}%. ${actions.join("; ") || "no changes"}`;
-  await logActivity(workspaceId, "autopilot", summary, { sent24, bounced24, bounceRate, freshPool, positives, totalSent, campaignStatus, dailyCap: newCap, byAmount, byStyle, byGift, apollo, actions });
-  return { workspaceId, sent24, bounced24, bounceRate, freshPool, positives, totalSent, campaignStatus, dailyCap: newCap, byAmount, byStyle, byGift, apollo, actions };
+  await logActivity(workspaceId, "autopilot", summary, { sent24, bounced24, bounceRate, freshPool, positives, totalSent, campaignStatus, dailyCap: newCap, byAmount, byStyle, byGift, valueFirst, headToHead, apollo, actions });
+  return { workspaceId, sent24, bounced24, bounceRate, freshPool, positives, totalSent, campaignStatus, dailyCap: newCap, byAmount, byStyle, byGift, valueFirst, headToHead, apollo, actions };
 }
