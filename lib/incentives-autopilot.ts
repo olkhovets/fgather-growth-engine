@@ -75,6 +75,20 @@ export async function runIncentivesAutopilotForWorkspace(
       }
     }
 
+    // 1a-bis. BUSINESS-HOURS GATE (sends only): only APPEND to Instantly during US business hours so
+    // cold mail isn't pushed overnight. Previously the daily cap reset at 00:00 UTC (= 8pm ET), so the
+    // frequently-running autopilot dumped the whole day's batch in an evening/overnight-ET burst. Now
+    // it only appends 9am–5pm ET, Mon–Fri. The lead-pool replenish above still runs anytime, so
+    // mornings open with leads ready. (Actual inbox delivery timing is still Instantly's campaign
+    // schedule — set that to business hours too.)
+    const etParts = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", weekday: "short", hour: "2-digit", hourCycle: "h23" }).formatToParts(new Date());
+    const etHour = Number(etParts.find((p) => p.type === "hour")?.value ?? "0");
+    const etDay = etParts.find((p) => p.type === "weekday")?.value ?? "";
+    const inBusinessHours = etDay !== "Sat" && etDay !== "Sun" && etHour >= 9 && etHour < 17;
+    if (!inBusinessHours) {
+      return { workspaceId: ws.id, ingested, skipped: `outside business hours — sends paused until 9am ET weekday (now ${etDay} ${etHour}:00 ET)` };
+    }
+
     // 1b. Daily SEND cap (checked AFTER replenish): count what's gone out today, leave the rest for
     // tomorrow. Counts BOTH fresh sends (sentAt today) AND re-contacts (recycle/OOO stamp recycledAt,
     // not sentAt) — otherwise that volume escapes the cap and a fresh-exhausted workspace over-sends.
