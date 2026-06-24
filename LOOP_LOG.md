@@ -4,6 +4,15 @@ Newest entries on top. Each hourly run appends one short block. See LOOP_PLAYBOO
 
 ---
 
+## 2026-06-24 (twice-daily) — value-first vs incentive now READABLE; Apollo OUT OF CREDITS (pipeline stalled)
+- **Numbers:** sent24=3838, bounce=0% (deliverability perfect), freshPool=**0**, totalSent=11,970, positives=**6** (0.050%). dailyCap=3000.
+- **Shipped + verified live:** iterate report now surfaces the value-first arm head-to-head with incentives (was invisible — only the incentive campaign was reported). First read: **incentive 6/11,970 = 0.050%** vs **value-first 0/509 = 0.0%** (4 replies). The no-money hook is NOT beating incentives. Both convert ~0.05% — brutally low.
+- **EXISTENTIAL BLOCKER (Peter-only):** Apollo enrichment is **OUT OF CREDITS** — 40 pulls/24h, 0 new leads inserted, freshPool=0. Sends now live off recycle and will collapse. Only a top-up/upgrade unblocks new pulls.
+- **Trend baseline for next run:** positives=6, incentive-rate 0.050%, vf-rate 0.0% (n=509). If positives stay flat next run AND Apollo is refilled, the data supports a real big swing (a fundamentally different angle — neither money nor generic value-first is converting). Did NOT swing blind into a starved pool this run.
+- **NEEDS PETER:** top up / upgrade Apollo so fresh B2C leads flow again. Until then the engine cannot feed the funnel.
+
+---
+
 ## 2026-06-23 (daily) — new "specialist-proof" email style shipped; agent still active
 - Built + merged (PR #5, deployed) a new generation style from Peter's high-performing template: per-company specialization + REAL Gather proof (Belk/Staples/Bagel Brands/Menlo/ex-Gartner-Peer-Insights — explicitly NO invented ARR/metrics) + gift-for-demo + reply-first (no links). Now the DEFAULT style for B2C ICP (exec/brand/marketing/consumer) so recycles + new sends use it.
 - Cloud agent still shipping (c4c430b among recent). LinkedIn flowing. Email still 0 sent.
