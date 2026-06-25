@@ -104,14 +104,17 @@ function inferStyle(persona?: string | null, industry?: string | null, vertical?
   const p = (persona ?? "").toLowerCase();
   const ind = (industry ?? vertical ?? "").toLowerCase();
 
-  // C-suite and VPs — Gather's core ICP — get the per-company, proof + gift-for-demo style
-  if (/cmo|ceo|cfo|chief|vp |vice president/.test(p)) return "specialist-proof";
+  // C-suite and VPs — Gather's core ICP. DATA-DRIVEN SWITCH (2026-06-25): the long credentialed
+  // specialist-proof style converted 0/2,985 sends, while every positive Gather has ever booked
+  // came from short, money-direct copy (~0.5%, ~10x). direct-incentive is that winner distilled.
+  // Fresh-pull default now points at it so new Apollo leads get the proven copy, not the dead one.
+  if (/cmo|ceo|cfo|chief|vp |vice president/.test(p)) return "direct-incentive";
 
   // Analytical roles (data, product, strategy) respond to insight-hook
   if (/analyst|data|product|strategy|insight|research/.test(p)) return "insight-hook";
 
-  // Brand/marketing/content managers — the per-company proof + gift style
-  if (/brand|content|creative|marketing manager|campaign/.test(p)) return "specialist-proof";
+  // Brand/marketing/content managers — core ICP, money-direct winner (see note above)
+  if (/brand|content|creative|marketing manager|campaign/.test(p)) return "direct-incentive";
 
   // Operations, agency, and growth roles respond to pain-led
   if (/operat|agency|growth|demand|lead gen|sdr|bdr/.test(p)) return "pain-led";
@@ -119,7 +122,7 @@ function inferStyle(persona?: string | null, industry?: string | null, vertical?
   // Industry signals
   if (/agency|consult|pr firm/.test(ind)) return "pain-led";
   if (/tech|saas|software|fintech/.test(ind)) return "insight-hook";
-  if (/retail|consumer|fmcg|cpg|fashion|food/.test(ind)) return "specialist-proof";
+  if (/retail|consumer|fmcg|cpg|fashion|food/.test(ind)) return "direct-incentive";
 
   // Default
   return "direct-ask";
