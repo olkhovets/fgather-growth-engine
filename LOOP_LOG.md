@@ -4,6 +4,17 @@ Newest entries on top. Each hourly run appends one short block. See LOOP_PLAYBOO
 
 ---
 
+## 2026-06-25 (twice-daily) — pre-positioned fresh-pull default on the money-direct winner; Apollo STILL dry + volume now collapsing
+- **Numbers:** sent24=**215** (collapsed from 3,838 last run), bounce=0%, freshPool=**0**, totalSent=12,967, positives=**6** (0.046%). dailyCap=3000. **Positives FLAT (6) for the 3rd+ consecutive run = stagnant. Volume is now CAVING because the pool is starved.**
+- **The escalating signal:** Apollo enrichment is **OUT OF CREDITS** (40 pulls/24h → 0 leads, creditsOut=true, stalled=true). Recycle is the only live volume and it's exhausting (7-day cooldown, max 2 re-touches), so sends fell ~18x in one run. The engine is going dark. Peter-only billing fix.
+- **Shipped + pushed to main (c16324d, typecheck=baseline 114 prisma-only, 0 new):** repointed the fresh-pull default `inferStyle` for the core ICP (C-suite/VP, brand+marketing managers, consumer verticals) from `specialist-proof` → `direct-incentive`. specialist-proof converted **0/2,985**; every positive ever booked came from short money-direct copy (~0.5%, ~10x). This is the "next lever once Apollo refills" named last run. Changes nothing observable now (freshPool=0) — it pre-positions so the instant Peter tops up Apollo, fresh leads get the proven copy, not the dead one. Readable-separable from the in-flight recycle experiment (distinct byStyle key).
+- **Why not another big copy swing:** last run's direct-incentive recycle swing CANNOT read yet — recycle volume collapsed before it accumulated (not yet visible in byStyle). Stacking another un-readable swing would muddy the read. Held the line; pre-positioned fresh instead.
+- **EXISTENTIAL BLOCKER (Peter-only, UNCHANGED + worsening):** top up / upgrade Apollo. Until then no fresh leads, recycle drains, volume → 0, no readable data on any copy lever.
+- **Trend baseline for next run:** positives=6, sent24=215 and falling. Watch: (1) does Apollo get refilled (freshPool >0)? (2) once volume returns, does direct-incentive (fresh + recycle) beat specialist-proof's 0/2,985 and lift positives off 6? If positives stay flat at meaningful volume post-refill, next swing = non-money/value angle or a channel change.
+- **NEEDS PETER:** top up / upgrade Apollo so fresh B2C leads flow again — this is the whole funnel right now.
+
+---
+
 ## 2026-06-24 (twice-daily, PM) — BIG SWING on recycle copy: long credentialed → short money-direct
 - **Numbers:** sent24=3838, bounce=0% (deliverability perfect), freshPool=**0**, totalSent=11,970, positives=**6** (0.050%). dailyCap=3000. **Positives FLAT vs last run (6 → 6) = stagnant.**
 - **The signal that drove the swing:** every positive Gather has ever booked came from SHORT, money-direct styles — we-pay-you (2/371), direct-offer (2/388), on-us (1/332), ai-marketing-hire (1) ≈ **0.5% (~10x overall)**. The long, credential-heavy **specialist-proof** style — which the recycle engine was hardcoded to — converted **0 across 2,985 sends**. value-first still 0/509. Iterator already promotes gift=Visa, amount=$100.
