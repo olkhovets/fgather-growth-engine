@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { logActivity } from "@/lib/activity";
+import { sendNotificationEmail } from "@/lib/email";
 import { getInstantlyClientForWorkspaceId } from "@/lib/instantly";
 
 /**
@@ -72,7 +73,7 @@ async function apolloEfficiency(workspaceId: string) {
 }
 
 export async function optimizeIncentivesForWorkspace(workspaceId: string): Promise<Record<string, unknown>> {
-  const ws = await prisma.workspace.findUnique({ where: { id: workspaceId }, select: { incentivesDailyCap: true, incentiveConfigJson: true } });
+  const ws = await prisma.workspace.findUnique({ where: { id: workspaceId }, select: { incentivesDailyCap: true, incentiveConfigJson: true, notifyEmail: true, user: { select: { email: true } } } });
   const dailyCap = ws?.incentivesDailyCap ?? 500;
 
   const since = new Date(Date.now() - 24 * 60 * 60 * 1000);
@@ -160,6 +161,37 @@ export async function optimizeIncentivesForWorkspace(workspaceId: string): Promi
         ? "Apollo is returning people but their emails are LOCKED — check Apollo plan/email-access credits"
         : `no new leads landing — likely search mined out or 0 matches (rotate the Apollo search). Latest: ${apollo.latestMessage ?? "n/a"}`;
     actions.push(`PIPELINE STALL: ${apollo.pulls} Apollo pulls in 24h, 0 new leads — fresh pool starving, sends collapsing. ${cause}.`);
+
+    // EMERGENCY OPERATOR ALERT (separate from the per-action notify toggle): a fully dark engine
+    // (no fresh leads AND nothing sent/recycled in 24h) means zero progress toward demos until a
+    // human acts. The only signal today is the twice-daily routine — so an outage can sit unseen for
+    // hours. Email the operator directly the moment the engine goes dark, DEDUPED to ~once/20h via a
+    // marker activity row so a recurring 6h optimizer run can't spam. Fires regardless of
+    // notifyOnActivity because this is an outage, not a routine action.
+    const engineDark = sent24 === 0 && freshPool === 0;
+    if (engineDark) {
+      const to = ws?.notifyEmail ?? ws?.user?.email ?? null;
+      const recentAlert = await prisma.activityLog.findFirst({
+        where: { workspaceId, type: "autopilot", message: { startsWith: "CRITICAL ALERT:" }, createdAt: { gte: new Date(Date.now() - 20 * 60 * 60 * 1000) } },
+        select: { id: true },
+      });
+      if (to && !recentAlert) {
+        const fix = apollo.creditsOut
+          ? "Top up / upgrade the Apollo plan to resume new-lead pulls."
+          : apollo.lockedOnly > 0
+            ? "Apollo emails are locked — check the Apollo plan / email-access credits."
+            : "Rotate the Apollo search (likely mined out or 0 matches).";
+        await sendNotificationEmail(
+          to,
+          "[Engine] STALLED — 0 emails sent in 24h, pipeline dark",
+          `<p><strong>The outbound engine has gone dark.</strong> 0 emails sent or recycled in the last 24h and the fresh-lead pool is empty, so no new outreach is going out and there is zero progress toward booked demos.</p>` +
+          `<p><strong>Cause:</strong> ${cause}.</p>` +
+          `<p><strong>Fix:</strong> ${fix}</p>` +
+          `<p style="color:#666;font-size:13px">Apollo: ${apollo.pulls} pulls / ${apollo.inserted} new in 24h &middot; freshPool ${freshPool} &middot; sent24 ${sent24} &middot; positives ${positives}/${totalSent}. New pulls resume automatically once the blocker is cleared.</p>`
+        ).catch(() => {});
+        await logActivity(workspaceId, "autopilot", `CRITICAL ALERT: engine dark (sent24=0, fresh=0) — emailed operator. ${cause}.`);
+      }
+    }
   }
   if (apollo.leak) {
     actions.push(`COST WARNING: Apollo pulls only ${apollo.yieldPct}% efficient (${apollo.inserted} new vs ${apollo.wasted} wasted on dupes/locked in last ${apollo.pulls} pulls) — credits leaking. Check the page cursor / search; pause pulling if the search is mined out.`);
