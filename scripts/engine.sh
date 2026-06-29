@@ -48,8 +48,9 @@ case "$cmd" in
     _get "$BASE_URL/api/snapshot?key=$SNAPSHOT_KEY" ;;
 
   target|goal)   # the reply-rate war room: current rate, gap to 2%, the ONE binding constraint, levers
-    _auth
-    _get "$BASE_URL/api/target$([[ -n "$(_ws)" ]] && echo "?workspaceId=$(_ws)")" ;;
+    # read-only — uses SNAPSHOT_KEY (same as status) so it works without CRON_SECRET
+    [[ -n "${SNAPSHOT_KEY:-}" ]] || { echo "ERROR: SNAPSHOT_KEY not set"; exit 1; }
+    curl -sS "$BASE_URL/api/target?key=$SNAPSHOT_KEY$([[ -n "$(_ws)" ]] && echo "&workspaceId=$(_ws)")" | jq . 2>/dev/null || true ;;
 
   grade)   # are the emails good? grades the existing pool. args: [limit] [batchId]
     _auth
