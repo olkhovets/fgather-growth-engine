@@ -5,15 +5,14 @@ import DashboardSidebar from "@/components/DashboardSidebar";
 import { useEffect, useState, useCallback } from "react";
 
 type Target = { currentPct: number; targetPct: number; sending?: { sent24: number }; totalPositive?: number };
-type LaunchResult = { drafted: number; draftRemaining: number; sent: number; eligible: number; prepared: number; providerFilter: string; message: string };
+type SendResult = { requested: number; candidates: number; gradedGood: number; sent: number; skipped: number; provider: string; styleMix: Record<string, number>; message: string };
 
 export default function LaunchPage() {
   const { ready, session } = useAuthGuard();
-  const [genCount, setGenCount] = useState("40");
-  const [sendCount, setSendCount] = useState("200");
+  const [count, setCount] = useState("200");
   const [provider, setProvider] = useState("no-gateways");
   const [busy, setBusy] = useState(false);
-  const [result, setResult] = useState<LaunchResult | null>(null);
+  const [result, setResult] = useState<SendResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [stat, setStat] = useState<Target | null>(null);
 
@@ -22,24 +21,23 @@ export default function LaunchPage() {
   }, []);
   useEffect(() => { if (ready) refreshStat(); }, [ready, refreshStat]);
 
-  const launch = useCallback(async () => {
+  const send = useCallback(async () => {
     setBusy(true); setError(null); setResult(null);
     try {
-      const r = await fetch("/api/launch-campaign", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ generate: Number(genCount) || 0, send: Number(sendCount) || 0, providerFilter: provider }),
+      const r = await fetch("/api/send-batch", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ count: Number(count) || 0, providerFilter: provider }),
       });
       const d = await r.json();
-      if (!r.ok) setError(d.error || "Launch failed.");
+      if (!r.ok) setError(d.error || "Send failed.");
       else setResult(d);
       refreshStat();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Launch failed.");
+      setError(e instanceof Error ? e.message : "Send failed.");
     } finally {
       setBusy(false);
     }
-  }, [genCount, sendCount, provider, refreshStat]);
+  }, [count, provider, refreshStat]);
 
   if (!ready || !session) {
     return <div className="flex min-h-screen items-center justify-center" style={{ background: "var(--bg)" }}>
@@ -47,7 +45,6 @@ export default function LaunchPage() {
     </div>;
   }
 
-  const label = "text-xs font-medium" as const;
   const inputStyle = { background: "var(--surface, #1a1a1a)", color: "var(--text-primary)", border: "1px solid var(--border, #333)" };
 
   return (
@@ -56,48 +53,42 @@ export default function LaunchPage() {
       <main className="flex-1 overflow-y-auto">
         <div className="max-w-xl mx-auto px-8 py-10 space-y-6">
           <div>
-            <h1 className="text-xl font-semibold" style={{ color: "var(--text-primary)" }}>Launch holiday campaign</h1>
+            <h1 className="text-xl font-semibold" style={{ color: "var(--text-primary)" }}>Send good emails</h1>
             <p className="text-sm mt-1" style={{ color: "var(--text-secondary)" }}>
-              Drafts right-fit ICP leads in the holiday-incentive style (money offer, holiday-aware, optimized subjects) and sends them. Choose how many to draft and send, then press launch.
+              Picks right-fit ICP leads that already have a strong draft (various proven styles, the dead
+              specialist-proof excluded), grade-checks each, and sends exactly those. The number sent is the
+              chosen batch minus any skipped for deliverability — shown below.
             </p>
           </div>
 
-          <div className="grid grid-cols-3 gap-3">
+          <div className="flex gap-3 items-end">
             <div className="space-y-1">
-              <div className={label} style={{ color: "var(--text-secondary)" }}>Draft (new emails)</div>
-              <input type="number" min="0" max="500" value={genCount} onChange={(e) => setGenCount(e.target.value)} className="w-full rounded-lg px-3 py-2 text-sm" style={inputStyle} />
+              <div className="text-xs font-medium" style={{ color: "var(--text-secondary)" }}>How many</div>
+              <input type="number" min="1" max="1000" value={count} onChange={(e) => setCount(e.target.value)} className="w-28 rounded-lg px-3 py-2 text-sm" style={inputStyle} />
             </div>
             <div className="space-y-1">
-              <div className={label} style={{ color: "var(--text-secondary)" }}>Send (this press)</div>
-              <input type="number" min="0" max="2000" value={sendCount} onChange={(e) => setSendCount(e.target.value)} className="w-full rounded-lg px-3 py-2 text-sm" style={inputStyle} />
-            </div>
-            <div className="space-y-1">
-              <div className={label} style={{ color: "var(--text-secondary)" }}>Recipients</div>
-              <select value={provider} onChange={(e) => setProvider(e.target.value)} className="w-full rounded-lg px-3 py-2 text-sm" style={inputStyle}>
-                <option value="no-gateways">Most (skip strict gateways)</option>
-                <option value="all">All providers</option>
+              <div className="text-xs font-medium" style={{ color: "var(--text-secondary)" }}>Recipients</div>
+              <select value={provider} onChange={(e) => setProvider(e.target.value)} className="rounded-lg px-3 py-2 text-sm" style={inputStyle}>
+                <option value="no-gateways">Safe (skip strict gateways)</option>
+                <option value="all">All providers (max volume)</option>
                 <option value="google">Gmail only (safest)</option>
               </select>
             </div>
           </div>
 
           <button
-            onClick={launch}
+            onClick={send}
             disabled={busy}
             className="w-full rounded-xl px-6 py-4 text-base font-semibold transition disabled:opacity-60"
             style={{ background: busy ? "#444" : "var(--accent, #4f46e5)", color: "#fff" }}
           >
-            {busy ? "Drafting + sending… (can take a minute)" : "🚀  Launch (sends real emails)"}
+            {busy ? "Sending…" : `🚀  Send ${count || 0} good emails (real send)`}
           </button>
 
           {result && (
             <div className="rounded-lg px-4 py-3 text-sm space-y-1" style={{ background: "var(--surface, #1a1a1a)", color: "var(--text-primary)" }}>
-              <div className="font-medium">Drafted {result.drafted} · Sent {result.sent}</div>
-              <div className="text-xs" style={{ color: "var(--text-secondary)" }}>
-                {result.eligible > 0 && <>Eligible to send: {result.eligible}. </>}
-                {result.draftRemaining > 0 && <>{result.draftRemaining} more left to draft — press again. </>}
-                {result.sent < result.prepared && result.prepared > 0 && <>Only {result.sent} of {result.prepared} prepared shipped (recipient filter: {result.providerFilter}). </>}
-              </div>
+              <div className="font-medium">Sent {result.sent}{result.skipped > 0 ? ` · skipped ${result.skipped}` : ""}</div>
+              <div className="text-xs" style={{ color: "var(--text-secondary)" }}>{result.message}</div>
             </div>
           )}
           {error && <p className="text-sm rounded-lg px-4 py-3" style={{ background: "#3a1a1a", color: "#fca5a5" }}>{error}</p>}
@@ -108,7 +99,7 @@ export default function LaunchPage() {
             </p>
           )}
           <p className="text-xs" style={{ color: "var(--text-tertiary)" }}>
-            Each press is a real send. Drafting is capped at ~10/call so larger numbers loop and may need a second press. After July 4th, ask Claude to run the OOO retarget.
+            Each press is a real send. After July 4th, ask Claude to run the OOO retarget for your engaged leads.
           </p>
         </div>
       </main>
