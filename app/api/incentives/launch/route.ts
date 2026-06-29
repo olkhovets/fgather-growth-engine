@@ -50,6 +50,10 @@ export async function POST(request: Request) {
     // /api/leads/generate (recycle mode). Only recycle leads already drafted in specialist-proof
     // are eligible; the rest need preparing first. Lands in its own tracked rolling campaign.
     const useGeneratedSteps = body.useGeneratedSteps === true && recycle;
+    // Which drafted style this recycle ships (default specialist-proof for back-compat). When set
+    // (e.g. "direct-incentive"), only that style's drafts are eligible and they ship into their own
+    // tracked rolling campaign with correct style attribution.
+    const recycleStyle = typeof body.recycleStyle === "string" && body.recycleStyle.trim() ? body.recycleStyle.trim() : "specialist-proof";
     // OOO REQUEUE mode: re-contact leads who sent an out-of-office auto-reply and whose stated
     // return date has now passed — so we land when they're actually back. Shares the recycle
     // machinery (re-contacts already-sent leads, stamps recycledAt/recycleCount to cap re-touches).
@@ -96,8 +100,10 @@ export async function POST(request: Request) {
       ? { replyStatus: "ooo", requeueAt: { lte: now }, suppressed: false, bouncedAt: null, email: { not: "" }, recycleCount: { lt: 2 }, OR: [{ recycledAt: null }, { recycledAt: { lt: cutoff } }], ...providerWhere }
       : recycle
       ? { sentAt: { lt: cutoff }, suppressed: false, repliedAt: null, bouncedAt: null, email: { not: "" }, recycleCount: { lt: 2 }, OR: [{ recycledAt: null }, { recycledAt: { lt: cutoff } }], ...providerWhere,
-          // generated-steps mode only ships leads already drafted in specialist-proof
-          ...(useGeneratedSteps ? { emailStyle: "specialist-proof", stepsJson: { not: null } } : {}) }
+          // generated-steps mode ships any lead with a prepared AI sequence. Optionally restrict to a
+          // specific drafted style via recycleStyle (e.g. "direct-incentive" for the punchy money swing);
+          // the data shows direct-incentive converts and specialist-proof ~0, so we no longer hardcode it.
+          ...(useGeneratedSteps ? { stepsJson: { not: null }, emailStyle: recycleStyle } : {}) }
       : { sentAt: null, suppressed: false, repliedAt: null, email: { not: "" }, ...providerWhere };
     const leadWhere = batchId ? { leadBatchId: batchId, ...base } : { leadBatch: { workspaceId: ws.id }, ...base };
     // When filtering by provider, load a generous pool (≥1500, not just sendLimit×6) so a small
@@ -195,7 +201,7 @@ export async function POST(request: Request) {
         .filter((x): x is { lead: (typeof recs)[0]; steps: Array<{ subject?: string; body?: string }> } => x !== null);
 
       if (parsed.length === 0) {
-        return NextResponse.json({ error: "No prepared specialist-proof leads to send. Click “Prepare per-company emails” first to draft them, then send." }, { status: 400 });
+        return NextResponse.json({ error: `No prepared ${recycleStyle} leads to send. Draft them first (e.g. engine hit-oldest ${recycleStyle}), then send.` }, { status: 400 });
       }
 
       // Fixed sequence length = the shortest prepared sequence (so no lead ever sends an empty step),
@@ -219,7 +225,7 @@ export async function POST(request: Request) {
         delayDays: i < numSteps - 1 ? 3 : 0,
       }));
 
-      const SP_NAME = "Specialist-Proof Recycle (rolling)";
+      const SP_NAME = `${recycleStyle} Recycle (rolling)`;
       const existingSp = body.freshCampaign === true
         ? null
         : await prisma.sentCampaign.findFirst({ where: { workspaceId: ws.id, name: SP_NAME }, orderBy: { createdAt: "desc" }, select: { instantlyCampaignId: true } });
@@ -246,7 +252,7 @@ export async function POST(request: Request) {
       // (set during generation) so the by-amount/by-gift A/B stays per-lead-accurate.
       await prisma.lead.updateMany({
         where: { id: { in: parsed.map((p) => p.lead.id) } },
-        data: { recycledAt: new Date(), recycleCount: { increment: 1 }, requeueAt: null, incentiveSubjectStyle: "specialist-proof" },
+        data: { recycledAt: new Date(), recycleCount: { increment: 1 }, requeueAt: null, incentiveSubjectStyle: recycleStyle },
       });
 
       const spUploaded = spAdd.leads_uploaded ?? 0;
@@ -257,7 +263,7 @@ export async function POST(request: Request) {
 
       return NextResponse.json({
         ok: true, mode: spMode, campaignId: spCampaignId, campaignName: SP_NAME, totalUploaded: spUploaded,
-        style: "specialist-proof", preparedLeads: parsed.length, skipped: spSkipped, eligibleLeads: leads.length,
+        style: recycleStyle, preparedLeads: parsed.length, skipped: spSkipped, eligibleLeads: leads.length,
         warmedInboxes: emailList ? warmedCount : null,
         webhooksRegistered: spMode === "created" ? spWebhooks : null, webhookEventsPerCampaign: WEBHOOK_EVENTS_PER_CAMPAIGN,
       });

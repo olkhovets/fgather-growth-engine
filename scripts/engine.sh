@@ -92,10 +92,24 @@ case "$cmd" in
     _confirm "HIT-OLDEST — re-draft oldest never-touched leads in '$style' with optimized subjects (Claude spend; does NOT send)"
     _post "$BASE_URL/api/leads/generate" -d "{\"recycle\":true,\"neverRecycledOnly\":true,\"oldestFirst\":true,\"optimizeSubject\":true,\"style\":\"$style\",\"useFastModel\":true$([[ -n "$(_ws)" ]] && echo ",\"workspaceId\":\"$(_ws)\"")}" ;;
 
+  hit-icp)     # like hit-oldest but ONLY right-fit ICP personas (the converters). arg: <style> (default direct-incentive)
+    _auth
+    style="${1:-direct-incentive}"
+    _confirm "HIT-ICP — re-draft oldest right-fit ICP leads (consumer-insights/brand/marketing/growth) in '$style' + optimized subjects (Claude spend; does NOT send)"
+    _post "$BASE_URL/api/leads/generate" -d "{\"recycle\":true,\"oldestFirst\":true,\"optimizeSubject\":true,\"style\":\"$style\",\"personas\":[\"consumer-insights\",\"brand-social\",\"product-marketing\",\"growth-general\"],\"useFastModel\":true$([[ -n "$(_ws)" ]] && echo ",\"workspaceId\":\"$(_ws)\"")}" ;;
+
   send)       # upload + activate a batch in Instantly. args: <batchId> [sendLimit]
     _auth; [[ -n "${1:-}" ]] || { echo "usage: engine.sh send <batchId> [sendLimit]"; exit 1; }
     _confirm "SEND real cold emails via Instantly (batch $1, limit ${2:-100})"
     _post "$BASE_URL/api/instantly/send" -d "{\"batchId\":\"$1\",\"skipFailingLeads\":true,\"sendLimit\":${2:-100}$([[ -n "$(_ws)" ]] && echo ",\"workspaceId\":\"$(_ws)\"")}" ;;
+
+  send-recycle)  # SEND drafted recycle leads of a given style (pairs with hit-oldest/hit-icp). args: [style] [sendLimit]
+    _auth
+    [[ -n "$(_ws)" ]] || { echo "ERROR: WORKSPACE_ID required in .env for send-recycle"; exit 1; }
+    style="${1:-direct-incentive}"; lim="${2:-300}"
+    _confirm "SEND-RECYCLE — ship drafted '$style' recycle leads via Instantly (REAL sends, limit $lim)"
+    curl -sS -X POST "$BASE_URL/api/incentives/launch" -H "x-cron-secret: ${CRON_SECRET}" -H "Content-Type: application/json" \
+      -d "{\"recycle\":true,\"useGeneratedSteps\":true,\"recycleStyle\":\"$style\",\"sendLimit\":$lim,\"workspaceId\":\"$(_ws)\"}" | jq . 2>/dev/null || true ;;
 
   autopilot)  # one generate+send autopilot pass for the workspace
     _auth
@@ -134,6 +148,7 @@ WRITE (live infra — prompts before firing):
   recycle           re-draft the whole prior unsent pool (Claude spend; no send)
   hit-oldest [style] re-draft OLDEST never-touched leads, hard-hitting style + optimized subjects
   send <batch> [N]  upload + activate a batch in Instantly (REAL sends)
+  send-recycle [style] [N]  SEND the drafted recycle leads of a style (REAL sends; pairs with hit-oldest/hit-icp)
   autopilot         one generate+send pass
   loop              run the full daily loop by hand (includes send)
 
