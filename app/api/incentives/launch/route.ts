@@ -97,7 +97,15 @@ export async function POST(request: Request) {
     // recently, capped at 2 re-contacts. OOO base = sent an out-of-office reply whose return date
     // has passed; same cap + not-recently-recontacted guard so we don't loop on the same person.
     const base = oooRequeue
-      ? { replyStatus: "ooo", requeueAt: { lte: now }, suppressed: false, bouncedAt: null, email: { not: "" }, recycleCount: { lt: 2 }, OR: [{ recycledAt: null }, { recycledAt: { lt: cutoff } }], ...providerWhere }
+      ? { replyStatus: "ooo", suppressed: false, bouncedAt: null, email: { not: "" }, recycleCount: { lt: 2 }, ...providerWhere,
+          // Retarget OOO leads once they're back: those whose stated return date has passed, AND those
+          // whose date couldn't be parsed (requeueAt null) — the cooldown guard below keeps us from
+          // re-contacting too soon. Future-dated leads (still out) correctly wait. This catches the
+          // ~80% of OOO replies whose return date the classifier couldn't extract.
+          AND: [
+            { OR: [{ requeueAt: { lte: now } }, { requeueAt: null }] },
+            { OR: [{ recycledAt: null }, { recycledAt: { lt: cutoff } }] },
+          ] }
       : recycle
       ? { sentAt: { lt: cutoff }, suppressed: false, repliedAt: null, bouncedAt: null, email: { not: "" }, recycleCount: { lt: 2 }, OR: [{ recycledAt: null }, { recycledAt: { lt: cutoff } }], ...providerWhere,
           // generated-steps mode ships any lead with a prepared AI sequence. Optionally restrict to a
