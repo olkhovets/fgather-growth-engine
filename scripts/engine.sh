@@ -42,6 +42,11 @@ cmd="${1:-help}"; shift || true
 
 case "$cmd" in
   # ---------- READ (safe) ----------
+  open|launch)   # open the one-button Launch page in your browser
+    url="$BASE_URL/launch"
+    echo "Opening $url"
+    (open "$url" 2>/dev/null || xdg-open "$url" 2>/dev/null || echo "Go to: $url") ;;
+
   status|snapshot)
     [[ -n "${SNAPSHOT_KEY:-}" ]] || { echo "ERROR: SNAPSHOT_KEY not set"; exit 1; }
     # The at-a-glance health: sends, positives, deliverability verdict, winning style.
