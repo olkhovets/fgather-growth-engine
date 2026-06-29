@@ -136,6 +136,22 @@ Sentence 2: a quick credential in one breath - who we are and why we are credibl
 Close: a direct, low-friction ask to MEET FOR A QUICK DEMO - e.g. "Worth a quick 15-min demo?" or "Open to a look?" Reply-first. NO links, ever. No gift, no money.
 No P.S. No em dashes, no AI-tell words. Subject: short, lowercase, founder-casual, e.g. "[company] + gather" or "quick intro".`,
   },
+
+  // Founder-Incentive: the COMBO — founder credential + demo ask + the money offer, kept CONTINUOUS
+  // across the multi-step sequence (gift introduced once in step 1, called back in step 2+, never reset).
+  "founder-incentive": {
+    usePS: false,
+    prompt: `EMAIL STYLE: Founder-Incentive (founder credential + demo ask + money offer, multi-step CONTINUOUS)
+Write as the FOUNDER of Gather emailing a peer. Warm, confident, direct. Each step UNDER 60 words. No fluff, no corporate, no buzzwords.
+STEP 1 - all four, in order, tight:
+ (a) one specific line about what THIS company does (use the research) so it is clearly for them;
+ (b) a one-breath founder credential, pick the 2-3 MOST relevant, never all: founder of Gather; we run AI consumer research; brands like Belk, Staples and Bagel Brands use us; backed by Menlo; built by the team behind Gartner Peer Insights; real consumer answers in days;
+ (c) the offer as CONVICTION plus the gift, stated plainly the FIRST time: "confident enough Gather helps [Company] that I will put a [GIFT] behind a quick 15-min demo";
+ (d) a direct reply-first ask. NO links, ever.
+STEP 2+ - thread as a reply (Re: same subject). CONTINUITY MATTERS: assume step 1 already happened. Call the SAME gift back ("that [GIFT] still stands" / "the [GIFT] is still yours if you book"), add ONE new proof point or angle, and repeat the demo ask. NEVER re-introduce the gift as if new; NEVER change the amount or gift type.
+STEP 3 - a gentle breakup or one fresh angle, keeping the gift and the ask consistent with the earlier steps.
+NEVER invent metrics, ARR, or guarantees. No em dashes, no AI-tell words. Subject: short, lowercase, founder-casual, e.g. "[company] + gather".`,
+  },
 };
 
 /**
@@ -446,7 +462,7 @@ export async function POST(request: Request) {
       // (like the Incentives Lab) so Results' offer A/B reveals which gift converts.
       const GIFT_AMOUNTS = [50, 100, 200];
       const GIFT_TYPES = ["Uber Eats card", "DoorDash card", "Amazon gift card"];
-      const useGift = resolvedStyle === "specialist-proof" || resolvedStyle === "direct-incentive" || resolvedStyle === "holiday-incentive";
+      const useGift = resolvedStyle === "specialist-proof" || resolvedStyle === "direct-incentive" || resolvedStyle === "holiday-incentive" || resolvedStyle === "founder-incentive";
       const giftAmount = useGift ? GIFT_AMOUNTS[leadIndex % GIFT_AMOUNTS.length] : null;
       const giftType = useGift ? GIFT_TYPES[Math.floor(leadIndex / GIFT_AMOUNTS.length) % GIFT_TYPES.length] : null;
       const giftBlock = useGift
@@ -472,7 +488,7 @@ GIFT CONTINUITY (critical — the steps are ONE ongoing thread, not separate ema
       // Style-specific sign-off: direct-ask uses first name only (brevity = credibility);
       // other styles append the company name for a light authority signal
       const senderFirstName = workspace.senderName?.trim().split(/\s+/)[0] ?? "Best";
-      const signoff = (resolvedStyle === "direct-ask" || resolvedStyle === "direct-incentive" || resolvedStyle === "holiday-incentive" || resolvedStyle === "founder")
+      const signoff = (resolvedStyle === "direct-ask" || resolvedStyle === "direct-incentive" || resolvedStyle === "holiday-incentive" || resolvedStyle === "founder" || resolvedStyle === "founder-incentive")
         ? senderFirstName
         : `${senderFirstName}, Gather`;
 

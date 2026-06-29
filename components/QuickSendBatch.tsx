@@ -64,7 +64,7 @@ export default function QuickSendBatch() {
       </summary>
       <div className="px-4 py-4 space-y-4" style={{ background: "var(--surface, #16161a)" }}>
         <p className="text-xs" style={{ color: "var(--text-secondary)" }}>
-          Sends a blend: <strong>~40% fresh founder</strong> (newly written per company — quick credential + demo ask, no gift), <strong>~40% incentive</strong> (the proven money-forward style), <strong>~20% other good styles</strong>. Grade-checked, right-fit ICP. Writing the founder portion fresh makes it run in rounds over a few minutes. (Chat experiment, not permanent.)
+          Sends a blend: <strong>~40% fresh founder-incentive combo</strong> (newly written per company — founder credential + a money offer, continuous across the sequence), <strong>~40% existing incentive</strong>, <strong>~20% other good styles</strong>. Grade-checked, right-fit ICP. Writing the founder combos fresh makes it run in rounds over a few minutes. (Chat experiment, not permanent.)
         </p>
 
         <div className="flex flex-wrap gap-3 items-end">

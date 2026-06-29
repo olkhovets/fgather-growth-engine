@@ -18,8 +18,10 @@ export const maxDuration = 120;
  * Draft and send are now the SAME set: the counts make sense.
  */
 
-// Various good styles (exclude specialist-proof — it converted ~0 across ~3k sends). Includes founder.
-const GOOD_STYLES = ["founder", "direct-incentive", "holiday-incentive", "lean-personal", "social-proof", "insight-hook", "pain-led", "direct-ask"];
+// Various good styles (exclude specialist-proof — it converted ~0 across ~3k sends). Includes the
+// founder-incentive combo (founder credential + money offer), which is what the fresh portion writes.
+const GOOD_STYLES = ["founder-incentive", "founder", "direct-incentive", "holiday-incentive", "lean-personal", "social-proof", "insight-hook", "pain-led", "direct-ask"];
+const FRESH_STYLE = "founder-incentive"; // the combo we write fresh per company
 const ROUND_CAP = 12; // leads chosen+sent per loop round (paced by how fast we can write fresh founder)
 // Recipient gateways that quarantine cold mail (mirrors the send route). Pre-filtered out for "no-gateways".
 const STRICT_GATEWAYS = ["Microsoft", "Proofpoint", "Mimecast", "Barracuda"];
@@ -57,8 +59,8 @@ export async function POST(request: Request) {
     const minGrade = Math.min(100, Math.max(0, typeof body.minGrade === "number" ? body.minGrade : DEFAULT_GRADE_FLOOR));
     // Ids the caller already tried this session — excluded so each loop round picks NEW leads.
     const excludeIds: string[] = Array.isArray(body.excludeIds) ? body.excludeIds.filter((s: unknown): s is string => typeof s === "string") : [];
-    // Blend shares: ~40% fresh FOUNDER (credential + demo ask), ~40% INCENTIVE (proven money-forward),
-    // ~20% other good styles. Founder is generated fresh; the rest ship existing good drafts.
+    // Blend shares: ~40% fresh FOUNDER-INCENTIVE combo (founder credential + money offer, written fresh
+    // per company), ~40% existing INCENTIVE (direct-incentive/holiday), ~20% other good styles.
     const founderShare = Math.min(1, Math.max(0, typeof body.founderShare === "number" ? body.founderShare : 0.4));
 
     const baseEnv = process.env.NEXTJS_URL || process.env.NEXTAUTH_URL;
@@ -77,7 +79,7 @@ export async function POST(request: Request) {
         try {
           const g = await fetch(`${base}/api/leads/generate`, {
             method: "POST", headers: { "Content-Type": "application/json", "x-cron-secret": cron },
-            body: JSON.stringify({ workspaceId: ws.id, recycle: true, oldestFirst: true, style: "founder", cooldownDays: COOLDOWN_DAYS, providerFilter: provider, useFastModel: true, limit: Math.min(10, wantFounder - generated), ...(icpOnly ? { personas: ICP_PERSONAS } : {}) }),
+            body: JSON.stringify({ workspaceId: ws.id, recycle: true, oldestFirst: true, style: FRESH_STYLE, cooldownDays: COOLDOWN_DAYS, providerFilter: provider, useFastModel: true, limit: Math.min(10, wantFounder - generated), ...(icpOnly ? { personas: ICP_PERSONAS } : {}) }),
           });
           const gd = await g.json().catch(() => ({}));
           const did = Number(gd.done) || 0;
@@ -119,9 +121,9 @@ export async function POST(request: Request) {
     // 3) rank by PER-PERSONA performance, then build the blend: founder + incentive + rest, to roundTarget.
     const stats = await perPersonaStyleStats(ws.id);
     const ranked = graded.sort((a, b) => styleScore(b.l.persona, b.l.emailStyle, stats) - styleScore(a.l.persona, a.l.emailStyle, stats));
-    const founderB = ranked.filter((x) => x.l.emailStyle === "founder");
-    const incentiveB = ranked.filter((x) => isIncentiveStyle(x.l.emailStyle));
-    const restB = ranked.filter((x) => x.l.emailStyle !== "founder" && !isIncentiveStyle(x.l.emailStyle));
+    const founderB = ranked.filter((x) => x.l.emailStyle === FRESH_STYLE);                                    // fresh founder+money combo
+    const incentiveB = ranked.filter((x) => isIncentiveStyle(x.l.emailStyle) && x.l.emailStyle !== FRESH_STYLE); // existing direct-incentive/holiday
+    const restB = ranked.filter((x) => x.l.emailStyle !== FRESH_STYLE && !isIncentiveStyle(x.l.emailStyle));    // other good styles
     const chosen = [
       ...founderB.slice(0, wantFounder),
       ...incentiveB.slice(0, wantIncentive),
