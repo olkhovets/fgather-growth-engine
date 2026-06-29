@@ -92,11 +92,11 @@ case "$cmd" in
     _confirm "HIT-OLDEST — re-draft oldest never-touched leads in '$style' with optimized subjects (Claude spend; does NOT send)"
     _post "$BASE_URL/api/leads/generate" -d "{\"recycle\":true,\"neverRecycledOnly\":true,\"oldestFirst\":true,\"optimizeSubject\":true,\"style\":\"$style\",\"useFastModel\":true$([[ -n "$(_ws)" ]] && echo ",\"workspaceId\":\"$(_ws)\"")}" ;;
 
-  hit-icp)     # like hit-oldest but ONLY right-fit ICP personas (the converters). arg: <style> (default direct-incentive)
+  hit-icp)     # like hit-oldest but ONLY right-fit ICP personas (the converters). args: <style> [cooldownDays]
     _auth
-    style="${1:-direct-incentive}"
-    _confirm "HIT-ICP — re-draft oldest right-fit ICP leads (consumer-insights/brand/marketing/growth) in '$style' + optimized subjects (Claude spend; does NOT send)"
-    _post "$BASE_URL/api/leads/generate" -d "{\"recycle\":true,\"oldestFirst\":true,\"optimizeSubject\":true,\"style\":\"$style\",\"personas\":[\"consumer-insights\",\"brand-social\",\"product-marketing\",\"growth-general\"],\"useFastModel\":true$([[ -n "$(_ws)" ]] && echo ",\"workspaceId\":\"$(_ws)\"")}" ;;
+    style="${1:-direct-incentive}"; cd_days="${2:-10}"
+    _confirm "HIT-ICP — re-draft right-fit ICP leads (consumer-insights/brand/marketing/growth) sent >${cd_days}d ago in '$style' + optimized subjects (Claude spend; does NOT send)"
+    _post "$BASE_URL/api/leads/generate" -d "{\"recycle\":true,\"oldestFirst\":true,\"optimizeSubject\":true,\"cooldownDays\":$cd_days,\"style\":\"$style\",\"personas\":[\"consumer-insights\",\"brand-social\",\"product-marketing\",\"growth-general\"],\"useFastModel\":true$([[ -n "$(_ws)" ]] && echo ",\"workspaceId\":\"$(_ws)\"")}" ;;
 
   send)       # upload + activate a batch in Instantly. args: <batchId> [sendLimit]
     _auth; [[ -n "${1:-}" ]] || { echo "usage: engine.sh send <batchId> [sendLimit]"; exit 1; }
@@ -106,10 +106,10 @@ case "$cmd" in
   send-recycle)  # SEND drafted recycle leads of a given style (pairs with hit-oldest/hit-icp). args: [style] [sendLimit]
     _auth
     [[ -n "$(_ws)" ]] || { echo "ERROR: WORKSPACE_ID required in .env for send-recycle"; exit 1; }
-    style="${1:-direct-incentive}"; lim="${2:-300}"
-    _confirm "SEND-RECYCLE — ship drafted '$style' recycle leads via Instantly (REAL sends, limit $lim)"
+    style="${1:-direct-incentive}"; lim="${2:-300}"; cd_days="${3:-10}"
+    _confirm "SEND-RECYCLE — ship drafted '$style' recycle leads via Instantly (REAL sends, limit $lim, cooldown ${cd_days}d)"
     curl -sS -X POST "$BASE_URL/api/incentives/launch" -H "x-cron-secret: ${CRON_SECRET}" -H "Content-Type: application/json" \
-      -d "{\"recycle\":true,\"useGeneratedSteps\":true,\"recycleStyle\":\"$style\",\"sendLimit\":$lim,\"workspaceId\":\"$(_ws)\"}" | jq . 2>/dev/null || true ;;
+      -d "{\"recycle\":true,\"useGeneratedSteps\":true,\"recycleStyle\":\"$style\",\"cooldownDays\":$cd_days,\"sendLimit\":$lim,\"workspaceId\":\"$(_ws)\"}" | jq . 2>/dev/null || true ;;
 
   retarget-ooo)  # SEND the money offer to OOO leads who are now back (run AFTER July 4). args: [sendLimit]
     _auth

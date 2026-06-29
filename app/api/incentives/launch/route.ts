@@ -63,7 +63,11 @@ export async function POST(request: Request) {
     // a gift card; reply-first, credentialed. Sends into a separate "Value-First (rolling)" campaign
     // so positives are cleanly comparable to the incentive track. Runs on FRESH leads, like incentives.
     const valueFirst = body.valueFirst === true;
-    const cooldownDays = ws.recycleCooldownDays ?? 21;
+    // cooldownDays override (1-90) so a targeted re-touch can ship sooner than the workspace default
+    // without changing it — must match the override used when drafting (generate route).
+    const cooldownDays = typeof body.cooldownDays === "number" && body.cooldownDays >= 1 && body.cooldownDays <= 90
+      ? Math.floor(body.cooldownDays)
+      : (ws.recycleCooldownDays ?? 21);
 
     // batchId optional: a specific batch (manual launch) or workspace-wide fresh leads (autopilot).
     const batchId: string | undefined = body.batchId;
