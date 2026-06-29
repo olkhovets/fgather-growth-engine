@@ -14,6 +14,8 @@ bash scripts/engine.sh loop            # run the whole daily loop by hand
 ```
 
 **The 2% reply-rate goal lives in `engine.sh target`** — it computes the current rate, the gap, and the single binding constraint (not sending → deliverability → targeting → copy), so you always work the real lever. Logic: `lib/reply-target.ts`.
+
+**Hit the oldest untouched leads hard:** `engine.sh hit-oldest [style]` re-drafts the OLDEST never-recycled leads (recycle-count 0, oldest first) in a hard-hitting style (default `direct-incentive`) with **optimized subject lines** — the subject engine (`lib/subject-engine.ts`) generates several signal-based personalized candidates per lead and ships the best-scoring one (2–4 words, lowercase, names the company/a trigger, no sell). Drafting only; the send stays your trigger.
 Config comes from `.env`: `BASE_URL`, `CRON_SECRET`, `SNAPSHOT_KEY`, optional `WORKSPACE_ID`.
 
 ## The pipeline (one diagram)

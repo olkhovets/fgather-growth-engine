@@ -16,6 +16,7 @@ import { validateEmailSteps, autoFixEmailContent } from "@/lib/email-validator";
 import { researchPlaybookBlock } from "@/lib/cold-email-research";
 import { gradeEmail } from "@/lib/email-grader";
 import { loadApprovedStyles } from "@/lib/style-proposer";
+import { generateSubjectCandidates, scoreSubject } from "@/lib/subject-engine";
 import { randomUUID } from "crypto";
 
 export const dynamic = "force-dynamic";
@@ -173,7 +174,10 @@ export async function POST(request: Request) {
       style: styleParam,
       workspaceId: workspaceIdParam,
       recycle: recycleParam,
-    } = body as { batchId: string; offset?: number; limit?: number; campaignId?: string; useFastModel?: boolean; useWebScraping?: boolean; useLandingPage?: boolean; useVideo?: boolean; useSampleOutput?: boolean; style?: string; workspaceId?: string; recycle?: boolean };
+      neverRecycledOnly: neverRecycledOnlyParam,
+      oldestFirst: oldestFirstParam,
+      optimizeSubject: optimizeSubjectParam,
+    } = body as { batchId: string; offset?: number; limit?: number; campaignId?: string; useFastModel?: boolean; useWebScraping?: boolean; useLandingPage?: boolean; useVideo?: boolean; useSampleOutput?: boolean; style?: string; workspaceId?: string; recycle?: boolean; neverRecycledOnly?: boolean; oldestFirst?: boolean; optimizeSubject?: boolean };
 
     // Auth: session for users, or CRON_SECRET + workspaceId for the autopilot orchestrator
     const cronSecret = process.env.CRON_SECRET;
@@ -255,7 +259,9 @@ export async function POST(request: Request) {
           repliedAt: null,
           bouncedAt: null,
           email: { not: "" },
-          recycleCount: { lt: 2 },
+          // neverRecycledOnly targets the freshest-to-the-audience leads (recycleCount 0) — they've
+          // only ever seen one email from us, so a hard-hitting new angle has the best shot.
+          recycleCount: neverRecycledOnlyParam === true ? 0 : { lt: 2 },
           OR: [{ recycledAt: null }, { recycledAt: { lt: cutoff } }],
           // Don't re-draft a lead already prepared in the requested recycle style and waiting to
           // send (else we'd burn tokens rewriting the same lead each tick before it ships). Keyed
@@ -276,7 +282,9 @@ export async function POST(request: Request) {
       prisma.lead.findMany({
         where: needsWorkWhere,
         select: { id: true, email: true, name: true, jobTitle: true, company: true, website: true, industry: true, persona: true, vertical: true, videoUrl: true, landingPageToken: true },
-        orderBy: { id: "asc" },
+        // oldestFirst drains the oldest leads first (by creation) — the stalest in the pool — so a new
+        // campaign starts with the people who've waited longest, instead of an arbitrary id order.
+        orderBy: oldestFirstParam === true ? { createdAt: "asc" } : { id: "asc" },
         skip: offset,
         take: limit,
       }),
@@ -689,6 +697,33 @@ Return ONLY valid JSON: { ${stepExample} }`;
             }
           } catch {
             // keep the original if the revision call fails
+          }
+        }
+
+        // Subject optimization (opt-in, e.g. hit-oldest): the subject is the open-gate. Generate a few
+        // personalized, signal-based candidates and swap in the best one if it beats the drafted subject.
+        // Step 2+ subjects stay "Re: <step1>" so the thread holds.
+        if (optimizeSubjectParam === true) {
+          try {
+            const cands = await generateSubjectCandidates(
+              anthropicKey, model,
+              { name: lead.name, company: lead.company, jobTitle: lead.jobTitle, industry: lead.industry },
+              { product: productSummary, styleHint: resolvedStyle, bodyHint: stepsArray[0].body },
+              6
+            );
+            const best = cands[0];
+            if (best && best.score > scoreSubject(stepsArray[0].subject, { company: lead.company, firstName: (lead.name ?? "").split(/\s+/)[0] || null }).score) {
+              const prevSubject = stepsArray[0].subject;
+              stepsArray[0].subject = autoFixEmailContent(best.subject);
+              // keep Re: threading on later steps pointed at the NEW subject
+              for (let i = 1; i < stepsArray.length; i++) {
+                if (/^re:\s*/i.test(stepsArray[i].subject) || stepsArray[i].subject.includes(prevSubject)) {
+                  stepsArray[i].subject = `Re: ${stepsArray[0].subject}`;
+                }
+              }
+            }
+          } catch {
+            // keep the generated subject if optimization fails
           }
         }
 

@@ -86,6 +86,12 @@ case "$cmd" in
     _confirm "RECYCLE — re-draft the prior lead pool (Claude spend; does NOT send)"
     _post "$BASE_URL/api/leads/generate" -d "{\"recycle\":true,\"useFastModel\":true$([[ -n "$(_ws)" ]] && echo ",\"workspaceId\":\"$(_ws)\"")}" ;;
 
+  hit-oldest)  # re-draft the OLDEST never-recycled leads in a hard-hitting style + optimized subjects. arg: <style> (default direct-incentive)
+    _auth
+    style="${1:-direct-incentive}"
+    _confirm "HIT-OLDEST — re-draft oldest never-touched leads in '$style' with optimized subjects (Claude spend; does NOT send)"
+    _post "$BASE_URL/api/leads/generate" -d "{\"recycle\":true,\"neverRecycledOnly\":true,\"oldestFirst\":true,\"optimizeSubject\":true,\"style\":\"$style\",\"useFastModel\":true$([[ -n "$(_ws)" ]] && echo ",\"workspaceId\":\"$(_ws)\"")}" ;;
+
   send)       # upload + activate a batch in Instantly. args: <batchId> [sendLimit]
     _auth; [[ -n "${1:-}" ]] || { echo "usage: engine.sh send <batchId> [sendLimit]"; exit 1; }
     _confirm "SEND real cold emails via Instantly (batch $1, limit ${2:-100})"
@@ -126,6 +132,7 @@ STYLE FACTORY:
 WRITE (live infra — prompts before firing):
   generate <batch>  draft sequences for a batch (Claude spend)
   recycle           re-draft the whole prior unsent pool (Claude spend; no send)
+  hit-oldest [style] re-draft OLDEST never-touched leads, hard-hitting style + optimized subjects
   send <batch> [N]  upload + activate a batch in Instantly (REAL sends)
   autopilot         one generate+send pass
   loop              run the full daily loop by hand (includes send)
