@@ -1,5 +1,6 @@
 "use client";
 import DashboardSidebar from "@/components/DashboardSidebar";
+import QuickSendBatch from "@/components/QuickSendBatch";
 
 import Link from "next/link";
 import { useSession, signOut } from "next-auth/react";
@@ -367,6 +368,9 @@ export default function LaunchPage() {
             </p>
             <Link href="/dashboard/experiments" className="text-xs underline mt-1 inline-block" style={{ color: "var(--text-tertiary)" }}>Advanced: manage A/B experiments →</Link>
           </div>
+
+          {/* TEMPORARY chat experiment — one-spot quick launcher */}
+          <QuickSendBatch />
 
           {/* Mode banner */}
           <div className="mb-6 card p-4">

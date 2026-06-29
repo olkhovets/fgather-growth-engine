@@ -24,8 +24,7 @@ const ICONS: Record<string, React.ReactNode> = {
 // who we target → what we send → what came back.
 const PIPELINE: Array<{ key: NavKey; href: string; label: string; hint: string }> = [
   { key: "apollo", href: "/dashboard/apollo", label: "Leads", hint: "who we target" },
-  { key: "send", href: "/launch", label: "Send good emails", hint: "one-press batch" },
-  { key: "launch", href: "/dashboard/launch", label: "Generate & send", hint: "full controls" },
+  { key: "launch", href: "/dashboard/launch", label: "Generate & send", hint: "write + send" },
   { key: "results", href: "/dashboard/results", label: "Results", hint: "what came back" },
 ];
 // Secondary — sources + utility, demoted so the pipeline stays the obvious path.
