@@ -21,7 +21,10 @@ export const maxDuration = 120;
 // Various good styles (exclude specialist-proof — it converted ~0 across ~3k sends).
 const GOOD_STYLES = ["direct-incentive", "holiday-incentive", "lean-personal", "social-proof", "insight-hook", "pain-led", "direct-ask"];
 const ICP_PERSONAS = ["consumer-insights", "brand-social", "product-marketing", "growth-general"];
-const GRADE_FLOOR = 65;       // keep only well-written drafts
+// Quality floor. Raised to 85: the grade measures CRAFT (length, personalization, human tone, no spam
+// triggers), not conversion — even a 99 can flop on market fit — so we only let the best-crafted out
+// and rely on the offer/targeting/timing levers to actually convert. Tunable via body.minGrade.
+const DEFAULT_GRADE_FLOOR = 85;
 const COOLDOWN_DAYS = 10;
 
 export async function POST(request: Request) {
@@ -48,6 +51,7 @@ export async function POST(request: Request) {
     // Minimum share of the batch that must be INCENTIVE (money/gift) styles — the proven converter,
     // "sprinkled in" regardless of what else ranks. Default 50%.
     const incentiveShare = Math.min(1, Math.max(0, typeof body.incentiveShare === "number" ? body.incentiveShare : 0.5));
+    const minGrade = Math.min(100, Math.max(0, typeof body.minGrade === "number" ? body.minGrade : DEFAULT_GRADE_FLOOR));
 
     // 1) candidate pool: eligible, good-style drafted, (ICP). Over-pull so the grade filter has slack.
     const cutoff = new Date(Date.now() - COOLDOWN_DAYS * 24 * 60 * 60 * 1000);
@@ -61,13 +65,13 @@ export async function POST(request: Request) {
       },
       select: { id: true, company: true, persona: true, emailStyle: true, step1Subject: true, step1Body: true },
       orderBy: { createdAt: "asc" }, // oldest-waiting first
-      take: count * 3,
+      take: count * 5, // over-pull wide so enough clear the higher quality bar
     });
 
-    // 2) grade-filter: keep the genuinely good ones.
+    // 2) grade-filter: keep only the best-crafted (default >=85).
     const graded = candidates
       .map((l) => ({ l, score: gradeEmail({ subject: l.step1Subject ?? "", body: l.step1Body ?? "" }, { company: l.company }).score }))
-      .filter((x) => x.score >= GRADE_FLOOR);
+      .filter((x) => x.score >= minGrade);
 
     // 3) rank by PER-PERSONA performance, then split so INCENTIVE styles get their guaranteed share.
     const stats = await perPersonaStyleStats(ws.id);
@@ -114,9 +118,9 @@ export async function POST(request: Request) {
     const incCount = chosen.filter((x) => isIncentiveStyle(x.l.emailStyle)).length;
     return NextResponse.json({
       ok: true,
-      requested: count, candidates: candidates.length, gradedGood: graded.length, chosen: ids.length,
+      requested: count, candidates: candidates.length, gradedGood: graded.length, chosen: ids.length, minGrade,
       sent, skipped, eligible, prepared, provider, styleMix, incentiveCount: incCount,
-      message: `Chose ${ids.length} good emails — ${incCount} incentive (${Math.round((incCount / ids.length) * 100)}%), per-persona best styles: ${Object.entries(styleMix).map(([s, n]) => `${n} ${s}`).join(", ")}. Sent ${sent}${skipped > 0 ? `, skipped ${skipped} (off-provider / not on a warmed inbox)` : ""}.${sendErr ? ` Note: ${sendErr}` : ""}`,
+      message: `${graded.length}/${candidates.length} drafts cleared the quality bar (>=${minGrade}). Chose ${ids.length} — ${incCount} incentive (${Math.round((incCount / ids.length) * 100)}%), per-persona best styles: ${Object.entries(styleMix).map(([s, n]) => `${n} ${s}`).join(", ")}. Sent ${sent}${skipped > 0 ? `, skipped ${skipped} (off-provider / not on a warmed inbox)` : ""}.${sendErr ? ` Note: ${sendErr}` : ""}`,
     });
   } catch (err) {
     return NextResponse.json({ error: err instanceof Error ? err.message : "Send failed" }, { status: 500 });
