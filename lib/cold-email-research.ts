@@ -26,9 +26,9 @@ export const COLD_EMAIL_RESEARCH: ResearchRule[] = [
   },
   {
     dimension: "subject",
-    rule: "Subject line 1–4 words, all lowercase (proper nouns aside), anchored to their world/problem. Never pitch the solution or say 'AI' in it.",
-    evidence: "Under-4-word subjects reply 4.2x higher than 13+ word subjects; salesy subjects cut opens up to 17.9%; personalized subjects 46% open vs 35%.",
-    source: "Gong/30MPC; Belkins — belkins.io/blog/b2b-cold-email-subject-line-statistics",
+    rule: "Subject line 2–4 words (≤40 chars), all lowercase, personalized on a SIGNAL — their brand, a launch/campaign, a competitor, or a real metric — NOT a bare first name or merge token. Reads like an internal note, never marketing. No sell, no spam words, no '!'. Patterns: 'company + topic', 'competitor?', 'rising cac?', 'idea to lift {brand}'s repeat rate', a recent trigger/event.",
+    evidence: "2–4-word lowercase no-sell subjects hit 58%+ opens (~2x avg); trigger/event personalization ~+45% opens; personalized 46% open / 7% reply vs generic 35% / 3%; first-name-only mail-merge HURTS replies −12%; salesy words −17.9% opens; 2+ spam words ~73% worse placement.",
+    source: "Gong 85M/30MPC; Belkins 5.5M; Smartlead; Lavender; Josh Braun",
   },
   {
     dimension: "personalization",
