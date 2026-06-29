@@ -56,6 +56,34 @@ export async function POST(request: Request) {
     const minGrade = Math.min(100, Math.max(0, typeof body.minGrade === "number" ? body.minGrade : DEFAULT_GRADE_FLOOR));
     // Ids the caller already tried this session — excluded so each loop round picks NEW leads.
     const excludeIds: string[] = Array.isArray(body.excludeIds) ? body.excludeIds.filter((s: unknown): s is string => typeof s === "string") : [];
+    // generateStyle: write BRAND-NEW emails in this style first (skip the existing/old drafts), then send
+    // them. Restricts the selection to that style. Used for the founder-style fresh send.
+    const generateStyle = typeof body.generateStyle === "string" && body.generateStyle.trim() ? body.generateStyle.trim() : null;
+    const stylesFilter = generateStyle ? [generateStyle] : GOOD_STYLES;
+
+    const baseEnv = process.env.NEXTJS_URL || process.env.NEXTAUTH_URL;
+    const base = baseEnv && baseEnv.startsWith("http") ? baseEnv.replace(/\/$/, "") : "https://peter-engine-working-copy.vercel.app";
+
+    // 0) FRESH GENERATION (optional): write new company-specific emails in generateStyle for sendable,
+    // eligible leads — overwriting whatever old draft they had. Capped per call (generation is slow);
+    // the caller loops, so the batch fills across rounds.
+    let generated = 0;
+    if (generateStyle) {
+      const GEN_PER_CALL = 12;
+      const genStart = Date.now();
+      while (generated < GEN_PER_CALL && Date.now() - genStart < 75_000) {
+        try {
+          const g = await fetch(`${base}/api/leads/generate`, {
+            method: "POST", headers: { "Content-Type": "application/json", "x-cron-secret": cron },
+            body: JSON.stringify({ workspaceId: ws.id, recycle: true, oldestFirst: true, style: generateStyle, cooldownDays: COOLDOWN_DAYS, providerFilter: provider, useFastModel: true, limit: 10, ...(icpOnly ? { personas: ICP_PERSONAS } : {}) }),
+          });
+          const gd = await g.json().catch(() => ({}));
+          const did = Number(gd.done) || 0;
+          generated += did;
+          if (did === 0) break; // nothing left to draft
+        } catch { break; }
+      }
+    }
 
     // PRE-FILTER selection by the SAME provider rule the send uses, so we don't choose 200 then watch
     // 158 get filtered out at send time. no-gateways keeps Gmail + null/unknown + non-gateway providers.
@@ -64,14 +92,14 @@ export async function POST(request: Request) {
       : provider === "no-gateways" ? { NOT: { emailProvider: { in: STRICT_GATEWAYS } } }
       : {};
 
-    // 1) candidate pool: eligible, good-style drafted, sendable provider, (ICP). Over-pull for grading slack.
+    // 1) candidate pool: eligible, target-style drafted, sendable provider, (ICP). Over-pull for grading slack.
     const cutoff = new Date(Date.now() - COOLDOWN_DAYS * 24 * 60 * 60 * 1000);
     const candidates = await prisma.lead.findMany({
       where: {
         leadBatch: { workspaceId: ws.id },
         sentAt: { lt: cutoff }, suppressed: false, repliedAt: null, bouncedAt: null,
         recycleCount: { lt: 2 }, OR: [{ recycledAt: null }, { recycledAt: { lt: cutoff } }],
-        stepsJson: { not: null }, emailStyle: { in: GOOD_STYLES },
+        stepsJson: { not: null }, emailStyle: { in: stylesFilter },
         ...(icpOnly ? { persona: { in: ICP_PERSONAS } } : {}),
         ...providerWhere,
         ...(excludeIds.length ? { id: { notIn: excludeIds } } : {}),
@@ -107,12 +135,10 @@ export async function POST(request: Request) {
     for (const x of chosen) styleMix[x.l.emailStyle ?? "?"] = (styleMix[x.l.emailStyle ?? "?"] ?? 0) + 1;
 
     if (ids.length === 0) {
-      return NextResponse.json({ ok: true, candidates: candidates.length, gradedGood: 0, sent: 0, message: "No eligible good-style drafts right now (cooldown or all sent)." });
+      return NextResponse.json({ ok: true, candidates: candidates.length, gradedGood: 0, chosen: 0, sent: 0, generated, attemptedIds: [], message: generateStyle && generated === 0 ? "No more leads left to write fresh emails for (pool drained)." : "No eligible drafts cleared the bar this round." });
     }
 
     // 3) send exactly those ids.
-    const baseEnv = process.env.NEXTJS_URL || process.env.NEXTAUTH_URL;
-    const base = baseEnv && baseEnv.startsWith("http") ? baseEnv.replace(/\/$/, "") : "https://peter-engine-working-copy.vercel.app";
     let sent = 0, prepared = 0, eligible = 0, sendErr = "";
     try {
       const snd = await fetch(`${base}/api/incentives/launch`, {
@@ -132,7 +158,7 @@ export async function POST(request: Request) {
     const incCount = chosen.filter((x) => isIncentiveStyle(x.l.emailStyle)).length;
     return NextResponse.json({
       ok: true,
-      requested: count, candidates: candidates.length, gradedGood: graded.length, chosen: ids.length, minGrade,
+      requested: count, candidates: candidates.length, gradedGood: graded.length, chosen: ids.length, minGrade, generated,
       sent, sendSideSkipped, belowGrade, eligible, prepared, provider, styleMix, incentiveCount: incCount,
       attemptedIds: ids, // so the loop excludes these next round
       poolMaybeMore: candidates.length >= count * 5, // candidate query hit its cap → likely more leads available
