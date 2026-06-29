@@ -3,6 +3,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { gradeEmail } from "@/lib/email-grader";
+import { perPersonaStyleStats, styleScore, isIncentiveStyle } from "@/lib/persona-style";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 120;
@@ -44,6 +45,9 @@ export async function POST(request: Request) {
     const provider: "all" | "google" | "no-gateways" =
       body.providerFilter === "all" || body.providerFilter === "google" ? body.providerFilter : "no-gateways";
     const icpOnly = body.icpOnly !== false; // default: right-fit personas only
+    // Minimum share of the batch that must be INCENTIVE (money/gift) styles — the proven converter,
+    // "sprinkled in" regardless of what else ranks. Default 50%.
+    const incentiveShare = Math.min(1, Math.max(0, typeof body.incentiveShare === "number" ? body.incentiveShare : 0.5));
 
     // 1) candidate pool: eligible, good-style drafted, (ICP). Over-pull so the grade filter has slack.
     const cutoff = new Date(Date.now() - COOLDOWN_DAYS * 24 * 60 * 60 * 1000);
@@ -55,19 +59,35 @@ export async function POST(request: Request) {
         stepsJson: { not: null }, emailStyle: { in: GOOD_STYLES },
         ...(icpOnly ? { persona: { in: ICP_PERSONAS } } : {}),
       },
-      select: { id: true, company: true, emailStyle: true, step1Subject: true, step1Body: true },
+      select: { id: true, company: true, persona: true, emailStyle: true, step1Subject: true, step1Body: true },
       orderBy: { createdAt: "asc" }, // oldest-waiting first
       take: count * 3,
     });
 
-    // 2) grade-filter: keep the genuinely good ones, preserve style variety.
-    const good = candidates
-      .map((l) => ({ l, g: gradeEmail({ subject: l.step1Subject ?? "", body: l.step1Body ?? "" }, { company: l.company }) }))
-      .filter((x) => x.g.score >= GRADE_FLOOR)
-      .slice(0, count);
-    const ids = good.map((x) => x.l.id);
+    // 2) grade-filter: keep the genuinely good ones.
+    const graded = candidates
+      .map((l) => ({ l, score: gradeEmail({ subject: l.step1Subject ?? "", body: l.step1Body ?? "" }, { company: l.company }).score }))
+      .filter((x) => x.score >= GRADE_FLOOR);
+
+    // 3) rank by PER-PERSONA performance, then split so INCENTIVE styles get their guaranteed share.
+    const stats = await perPersonaStyleStats(ws.id);
+    const ranked = graded.sort((a, b) => styleScore(b.l.persona, b.l.emailStyle, stats) - styleScore(a.l.persona, a.l.emailStyle, stats));
+    const incentive = ranked.filter((x) => isIncentiveStyle(x.l.emailStyle));
+    const rest = ranked.filter((x) => !isIncentiveStyle(x.l.emailStyle));
+    const wantIncentive = Math.round(count * incentiveShare);
+    const chosen = [
+      ...incentive.slice(0, wantIncentive),
+      ...rest.slice(0, count - Math.min(wantIncentive, incentive.length)),
+    ].slice(0, count);
+    // top up from whichever bucket has slack if one ran short
+    if (chosen.length < count) {
+      const have = new Set(chosen.map((x) => x.l.id));
+      for (const x of ranked) { if (chosen.length >= count) break; if (!have.has(x.l.id)) chosen.push(x); }
+    }
+
+    const ids = chosen.map((x) => x.l.id);
     const styleMix: Record<string, number> = {};
-    for (const x of good) styleMix[x.l.emailStyle ?? "?"] = (styleMix[x.l.emailStyle ?? "?"] ?? 0) + 1;
+    for (const x of chosen) styleMix[x.l.emailStyle ?? "?"] = (styleMix[x.l.emailStyle ?? "?"] ?? 0) + 1;
 
     if (ids.length === 0) {
       return NextResponse.json({ ok: true, candidates: candidates.length, gradedGood: 0, sent: 0, message: "No eligible good-style drafts right now (cooldown or all sent)." });
@@ -91,11 +111,12 @@ export async function POST(request: Request) {
     } catch (e) { sendErr = e instanceof Error ? e.message : "send failed"; }
 
     const skipped = ids.length - sent;
+    const incCount = chosen.filter((x) => isIncentiveStyle(x.l.emailStyle)).length;
     return NextResponse.json({
       ok: true,
-      requested: count, candidates: candidates.length, gradedGood: ids.length,
-      sent, skipped, eligible, prepared, provider, styleMix,
-      message: `Chose ${ids.length} good emails (${Object.entries(styleMix).map(([s, n]) => `${n} ${s}`).join(", ")}). Sent ${sent}${skipped > 0 ? `, skipped ${skipped} (off-provider / not on a warmed inbox)` : ""}.${sendErr ? ` Note: ${sendErr}` : ""}`,
+      requested: count, candidates: candidates.length, gradedGood: graded.length, chosen: ids.length,
+      sent, skipped, eligible, prepared, provider, styleMix, incentiveCount: incCount,
+      message: `Chose ${ids.length} good emails — ${incCount} incentive (${Math.round((incCount / ids.length) * 100)}%), per-persona best styles: ${Object.entries(styleMix).map(([s, n]) => `${n} ${s}`).join(", ")}. Sent ${sent}${skipped > 0 ? `, skipped ${skipped} (off-provider / not on a warmed inbox)` : ""}.${sendErr ? ` Note: ${sendErr}` : ""}`,
     });
   } catch (err) {
     return NextResponse.json({ error: err instanceof Error ? err.message : "Send failed" }, { status: 500 });

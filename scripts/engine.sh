@@ -132,6 +132,12 @@ case "$cmd" in
     curl -sS -X POST "$BASE_URL/api/incentives/launch" -H "x-cron-secret: ${CRON_SECRET}" -H "Content-Type: application/json" \
       -d "{\"oooRequeue\":true,\"sendLimit\":$lim,\"workspaceId\":\"$(_ws)\"}" | jq . 2>/dev/null || true ;;
 
+  autopilot-off|autopilot-on)  # pause/resume the automated senders (so manual batches don't fight them)
+    _auth; [[ -n "$(_ws)" ]] || { echo "ERROR: WORKSPACE_ID required in .env"; exit 1; }
+    on=$([[ "$cmd" == "autopilot-on" ]] && echo true || echo false)
+    curl -sS -X POST "$BASE_URL/api/autopilot-toggle" -H "x-cron-secret: ${CRON_SECRET}" -H "Content-Type: application/json" \
+      -d "{\"on\":$on,\"which\":\"both\",\"workspaceId\":\"$(_ws)\"}" | jq . 2>/dev/null || true ;;
+
   autopilot)  # one generate+send autopilot pass for the workspace
     _auth
     _confirm "AUTOPILOT — generate + SEND in one pass (real sends)"
@@ -168,7 +174,8 @@ WRITE (live infra — prompts before firing):
   generate <batch>  draft sequences for a batch (Claude spend)
   recycle           re-draft the whole prior unsent pool (Claude spend; no send)
   hit-oldest [style] re-draft OLDEST never-touched leads, hard-hitting style + optimized subjects
-  send-good [N] [prov]  ⮕ SEND N grade-checked good emails of various styles (ICP; REAL sends)
+  send-good [N] [prov]  ⮕ SEND N grade-checked good emails, per-persona best styles + incentives sprinkled (ICP; REAL sends)
+  autopilot-off / autopilot-on  pause/resume the automated senders
   send <batch> [N]  upload + activate a batch in Instantly (REAL sends)
   send-recycle [style] [N]  SEND the drafted recycle leads of a style (REAL sends; pairs with hit-oldest/hit-icp)
   retarget-ooo [N]  SEND the offer to OOO leads who are back (run AFTER July 4th)
