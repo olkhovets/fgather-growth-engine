@@ -11,6 +11,7 @@ export default function LaunchPage() {
   const { ready, session } = useAuthGuard();
   const [count, setCount] = useState("200");
   const [provider, setProvider] = useState("no-gateways");
+  const [minGrade, setMinGrade] = useState("85");
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<SendResult | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -26,7 +27,7 @@ export default function LaunchPage() {
     try {
       const r = await fetch("/api/send-batch", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ count: Number(count) || 0, providerFilter: provider }),
+        body: JSON.stringify({ count: Number(count) || 0, providerFilter: provider, minGrade: Number(minGrade) || 85 }),
       });
       const d = await r.json();
       if (!r.ok) setError(d.error || "Send failed.");
@@ -67,6 +68,10 @@ export default function LaunchPage() {
               <input type="number" min="1" max="1000" value={count} onChange={(e) => setCount(e.target.value)} className="w-28 rounded-lg px-3 py-2 text-sm" style={inputStyle} />
             </div>
             <div className="space-y-1">
+              <div className="text-xs font-medium" style={{ color: "var(--text-secondary)" }}>Min quality (0–100)</div>
+              <input type="number" min="0" max="100" value={minGrade} onChange={(e) => setMinGrade(e.target.value)} className="w-24 rounded-lg px-3 py-2 text-sm" style={inputStyle} />
+            </div>
+            <div className="space-y-1">
               <div className="text-xs font-medium" style={{ color: "var(--text-secondary)" }}>Recipients</div>
               <select value={provider} onChange={(e) => setProvider(e.target.value)} className="rounded-lg px-3 py-2 text-sm" style={inputStyle}>
                 <option value="no-gateways">Safe (skip strict gateways)</option>
@@ -75,6 +80,9 @@ export default function LaunchPage() {
               </select>
             </div>
           </div>
+          <p className="text-xs" style={{ color: "var(--text-tertiary)" }}>
+            Only drafts scoring ≥ your Min quality are sent. Note: the score measures craft (clarity, personalization, no spam triggers), not whether it converts — the offer and targeting do that.
+          </p>
 
           <button
             onClick={send}
