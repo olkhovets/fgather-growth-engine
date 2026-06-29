@@ -124,6 +124,18 @@ ONE proof line, pick just one: brands like Belk, Staples, Bagel Brands and Empir
 Close: reply-first, zero pressure - "reply whenever you are back and I will send details." NO links, ever.
 No P.S. Subject: short, lowercase, may nod to the timing, e.g. "after the 4th?" or "[company] + when you are back".`,
   },
+
+  // Founder: the classic founder-to-buyer note. Quick credential + a direct demo ask. No gift, no essay.
+  // Credibility-led ("here is who we are, worth a look?") rather than money-led.
+  "founder": {
+    usePS: false,
+    prompt: `EMAIL STYLE: Founder (quick credential + demo ask, human, no gift)
+Write as the FOUNDER of Gather emailing a peer. Warm, confident, direct. UNDER 55 words. No fluff, no corporate, no buzzwords.
+Sentence 1: one specific line about what THIS company does (use the research) so it is clearly written for them, not a blast.
+Sentence 2: a quick credential in one breath - who we are and why we are credible. Pick the 2-3 MOST relevant proof points, never all: founder of Gather; we run AI consumer research; brands like Belk, Staples and Bagel Brands use us; backed by Menlo; built by the team behind Gartner Peer Insights; real consumer answers in days. NEVER invent metrics, ARR, or guarantees.
+Close: a direct, low-friction ask to MEET FOR A QUICK DEMO - e.g. "Worth a quick 15-min demo?" or "Open to a look?" Reply-first. NO links, ever. No gift, no money.
+No P.S. No em dashes, no AI-tell words. Subject: short, lowercase, founder-casual, e.g. "[company] + gather" or "quick intro".`,
+  },
 };
 
 /**
@@ -194,7 +206,8 @@ export async function POST(request: Request) {
       optimizeSubject: optimizeSubjectParam,
       personas: personasParam,
       cooldownDays: cooldownDaysParam,
-    } = body as { batchId: string; offset?: number; limit?: number; campaignId?: string; useFastModel?: boolean; useWebScraping?: boolean; useLandingPage?: boolean; useVideo?: boolean; useSampleOutput?: boolean; style?: string; workspaceId?: string; recycle?: boolean; neverRecycledOnly?: boolean; oldestFirst?: boolean; optimizeSubject?: boolean; personas?: string[]; cooldownDays?: number };
+      providerFilter: providerFilterParam,
+    } = body as { batchId: string; offset?: number; limit?: number; campaignId?: string; useFastModel?: boolean; useWebScraping?: boolean; useLandingPage?: boolean; useVideo?: boolean; useSampleOutput?: boolean; style?: string; workspaceId?: string; recycle?: boolean; neverRecycledOnly?: boolean; oldestFirst?: boolean; optimizeSubject?: boolean; personas?: string[]; cooldownDays?: number; providerFilter?: string };
 
     // Auth: session for users, or CRON_SECRET + workspaceId for the autopilot orchestrator
     const cronSecret = process.env.CRON_SECRET;
@@ -287,6 +300,10 @@ export async function POST(request: Request) {
           // the pool is unclassified and some are wrong-fit; the converters are consumer-insights/brand/
           // marketing). When provided, only re-draft leads whose persona is in this set.
           ...(Array.isArray(personasParam) && personasParam.length > 0 ? { persona: { in: personasParam } } : {}),
+          // Provider targeting — only draft leads we can actually SEND to (skip strict gateways), so a
+          // fresh-generate-then-send flow doesn't waste generation on unsendable recipients.
+          ...(providerFilterParam === "no-gateways" ? { NOT: { emailProvider: { in: ["Microsoft", "Proofpoint", "Mimecast", "Barracuda"] } } }
+            : providerFilterParam === "google" ? { OR: [{ emailProvider: "Google" }, { emailProvider: null }] } : {}),
           OR: [{ recycledAt: null }, { recycledAt: { lt: cutoff } }],
           // Don't re-draft a lead already prepared in the requested recycle style and waiting to
           // send (else we'd burn tokens rewriting the same lead each tick before it ships). Keyed
@@ -455,7 +472,7 @@ GIFT CONTINUITY (critical — the steps are ONE ongoing thread, not separate ema
       // Style-specific sign-off: direct-ask uses first name only (brevity = credibility);
       // other styles append the company name for a light authority signal
       const senderFirstName = workspace.senderName?.trim().split(/\s+/)[0] ?? "Best";
-      const signoff = (resolvedStyle === "direct-ask" || resolvedStyle === "direct-incentive" || resolvedStyle === "holiday-incentive")
+      const signoff = (resolvedStyle === "direct-ask" || resolvedStyle === "direct-incentive" || resolvedStyle === "holiday-incentive" || resolvedStyle === "founder")
         ? senderFirstName
         : `${senderFirstName}, Gather`;
 

@@ -2,7 +2,7 @@
 
 import { useState, useCallback } from "react";
 
-type Progress = { sent: number; target: number; sendSideSkipped: number; rounds: number; done: boolean; note: string };
+type Progress = { sent: number; target: number; generated: number; sendSideSkipped: number; rounds: number; done: boolean; note: string };
 
 /**
  * TEMPORARY "Quick Send" dropdown — a chat-driven experiment, intentionally marked as not-permanent.
@@ -24,24 +24,26 @@ export default function QuickSendBatch() {
   const send = useCallback(async () => {
     const target = Math.max(1, Number(count) || 0);
     setBusy(true); setError(null);
-    setProg({ sent: 0, target, sendSideSkipped: 0, rounds: 0, done: false, note: "Starting…" });
+    setProg({ sent: 0, target, generated: 0, sendSideSkipped: 0, rounds: 0, done: false, note: "Writing fresh founder emails…" });
     const attempted: string[] = [];
-    let sent = 0, sendSide = 0, rounds = 0;
-    const MAX_ROUNDS = 30;
+    let sent = 0, generated = 0, sendSide = 0, rounds = 0;
+    const MAX_ROUNDS = 40;
     try {
       while (sent < target && rounds < MAX_ROUNDS) {
         const r = await fetch("/api/send-batch", {
           method: "POST", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ count: target - sent, minGrade: Number(minGrade) || 85, providerFilter: provider, excludeIds: attempted }),
+          // generateStyle = write BRAND-NEW founder-style company-specific emails, then send them.
+          body: JSON.stringify({ count: target - sent, minGrade: Number(minGrade) || 85, providerFilter: provider, excludeIds: attempted, generateStyle: "founder" }),
         });
         const d = await r.json();
         if (!r.ok) { setError(d.error || "Send failed."); break; }
         sent += d.sent || 0;
+        generated += d.generated || 0;
         sendSide += d.sendSideSkipped || 0;
         rounds += 1;
         for (const id of d.attemptedIds || []) attempted.push(id);
-        const exhausted = (d.chosen || 0) === 0;
-        setProg({ sent, target, sendSideSkipped: sendSide, rounds, done: sent >= target || exhausted, note: exhausted ? "No more eligible leads in the pool." : d.message || "" });
+        const exhausted = (d.chosen || 0) === 0 && (d.generated || 0) === 0;
+        setProg({ sent, target, generated, sendSideSkipped: sendSide, rounds, done: sent >= target || exhausted, note: exhausted ? "No more leads left to write for (pool drained)." : d.message || "" });
         if (exhausted) break;
       }
     } catch (e) {
@@ -62,7 +64,7 @@ export default function QuickSendBatch() {
       </summary>
       <div className="px-4 py-4 space-y-4" style={{ background: "var(--surface, #16161a)" }}>
         <p className="text-xs" style={{ color: "var(--text-secondary)" }}>
-          Sends a grade-checked batch of good emails — right-fit ICP, per-persona best styles, ~50% incentives sprinkled in. Just pick the numbers and launch. (We&apos;re iterating on this in chat; it&apos;s not a permanent part of the dashboard yet.)
+          Writes <strong>brand-new</strong> company-specific emails in the founder style (quick credential + a demo ask, no gift), grade-checks them, and sends — skipping the old drafts. Because it&apos;s writing each one fresh, it runs in rounds and takes a few minutes for a big batch. (Chat experiment, not permanent.)
         </p>
 
         <div className="flex flex-wrap gap-3 items-end">
@@ -85,7 +87,7 @@ export default function QuickSendBatch() {
         </div>
 
         <button onClick={send} disabled={busy} className="rounded-xl px-5 py-3 text-sm font-semibold transition disabled:opacity-60" style={{ background: busy ? "#444" : "var(--accent, #6366f1)", color: "#fff" }}>
-          {busy ? `Sending… ${prog?.sent ?? 0}/${prog?.target ?? count}` : `🚀  Send ${count || 0} good emails (real send)`}
+          {busy ? `Writing + sending… ${prog?.sent ?? 0}/${prog?.target ?? count}` : `🚀  Write + send ${count || 0} fresh founder emails`}
         </button>
 
         {prog && (
@@ -96,7 +98,7 @@ export default function QuickSendBatch() {
               <div className="h-full rounded-full transition-all" style={{ width: `${Math.min(100, Math.round((prog.sent / prog.target) * 100))}%`, background: "var(--accent, #6366f1)" }} />
             </div>
             <div className="text-xs space-y-0.5" style={{ color: "var(--text-secondary)" }}>
-              <div>Rounds: {prog.rounds} · Skipped (not on a warmed inbox / already in a campaign): <span style={{ color: "var(--text-primary)" }}>{prog.sendSideSkipped}</span></div>
+              <div>Written fresh: <span style={{ color: "var(--text-primary)" }}>{prog.generated}</span> · Rounds: {prog.rounds} · Skipped (not on a warmed inbox / already in a campaign): <span style={{ color: "var(--text-primary)" }}>{prog.sendSideSkipped}</span></div>
               {prog.done && prog.sent < prog.target && <div style={{ color: "#fbbf24" }}>{prog.note} Reached {prog.sent} of {prog.target}.</div>}
               {prog.done && prog.sent >= prog.target && <div style={{ color: "#4ade80" }}>Target reached.</div>}
             </div>
