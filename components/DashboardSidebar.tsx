@@ -3,12 +3,13 @@
 import Link from "next/link";
 import { signOut } from "next-auth/react";
 
-type NavKey = "dashboard" | "apollo" | "launch" | "crosschannel" | "results" | "poach" | "experiments" | "deliverability" | "activity" | "help" | "settings";
+type NavKey = "dashboard" | "apollo" | "launch" | "send" | "crosschannel" | "results" | "poach" | "experiments" | "deliverability" | "activity" | "help" | "settings";
 
 const ICONS: Record<string, React.ReactNode> = {
   dashboard: <path strokeLinecap="round" strokeLinejoin="round" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" />,
   apollo: <path strokeLinecap="round" strokeLinejoin="round" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />,
   launch: <path strokeLinecap="round" strokeLinejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" />,
+  send: <path strokeLinecap="round" strokeLinejoin="round" d="M5 12h14M12 5l7 7-7 7" />,
   crosschannel: <path strokeLinecap="round" strokeLinejoin="round" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" />,
   results: <path strokeLinecap="round" strokeLinejoin="round" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />,
   poach: <path strokeLinecap="round" strokeLinejoin="round" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />,
@@ -23,7 +24,8 @@ const ICONS: Record<string, React.ReactNode> = {
 // who we target → what we send → what came back.
 const PIPELINE: Array<{ key: NavKey; href: string; label: string; hint: string }> = [
   { key: "apollo", href: "/dashboard/apollo", label: "Leads", hint: "who we target" },
-  { key: "launch", href: "/dashboard/launch", label: "Generate & send", hint: "write + send" },
+  { key: "send", href: "/launch", label: "Send good emails", hint: "one-press batch" },
+  { key: "launch", href: "/dashboard/launch", label: "Generate & send", hint: "full controls" },
   { key: "results", href: "/dashboard/results", label: "Results", hint: "what came back" },
 ];
 // Secondary — sources + utility, demoted so the pipeline stays the obvious path.
