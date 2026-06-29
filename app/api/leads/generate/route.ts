@@ -109,6 +109,21 @@ Sentence 2: ONE line of real proof, pick just one (never stack them): brands lik
 Step 1 closing: reply-first only — one crisp line, e.g. "Worth a reply?" or "Reply 'yes' and I'll send the details." NO links, ever.
 No P.S. Banned AI words still apply. Money is framed as confidence, never "free gift, no catch".`,
   },
+
+  // Holiday-Incentive: direct-incentive + a human nod to the long weekend. Most senders pretend it's a
+  // normal day; acknowledging it is a pattern-interrupt that disarms and lands whether they read it now
+  // or when they're back. SEASONAL — written for a US holiday week (e.g. July 4th); edit/retire after.
+  "holiday-incentive": {
+    usePS: false,
+    prompt: `EMAIL STYLE: Holiday-Incentive (short, money-forward, holiday-aware, zero-pressure, reply-first)
+The whole email is UNDER 60 words. Warm, confident peer-to-peer, a little cocky. Never corporate.
+Sentence 1: a real, specific read on what THIS company is doing (use the research) - names them, about THEM. One sharp line.
+Holiday nod (human, not a gimmick): acknowledge the long weekend / holiday week naturally and LOW-PRESSURE - you are reaching out now so it is waiting when they are back, no rush. e.g. "figured you are half-out the door for the long weekend, so no rush" or "know it is a holiday week".
+The offer as CONVICTION: we are sure enough Gather helps [Company] that I will put a [GIFT] behind 20 minutes whenever you are back. Use the workspace incentive amount + gift type. NEVER invent metrics/ARR/guarantees.
+ONE proof line, pick just one: brands like Belk, Staples, Bagel Brands and Empire Today get real consumer answers in days, not a six-week study.
+Close: reply-first, zero pressure - "reply whenever you are back and I will send details." NO links, ever.
+No P.S. Subject: short, lowercase, may nod to the timing, e.g. "after the 4th?" or "[company] + when you are back".`,
+  },
 };
 
 /**
@@ -409,7 +424,7 @@ export async function POST(request: Request) {
       // (like the Incentives Lab) so Results' offer A/B reveals which gift converts.
       const GIFT_AMOUNTS = [50, 100, 200];
       const GIFT_TYPES = ["Uber Eats card", "DoorDash card", "Amazon gift card"];
-      const useGift = resolvedStyle === "specialist-proof" || resolvedStyle === "direct-incentive";
+      const useGift = resolvedStyle === "specialist-proof" || resolvedStyle === "direct-incentive" || resolvedStyle === "holiday-incentive";
       const giftAmount = useGift ? GIFT_AMOUNTS[leadIndex % GIFT_AMOUNTS.length] : null;
       const giftType = useGift ? GIFT_TYPES[Math.floor(leadIndex / GIFT_AMOUNTS.length) % GIFT_TYPES.length] : null;
       const giftBlock = useGift
@@ -435,7 +450,7 @@ GIFT CONTINUITY (critical — the steps are ONE ongoing thread, not separate ema
       // Style-specific sign-off: direct-ask uses first name only (brevity = credibility);
       // other styles append the company name for a light authority signal
       const senderFirstName = workspace.senderName?.trim().split(/\s+/)[0] ?? "Best";
-      const signoff = (resolvedStyle === "direct-ask" || resolvedStyle === "direct-incentive")
+      const signoff = (resolvedStyle === "direct-ask" || resolvedStyle === "direct-incentive" || resolvedStyle === "holiday-incentive")
         ? senderFirstName
         : `${senderFirstName}, Gather`;
 
