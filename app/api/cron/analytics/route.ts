@@ -141,7 +141,7 @@ export async function GET(request: Request) {
   // agents (A/B routing, experiment evaluate/generate). Including /optimize/iterate here keeps the
   // deliverability guardrail running autonomously even when the external operator routine can't
   // reach the host (e.g. network egress restrictions on the scheduled runner).
-  for (const path of ["/api/apollo/ingest", "/api/optimize/iterate", "/api/orchestrate/run", "/api/optimize/step", "/api/optimize/variants/evaluate", "/api/optimize/variants/generate"]) {
+  for (const path of ["/api/apollo/ingest", "/api/optimize/iterate", "/api/orchestrate/run", "/api/optimize/step", "/api/optimize/mine-replies", "/api/optimize/research-experiments", "/api/styles/propose", "/api/optimize/variants/evaluate", "/api/optimize/variants/generate"]) {
     try {
       await fetch(`${baseUrl}${path}`, { headers: authHeaders });
     } catch {

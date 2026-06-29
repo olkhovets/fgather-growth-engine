@@ -3,24 +3,43 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { decrypt } from "@/lib/encryption";
-import { computeVariantStats, loadLearnings, EXPERIMENT_DIMENSIONS, type ExperimentDimension } from "@/lib/experiments";
+import { computeVariantStats, loadLearnings, EXPERIMENT_DIMENSIONS, type ExperimentDimension, type VariantStats } from "@/lib/experiments";
 import { runGenerator, TARGET_ACTIVE_PER_DIMENSION } from "@/lib/experiment-agents";
 import { logActivity } from "@/lib/activity";
+import { wilsonLower, wilsonUpper } from "@/lib/stats";
 
 export const dynamic = "force-dynamic";
 
-// A variant needs at least this many attributed sends before we judge it.
-const MIN_SENDS_FOR_VERDICT = 40;
+// Minimum attributed sends before a positive-reply verdict is even attempted. Raised from 40:
+// at sub-1% positive rates, 40 sends carries essentially no information, so the old threshold let
+// the loop "judge" pure noise. Below this we explicitly report "needs more data" instead.
+const MIN_SENDS_FOR_VERDICT = 120;
+// A variant that has had this many sends and has not provoked a SINGLE human reply of any kind
+// (not even an objection) is failing on the subject/targeting dimension engagement measures — that
+// signal is denser than positives, so it lets us prune duds earlier without waiting for a positive
+// that may never come. Kept conservative so we never kill a variant that is merely unlucky on positives.
+const ENGAGEMENT_KILL_SENDS = 400;
 
 type Verdict = "winner" | "killed" | "keep";
 
-function judge(positiveRate: number, positives: number, sends: number, baseline: number): Verdict {
-  if (sends < MIN_SENDS_FOR_VERDICT) return "keep";
-  // Winner: clearly beats baseline and has real positives
-  if (positives >= 2 && positiveRate >= Math.max(baseline * 1.5, baseline + 1)) return "winner";
-  // Loser: enough sends but no traction, or well below baseline
-  if (positives === 0 && baseline >= 1) return "killed";
-  if (baseline > 0 && positiveRate <= baseline * 0.4) return "killed";
+/**
+ * Confidence-aware verdict. positiveRate/baseline are PERCENTS (0-100) as computed by
+ * computeVariantStats; we convert to fractions for the Wilson bounds.
+ *  - WINNER: the variant's 95% lower bound on positive-reply rate clears the baseline, with >=2 real
+ *    positives (so a single lucky reply can't promote it).
+ *  - KILLED: its 95% upper bound is below the baseline (significantly worse), OR it has burned through
+ *    ENGAGEMENT_KILL_SENDS with zero replies of any kind (dead on arrival).
+ *  - KEEP: everything else, including "not enough data yet" — the honest default at low base rates.
+ */
+function judge(v: VariantStats, baselinePct: number): Verdict {
+  const baseline = baselinePct / 100;
+  // Engagement-based prune: denser signal than positives, available earlier.
+  if (v.sends >= ENGAGEMENT_KILL_SENDS && v.anyReplies === 0) return "killed";
+  if (v.sends < MIN_SENDS_FOR_VERDICT) return "keep";
+  const posLB = wilsonLower(v.positives, v.sends);
+  const posUB = wilsonUpper(v.positives, v.sends);
+  if (v.positives >= 2 && posLB > baseline) return "winner";
+  if (baseline > 0 && posUB < baseline) return "killed";
   return "keep";
 }
 
@@ -29,14 +48,18 @@ async function runEvaluator(workspaceId: string, anthropicKey: string, model: st
 
   const promoted: string[] = [];
   const killed: string[] = [];
+  let needData = 0;
   const dimsTouched = new Set<ExperimentDimension>();
 
   // Load existing learnings to append winners
   const learnings = await loadLearnings(workspaceId);
 
   for (const v of variants) {
-    const verdict = judge(v.positiveRate, v.positives, v.sends, baselinePositiveRate);
-    if (verdict === "keep") continue;
+    const verdict = judge(v, baselinePositiveRate);
+    if (verdict === "keep") {
+      if (v.sends < MIN_SENDS_FOR_VERDICT) needData += 1;
+      continue;
+    }
 
     if (verdict === "winner") {
       await prisma.promptExperiment.update({ where: { id: v.id }, data: { status: "winner" } });
@@ -89,6 +112,7 @@ async function runEvaluator(workspaceId: string, anthropicKey: string, model: st
     evaluated: variants.length,
     promoted,
     killed,
+    needData,
     refilled: refill?.total ?? 0,
   };
 }

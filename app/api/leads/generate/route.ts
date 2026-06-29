@@ -13,6 +13,9 @@ import { generateLeadResearch } from "@/lib/research";
 import { generateLandingPageContent, landingPageContentForEmailPrompt } from "@/lib/lp-content-gen";
 import { logActivity } from "@/lib/activity";
 import { validateEmailSteps, autoFixEmailContent } from "@/lib/email-validator";
+import { researchPlaybookBlock } from "@/lib/cold-email-research";
+import { gradeEmail } from "@/lib/email-grader";
+import { loadApprovedStyles } from "@/lib/style-proposer";
 import { randomUUID } from "crypto";
 
 export const dynamic = "force-dynamic";
@@ -70,6 +73,17 @@ Step 1 closing: reply-first only — "Worth it? Reply 'yes' and I'll send the de
 No P.S. Keep it tight, human, a little cocky. Banned AI words still apply.`,
   },
 
+  "lean-personal": {
+    usePS: false,
+    prompt: `EMAIL STYLE: Lean-Personal (research-backed: every rule below is from cold-email reply-rate data)
+Sentence 1 (about THEM, never you): a real, specific trigger about this company — a launch, hire, funding, expansion, or their actual current motion from the research — plus a "so this likely means…" bridge. Not generic praise, not person-trivia. (Real personalization ~5x's replies.)
+Sentence 2: name a problem that trigger implies they already feel, BEFORE any mention of the product. (Leading with the solution cuts replies up to 57%; problem-first lifts ~20%.)
+Sentence 3: one specific, concrete outcome with a named proof customer — never vague claims. (Named social proof +41% replies.)
+Close: exactly one low-friction, reply-first ask that offers something worth their time even if they don't buy (a teardown/benchmark/sample), e.g. "Want me to send a quick example built on your category? Just reply." One question max, no calendar link. (Value-based offers beat generic asks +28%.)
+Keep the whole body under 75 words, grade-5 reading level, short sentences, contractions, more "you" than "I". No P.S. No em dashes, no AI-tell words.
+Subject: 1-4 lowercase words anchored to their world, no sell.`,
+  },
+
   "direct-ask": {
     usePS: false,
     prompt: `EMAIL STYLE: Direct-Ask
@@ -124,8 +138,8 @@ function inferStyle(persona?: string | null, industry?: string | null, vertical?
   if (/tech|saas|software|fintech/.test(ind)) return "insight-hook";
   if (/retail|consumer|fmcg|cpg|fashion|food/.test(ind)) return "direct-incentive";
 
-  // Default
-  return "direct-ask";
+  // Default — research-backed lean-personal (problem-first, real trigger, single value ask)
+  return "lean-personal";
 }
 
 /**
@@ -337,16 +351,23 @@ export async function POST(request: Request) {
     // every lead inherits the proven patterns.
     let activeExperiments: Awaited<ReturnType<typeof loadActiveExperiments>> = {};
     let provenLearnings: string[] = [];
+    let approvedStyles: Awaited<ReturnType<typeof loadApprovedStyles>> = {};
     try {
-      [activeExperiments, provenLearnings] = await Promise.all([
+      [activeExperiments, provenLearnings, approvedStyles] = await Promise.all([
         loadActiveExperiments(workspace.id),
         loadLearnings(workspace.id),
+        loadApprovedStyles(workspace.id),
       ]);
     } catch {
       activeExperiments = {};
       provenLearnings = [];
+      approvedStyles = {};
     }
     const learningsText = learningsBlock(provenLearnings);
+    // Approved operator-blessed custom styles (from the style factory). They join the static
+    // STYLE_GUIDES and get a rotated slice of each batch so they accrue real reply data and get
+    // reply-rated (lib/style-performance.ts). Proven styles keep the majority.
+    const approvedStyleKeys = Object.keys(approvedStyles);
 
     // Operator's custom instructions — a free-text addendum applied to every email
     // (e.g. "offer a $100 Uber Eats card for booked demos"). High priority.
@@ -362,9 +383,13 @@ export async function POST(request: Request) {
       : `- LINK POLICY: Reply-first. NEVER include any link, URL, or scheduling link in ANY step. Do not write or invent a Calendly, website, or booking URL anywhere. The only call to action is to reply.`;
 
     const processLead = async (lead: (typeof chunk)[0], leadIndex: number) => {
-      // Resolve style: explicit batch style → inferred from persona/industry → direct-ask fallback
-      const resolvedStyle = batchStyle ?? inferStyle(lead.persona, lead.industry, lead.vertical);
-      const styleConfig = STYLE_GUIDES[resolvedStyle] ?? STYLE_GUIDES["direct-ask"];
+      // Resolve style: explicit batch style → approved-style rotation (~1 in 6 of un-pinned leads) →
+      // inferred from persona/industry → direct-ask fallback.
+      let resolvedStyle = batchStyle ?? inferStyle(lead.persona, lead.industry, lead.vertical);
+      if (!batchStyle && approvedStyleKeys.length > 0 && leadIndex % 6 === 5) {
+        resolvedStyle = approvedStyleKeys[Math.floor(leadIndex / 6) % approvedStyleKeys.length];
+      }
+      const styleConfig = STYLE_GUIDES[resolvedStyle] ?? approvedStyles[resolvedStyle] ?? STYLE_GUIDES["direct-ask"];
       const usePS = styleConfig.usePS;
 
       // specialist-proof carries a gift-for-demo, and we VARY the amount per lead
@@ -375,7 +400,12 @@ export async function POST(request: Request) {
       const giftAmount = useGift ? GIFT_AMOUNTS[leadIndex % GIFT_AMOUNTS.length] : null;
       const giftType = useGift ? GIFT_TYPES[Math.floor(leadIndex / GIFT_AMOUNTS.length) % GIFT_TYPES.length] : null;
       const giftBlock = useGift
-        ? `\n\nGIFT FOR THIS EMAIL (use this exact gift, it is the [GIFT] placeholder): a $${giftAmount} ${giftType}. Work it in tastefully, e.g. "I'll put a $${giftAmount} ${giftType} behind a 20-minute demo." Do not change the amount or invent a different one.`
+        ? `\n\nGIFT FOR THIS SEQUENCE (use this exact gift, it is the [GIFT] placeholder): a $${giftAmount} ${giftType}. Do not change the amount or invent a different one.
+GIFT CONTINUITY (critical — the steps are ONE ongoing thread, not separate emails the reader sees fresh):
+- The money must be INTRODUCED in step 1, stated plainly the first time, e.g. "I'll put a $${giftAmount} ${giftType} behind a 20-minute demo."
+- In step 2+ you may bring the gift back ONLY as a callback to the step-1 offer, with language that assumes it was already made, e.g. "the $${giftAmount} ${giftType} still stands" or "that $${giftAmount} ${giftType} is still yours if you book."
+- NEVER use callback words like "still", "still stands", or "still yours" the FIRST time money appears. If the gift was not in step 1 and you introduce it in a later step, frame it as a NEW offer ("I'll add a $${giftAmount} ${giftType} for 20 minutes"), never as a reminder of something never offered. Saying "still yours" about money the reader was never offered reads as broken and discontinuous.
+- Use the exact same amount and gift type every time it is referenced. Never imply a different, earlier, or larger amount.`
         : "";
 
       // Assign this lead a balanced set of active experiment variants for attribution
@@ -422,8 +452,8 @@ STEP JOBS — each step has one specific job, do not blur them:
 - Step 3: Pattern interrupt or graceful exit. Either a completely fresh angle in under 60 words, or a genuine breakup — e.g. "Happy to leave you alone if the timing isn't right — just say the word."
 
 EMAIL RULES:
-- Subject line: 6–10 words max, no punctuation, no clickbait, no ALL CAPS
-- Step 1 body: 3–5 sentences, under ${MAX_BODY_WORDS} words
+- Subject line: SHORT — aim for 1–4 lowercase words (proper nouns aside), anchored to their world. No clickbait, no ALL CAPS, no sell. (Data: under-4-word subjects reply 4.2x higher than long ones.)
+- Step 1 body: 3–4 short sentences, ideally under 75 words and never over ${MAX_BODY_WORDS}
 ${linkPolicy}
 ${usePS ? `- Include a P.S. line in step 1 — reference something real and specific about them (recent launch, campaign, hire, news)` : `- Do NOT include a P.S. line — the style requires a clean ending`}
 - Steps 2+ must NOT open with a greeting — they thread as inbox replies (Re: subject)
@@ -434,7 +464,7 @@ ${usePS ? `- Include a P.S. line in step 1 — reference something real and spec
 - Write as a human peer, not a marketer
 - Sign off every email with the SENDER'S name (yours), never the recipient's name. Use exactly: ${signoff}
 
-${styleConfig.prompt}${learningsText}${experimentBlock}${customInstructionsText}${giftBlock}${wildcardBlock}`;
+${styleConfig.prompt}${researchPlaybookBlock()}${learningsText}${experimentBlock}${customInstructionsText}${giftBlock}${wildcardBlock}`;
       let companyContextBlock = "";
       let companyContextRaw: string | null = null;
       if (useWebScraping && lead.website?.trim()) {
@@ -636,6 +666,32 @@ Return ONLY valid JSON: { ${stepExample} }`;
           }
         }
 
+        // Quality grade (deterministic, free) on step 1 — the email that earns the reply. If it
+        // doesn't clear the research-backed bar, regenerate step 1 ONCE with the specific fixes and
+        // keep whichever scores higher. This is the "are the emails good?" gate, enforced pre-send.
+        let grade = gradeEmail(stepsArray[0], { company: lead.company });
+        let step1Regenerated = false;
+        if (!grade.pass && grade.fixes.length > 0) {
+          try {
+            const fixPrompt = `${userMessage}\n\nYOUR PREVIOUS step1 scored ${grade.score}/100 and must be sharper. Fix these specific issues, keep everything else strong:\n${grade.fixes.map((f) => `- ${f}`).join("\n")}\n\nReturn ONLY valid JSON for step1: { "step1": { "subject": "...", "body": "..." } }`;
+            const { text: fixRaw } = await callAnthropic(anthropicKey, fixPrompt, { maxTokens: 800, model, systemPrompt });
+            const fixJson = fixRaw.slice(fixRaw.indexOf("{"), fixRaw.lastIndexOf("}") + 1);
+            const reParsed = JSON.parse(fixJson) as Record<string, { subject?: string; body?: string }>;
+            const s1 = reParsed.step1;
+            if (s1?.subject && s1?.body) {
+              const revised = { subject: autoFixEmailContent(s1.subject.trim()), body: autoFixEmailContent(s1.body.trim()) };
+              const revisedGrade = gradeEmail(revised, { company: lead.company });
+              if (revisedGrade.score > grade.score) {
+                stepsArray[0] = revised;
+                grade = revisedGrade;
+                step1Regenerated = true;
+              }
+            }
+          } catch {
+            // keep the original if the revision call fails
+          }
+        }
+
         const update: Record<string, string | number | null> = {
           stepsJson: JSON.stringify(stepsArray),
           emailStyle: resolvedStyle, // always save — inferred or explicit
@@ -658,17 +714,17 @@ Return ONLY valid JSON: { ${stepExample} }`;
           where: { id: lead.id },
           data: update,
         });
-        return { leadId: lead.id, usage };
+        return { leadId: lead.id, usage, gradeScore: grade.score, step1Regenerated };
       } catch (err) {
         console.error(`Lead ${lead.id} personalize error:`, err instanceof Error ? err.message : err);
-        return { leadId: lead.id, usage };
+        return { leadId: lead.id, usage, gradeScore: null as number | null, step1Regenerated: false };
       }
     };
 
     // Process with limited concurrency to avoid exhausting DB connection pool
     // Claude API calls can be parallel but DB writes need to be controlled
     const CONCURRENCY = 5;
-    const results: Array<{ leadId: string; usage: { input_tokens: number; output_tokens: number } }> = [];
+    const results: Array<{ leadId: string; usage: { input_tokens: number; output_tokens: number }; gradeScore?: number | null; step1Regenerated?: boolean }> = [];
     for (let i = 0; i < chunk.length; i += CONCURRENCY) {
       const batch = chunk.slice(i, i + CONCURRENCY);
       // Global index (offset + position) keeps experiment round-robin balanced across chunks
@@ -684,13 +740,21 @@ Return ONLY valid JSON: { ${stepExample} }`;
       { input_tokens: 0, output_tokens: 0 }
     );
 
+    // Quality telemetry — average grade across the batch + how many needed a step-1 rewrite. Lets the
+    // loop see whether the emails are actually GOOD trending over time, not just that they got sent.
+    const graded = results.map((r) => r.gradeScore).filter((s): s is number => typeof s === "number");
+    const avgGrade = graded.length > 0 ? Math.round(graded.reduce((a, b) => a + b, 0) / graded.length) : null;
+    const regenerated = results.filter((r) => r.step1Regenerated).length;
+
     await logActivity(workspace.id, "generate",
-      `Generated ${chunk.length} email sequence${chunk.length === 1 ? "" : "s"} (${numSteps} steps each) — ${total - chunk.length} remain`,
+      `Generated ${chunk.length} email sequence${chunk.length === 1 ? "" : "s"} (${numSteps} steps each)${avgGrade !== null ? ` — avg quality ${avgGrade}/100${regenerated > 0 ? `, ${regenerated} auto-rewritten` : ""}` : ""} — ${total - chunk.length} remain`,
       {
         generated: chunk.length,
         remaining: Math.max(0, total - chunk.length),
         steps: numSteps,
         batchId,
+        avgGrade,
+        regenerated,
         ...(usageTotal.input_tokens > 0 ? { input_tokens: usageTotal.input_tokens, output_tokens: usageTotal.output_tokens } : {}),
       }
     );

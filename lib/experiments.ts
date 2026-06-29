@@ -100,7 +100,9 @@ export async function computeVariantStats(
   status: "testing" | "winner" | "killed" = "testing"
 ): Promise<{ variants: VariantStats[]; baselinePositiveRate: number }> {
   const experiments = await prisma.promptExperiment.findMany({
-    where: { workspaceId, status },
+    // dimension filter keeps non-A/B rows (e.g. dimension="style" from the style factory) out of
+    // variant stats no matter what status they carry.
+    where: { workspaceId, status, dimension: { in: [...EXPERIMENT_DIMENSIONS] } },
     select: { id: true, dimension: true, label: true, instruction: true, hypothesis: true, generation: true },
   });
 
