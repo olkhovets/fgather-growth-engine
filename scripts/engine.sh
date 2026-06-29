@@ -108,6 +108,14 @@ case "$cmd" in
     _confirm "SEND real cold emails via Instantly (batch $1, limit ${2:-100})"
     _post "$BASE_URL/api/instantly/send" -d "{\"batchId\":\"$1\",\"skipFailingLeads\":true,\"sendLimit\":${2:-100}$([[ -n "$(_ws)" ]] && echo ",\"workspaceId\":\"$(_ws)\"")}" ;;
 
+  send-good)   # SEND N good emails of various proven styles (grade-checked, ICP, exact batch). args: [count] [provider]
+    _auth
+    [[ -n "$(_ws)" ]] || { echo "ERROR: WORKSPACE_ID required in .env"; exit 1; }
+    n="${1:-200}"; prov="${2:-no-gateways}"
+    _confirm "SEND-GOOD — send $n grade-checked good emails (various styles, ICP, provider=$prov) — REAL sends"
+    curl -sS -X POST "$BASE_URL/api/send-batch" -H "x-cron-secret: ${CRON_SECRET}" -H "Content-Type: application/json" \
+      -d "{\"count\":$n,\"providerFilter\":\"$prov\",\"workspaceId\":\"$(_ws)\"}" | jq . 2>/dev/null || true ;;
+
   send-recycle)  # SEND drafted recycle leads of a given style (pairs with hit-oldest/hit-icp). args: [style] [sendLimit]
     _auth
     [[ -n "$(_ws)" ]] || { echo "ERROR: WORKSPACE_ID required in .env for send-recycle"; exit 1; }
@@ -160,6 +168,7 @@ WRITE (live infra — prompts before firing):
   generate <batch>  draft sequences for a batch (Claude spend)
   recycle           re-draft the whole prior unsent pool (Claude spend; no send)
   hit-oldest [style] re-draft OLDEST never-touched leads, hard-hitting style + optimized subjects
+  send-good [N] [prov]  ⮕ SEND N grade-checked good emails of various styles (ICP; REAL sends)
   send <batch> [N]  upload + activate a batch in Instantly (REAL sends)
   send-recycle [style] [N]  SEND the drafted recycle leads of a style (REAL sends; pairs with hit-oldest/hit-icp)
   retarget-ooo [N]  SEND the offer to OOO leads who are back (run AFTER July 4th)
