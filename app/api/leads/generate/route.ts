@@ -193,7 +193,8 @@ export async function POST(request: Request) {
       oldestFirst: oldestFirstParam,
       optimizeSubject: optimizeSubjectParam,
       personas: personasParam,
-    } = body as { batchId: string; offset?: number; limit?: number; campaignId?: string; useFastModel?: boolean; useWebScraping?: boolean; useLandingPage?: boolean; useVideo?: boolean; useSampleOutput?: boolean; style?: string; workspaceId?: string; recycle?: boolean; neverRecycledOnly?: boolean; oldestFirst?: boolean; optimizeSubject?: boolean; personas?: string[] };
+      cooldownDays: cooldownDaysParam,
+    } = body as { batchId: string; offset?: number; limit?: number; campaignId?: string; useFastModel?: boolean; useWebScraping?: boolean; useLandingPage?: boolean; useVideo?: boolean; useSampleOutput?: boolean; style?: string; workspaceId?: string; recycle?: boolean; neverRecycledOnly?: boolean; oldestFirst?: boolean; optimizeSubject?: boolean; personas?: string[]; cooldownDays?: number };
 
     // Auth: session for users, or CRON_SECRET + workspaceId for the autopilot orchestrator
     const cronSecret = process.env.CRON_SECRET;
@@ -263,7 +264,11 @@ export async function POST(request: Request) {
     // in the requested style — so the standard 8k can be re-drafted in specialist-proof for a
     // recycle send. The send path (incentives/launch useGeneratedSteps) then ships these.
     const recycle = recycleParam === true;
-    const cooldownDays = workspace.recycleCooldownDays ?? 21;
+    // cooldownDays override (1-90): lets a targeted re-touch (e.g. the holiday swing) re-draft leads
+    // sooner than the workspace default, without changing the default. Clamped so it can't go wild.
+    const cooldownDays = typeof cooldownDaysParam === "number" && cooldownDaysParam >= 1 && cooldownDaysParam <= 90
+      ? Math.floor(cooldownDaysParam)
+      : (workspace.recycleCooldownDays ?? 21);
     const cutoff = new Date(Date.now() - cooldownDays * 24 * 60 * 60 * 1000);
     // Scope: one batch (manual) or the whole workspace (autopilot recycle, no batchId).
     const genScope = batchId ? { leadBatchId: batchId } : { leadBatch: { workspaceId: workspace.id } };
