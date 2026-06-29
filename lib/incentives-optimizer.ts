@@ -2,6 +2,9 @@ import { prisma } from "@/lib/prisma";
 import { logActivity } from "@/lib/activity";
 import { sendNotificationEmail } from "@/lib/email";
 import { getInstantlyClientForWorkspaceId } from "@/lib/instantly";
+import { computeDeliverability, HEALTH_FLOOR, type DeliverabilitySummary } from "@/lib/deliverability";
+import { confidentLeader } from "@/lib/stats";
+import { rateStylesByReply } from "@/lib/style-performance";
 
 /**
  * Server-side auto-iterator for the Incentives Lab. Runs with full secrets (Vercel env), so it can
@@ -117,10 +120,34 @@ export async function optimizeIncentivesForWorkspace(workspaceId: string): Promi
     } catch { /* best effort */ }
   }
 
-  // 2. Deliverability-aware volume: throttle on high bounce, scale when clean and hitting the cap.
+  // 1b. DELIVERABILITY / inbox placement — the prime suspect behind "12k sent, ~0 positives".
+  // Bounce rate only catches hard failures; it is blind to spam-foldering (mail accepted but never
+  // seen). A 0% bounce + ~0% positive is the textbook spam signature. If placement is bad, the fix
+  // is NOT copy — it is the inboxes — and we must refuse to pour more volume into spam folders.
+  let deliverability: DeliverabilitySummary | null = null;
+  if (ctx) {
+    try { deliverability = (await computeDeliverability(ctx.client)).summary; } catch { /* best effort */ }
+  }
+  const placementBad = deliverability != null && (deliverability.verdict === "unhealthy" || deliverability.verdict === "critical");
+  const placementHealthy = deliverability != null && deliverability.verdict === "healthy";
+
+  // 2. Deliverability-aware volume: throttle on high bounce OR bad inbox placement; scale only when
+  //    BOTH the bounce rate is clean AND placement is healthy. Placement gates scaling because volume
+  //    into spam-foldering inboxes burns the list and the domains for zero replies.
   let newCap = dailyCap;
-  if (bounceRate > BOUNCE_CEIL) { newCap = Math.max(200, Math.floor(dailyCap / 2)); actions.push(`bounce ${bounceRate}% over ${BOUNCE_CEIL}% — throttled cap ${dailyCap}→${newCap}`); }
-  else if (bounceRate < BOUNCE_FLOOR && freshPool > 100 && sent24 >= dailyCap * 0.8) { newCap = Math.min(6000, dailyCap + 500); actions.push(`clean (bounce ${bounceRate}%) and hitting cap — scaled cap ${dailyCap}→${newCap}`); }
+  if (placementBad) {
+    // Spam emergency: cut volume hard and surface it as the #1 blocker. Copy tuning cannot fix this.
+    newCap = Math.max(200, Math.floor(dailyCap / 2));
+    actions.push(`DELIVERABILITY ALARM: inbox placement ${deliverability!.verdict} (avg health ${deliverability!.avgHealth ?? "n/a"}%, ${deliverability!.blockedInboxPct}% of inboxes below the ${HEALTH_FLOOR}% floor / dead). Mail is likely spam-foldering — this, not copy, is why positives are ~0. Throttled cap ${dailyCap}→${newCap}; pause/replace the bad inboxes before scaling.`);
+  } else if (bounceRate > BOUNCE_CEIL) {
+    newCap = Math.max(200, Math.floor(dailyCap / 2));
+    actions.push(`bounce ${bounceRate}% over ${BOUNCE_CEIL}% — throttled cap ${dailyCap}→${newCap}`);
+  } else if (bounceRate < BOUNCE_FLOOR && freshPool > 100 && sent24 >= dailyCap * 0.8 && (placementHealthy || deliverability == null)) {
+    newCap = Math.min(6000, dailyCap + 500);
+    actions.push(`clean (bounce ${bounceRate}%${placementHealthy ? `, placement healthy ${deliverability!.avgHealth ?? "n/a"}%` : ""}) and hitting cap — scaled cap ${dailyCap}→${newCap}`);
+  } else if (bounceRate < BOUNCE_FLOOR && freshPool > 100 && sent24 >= dailyCap * 0.8 && deliverability != null && !placementHealthy) {
+    actions.push(`held cap at ${dailyCap}: bounce clean but inbox placement is ${deliverability.verdict} (avg health ${deliverability.avgHealth ?? "n/a"}%) — fix placement before scaling.`);
+  }
   if (newCap !== dailyCap) await prisma.workspace.update({ where: { id: workspaceId }, data: { incentivesDailyCap: newCap } });
 
   // 3. Promote winners — only with real signal, and never collapse to a single variant (keep exploring).
@@ -137,17 +164,27 @@ export async function optimizeIncentivesForWorkspace(workspaceId: string): Promi
   // once both arms have enough volume to mean something; otherwise report it as still-gathering.
   const incRate = totalSent > 0 ? positives / totalSent : 0;
   const vfRate = vfSent > 0 ? vfPositive / vfSent : 0;
-  const MIN_ARM = 200; // sends per arm before a leader call is trustworthy
+  const MIN_ARM = 200; // sends per arm before a leader call is even considered
+  // Call a leader ONLY when the two arms' 95% Wilson intervals don't overlap. At ~0.05% positive
+  // rates a raw "vfRate > incRate" compare flips on a single reply; confidence stops that noise.
+  const cl = confidentLeader({ successes: positives, n: totalSent }, { successes: vfPositive, n: vfSent });
   const enough = totalSent >= MIN_ARM && vfSent >= MIN_ARM;
-  const leader = !enough ? "insufficient-data" : vfRate > incRate ? "value-first" : incRate > vfRate ? "incentive" : "tie";
+  const leader = !enough ? "insufficient-data" : cl === "a" ? "incentive" : cl === "b" ? "value-first" : "too-close-to-call";
   const valueFirst = { sent: vfSent, positive: vfPositive, replies: vfReplies, rate: vfRate, byStyle: vfByStyle };
   const headToHead = { incentive: { sent: totalSent, positive: positives, rate: incRate }, valueFirst: { sent: vfSent, positive: vfPositive, rate: vfRate }, leader, minArm: MIN_ARM };
   const pct = (r: number) => (r * 100).toFixed(3) + "%";
-  if (enough) {
-    actions.push(`A/B incentive vs value-first: incentive ${pct(incRate)} (${positives}/${totalSent}) vs value-first ${pct(vfRate)} (${vfPositive}/${vfSent}) positive-reply rate — leader: ${leader}.`);
+  if (enough && leader !== "too-close-to-call") {
+    actions.push(`A/B incentive vs value-first: incentive ${pct(incRate)} (${positives}/${totalSent}) vs value-first ${pct(vfRate)} (${vfPositive}/${vfSent}) — confident leader: ${leader}.`);
+  } else if (enough) {
+    actions.push(`A/B incentive vs value-first: incentive ${pct(incRate)} (${positives}/${totalSent}) vs value-first ${pct(vfRate)} (${vfPositive}/${vfSent}) — too close to call (intervals overlap). Both are near-zero; the lever is a bigger swing, not more of the same.`);
   } else {
     actions.push(`A/B incentive vs value-first: gathering — incentive ${positives}/${totalSent}, value-first ${vfPositive}/${vfSent} (need ${MIN_ARM}/arm to call a winner).`);
   }
+
+  // 3c. STYLE rating — which email style actually books replies (not just which scores well on the
+  // grader). Confidence-aware so a lucky reply can't crown a style. Surfaced for the loop to favor.
+  const stylePerf = await rateStylesByReply(workspaceId);
+  if (stylePerf.styles.length > 0) actions.push(`Style outcomes: ${stylePerf.note}`);
 
   // 4. COST watch: surface Apollo lead-pull efficiency so a credit leak can't run silently again.
   const apollo = await apolloEfficiency(workspaceId);
@@ -197,7 +234,8 @@ export async function optimizeIncentivesForWorkspace(workspaceId: string): Promi
     actions.push(`COST WARNING: Apollo pulls only ${apollo.yieldPct}% efficient (${apollo.inserted} new vs ${apollo.wasted} wasted on dupes/locked in last ${apollo.pulls} pulls) — credits leaking. Check the page cursor / search; pause pulling if the search is mined out.`);
   }
 
-  const summary = `Optimizer: sent24=${sent24}, bounce=${bounceRate}%, fresh=${freshPool}, positives=${positives}/${totalSent}, cap=${newCap}, apolloYield=${apollo.yieldPct ?? "n/a"}%. ${actions.join("; ") || "no changes"}`;
-  await logActivity(workspaceId, "autopilot", summary, { sent24, bounced24, bounceRate, freshPool, positives, totalSent, campaignStatus, dailyCap: newCap, byAmount, byStyle, byGift, valueFirst, headToHead, apollo, actions });
-  return { workspaceId, sent24, bounced24, bounceRate, freshPool, positives, totalSent, campaignStatus, dailyCap: newCap, byAmount, byStyle, byGift, valueFirst, headToHead, apollo, actions };
+  const placementStr = deliverability ? `, placement=${deliverability.verdict}(${deliverability.avgHealth ?? "n/a"}%)` : "";
+  const summary = `Optimizer: sent24=${sent24}, bounce=${bounceRate}%${placementStr}, fresh=${freshPool}, positives=${positives}/${totalSent}, cap=${newCap}, apolloYield=${apollo.yieldPct ?? "n/a"}%. ${actions.join("; ") || "no changes"}`;
+  await logActivity(workspaceId, "autopilot", summary, { sent24, bounced24, bounceRate, freshPool, positives, totalSent, campaignStatus, dailyCap: newCap, byAmount, byStyle, byGift, valueFirst, headToHead, apollo, deliverability, stylePerf, actions });
+  return { workspaceId, sent24, bounced24, bounceRate, freshPool, positives, totalSent, campaignStatus, dailyCap: newCap, byAmount, byStyle, byGift, valueFirst, headToHead, apollo, deliverability, stylePerf, actions };
 }
