@@ -57,9 +57,9 @@ case "$cmd" in
     q="?limit=${1:-200}"; [[ -n "${2:-}" ]] && q="$q&batchId=$2"; [[ -n "$(_ws)" ]] && q="$q&workspaceId=$(_ws)"
     _get "$BASE_URL/api/leads/grade$q" ;;
 
-  deliverability|inbox)   # per-domain inbox-placement (session-gated; needs a browser cookie — see SENDING.md)
-    echo "Deliverability is operator-session-gated. Read it from 'status' (health.deliverability) instead,"
-    echo "or open $BASE_URL/api/instantly/domain-health while logged in." ;;
+  deliverability|inbox)   # CONFIRM deliverability: inbox placement + SPF/DKIM/DMARC per domain → one verdict
+    [[ -n "${SNAPSHOT_KEY:-}" ]] || { echo "ERROR: SNAPSHOT_KEY not set"; exit 1; }
+    curl -sS --max-time 90 "$BASE_URL/api/instantly/deliverability?key=$SNAPSHOT_KEY$([[ -n "$(_ws)" ]] && echo "&workspaceId=$(_ws)")" | jq . 2>/dev/null || true ;;
 
   styles)   # the style factory. subcommands: (none)=list | propose | approve <id> | reject <id>
     _auth
@@ -115,7 +115,7 @@ READ (safe):
   target            ⮕ START HERE: current reply rate, gap to 2%, the ONE thing to fix now
   status            at-a-glance health: sends, positives, deliverability verdict, winning style
   grade [N] [batch] grade the existing pool's emails (are they good?), top N (default 200)
-  deliverability    how to read per-domain inbox placement
+  deliverability    CONFIRM inbox placement + SPF/DKIM/DMARC per domain → one verdict
   styles            list proposed + approved styles (grades + live reply rate)
 
 STYLE FACTORY:

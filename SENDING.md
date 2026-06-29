@@ -56,7 +56,7 @@ THE LEARNING LOOP (daily cron → fan-out):
 ## Where the quality / research / deliverability signals show up (no new dashboards)
 
 - **Email quality** — `engine.sh grade`, and per-batch in the activity log line: `Generated N sequences — avg quality 94/100, 3 auto-rewritten`. Grader = `lib/email-grader.ts`, rubric = `lib/cold-email-research.ts`.
-- **Deliverability / spam** — `snapshot → health.deliverability.verdict` (healthy/unhealthy/critical). The optimizer throttles volume and raises a `DELIVERABILITY ALARM` when placement is bad. Logic in `lib/deliverability.ts`, gate in `lib/incentives-optimizer.ts`.
+- **Deliverability / spam** — `engine deliverability` CONFIRMS it: inbox placement (Instantly warmup health) **+** SPF/DKIM/DMARC per domain → one `confirmVerdict` (healthy/at-risk/broken/insufficient-data). Also `snapshot → health.deliverability.verdict`. The optimizer throttles volume and raises a `DELIVERABILITY ALARM` when placement is bad. Logic: `lib/deliverability.ts` (placement) + `lib/domain-auth.ts` (DNS auth), endpoint `/api/instantly/deliverability`, gate in `lib/incentives-optimizer.ts`.
 - **Winning email style** (by actual positive replies, Wilson-rated) — `snapshot → email.winningStyle` + the optimizer action line `Style outcomes: …`. Logic in `lib/style-performance.ts`.
 - **What the engine has learned** — `Workspace.learningsJson` (injected into every generation). Fed by reply-mining + promoted experiment winners.
 
