@@ -111,6 +111,14 @@ case "$cmd" in
     curl -sS -X POST "$BASE_URL/api/incentives/launch" -H "x-cron-secret: ${CRON_SECRET}" -H "Content-Type: application/json" \
       -d "{\"recycle\":true,\"useGeneratedSteps\":true,\"recycleStyle\":\"$style\",\"sendLimit\":$lim,\"workspaceId\":\"$(_ws)\"}" | jq . 2>/dev/null || true ;;
 
+  retarget-ooo)  # SEND the money offer to OOO leads who are now back (run AFTER July 4). args: [sendLimit]
+    _auth
+    [[ -n "$(_ws)" ]] || { echo "ERROR: WORKSPACE_ID required in .env for retarget-ooo"; exit 1; }
+    lim="${1:-300}"
+    _confirm "RETARGET-OOO — re-contact out-of-office leads who are back, with the incentive offer (REAL sends, limit $lim)"
+    curl -sS -X POST "$BASE_URL/api/incentives/launch" -H "x-cron-secret: ${CRON_SECRET}" -H "Content-Type: application/json" \
+      -d "{\"oooRequeue\":true,\"sendLimit\":$lim,\"workspaceId\":\"$(_ws)\"}" | jq . 2>/dev/null || true ;;
+
   autopilot)  # one generate+send autopilot pass for the workspace
     _auth
     _confirm "AUTOPILOT — generate + SEND in one pass (real sends)"
@@ -149,6 +157,7 @@ WRITE (live infra — prompts before firing):
   hit-oldest [style] re-draft OLDEST never-touched leads, hard-hitting style + optimized subjects
   send <batch> [N]  upload + activate a batch in Instantly (REAL sends)
   send-recycle [style] [N]  SEND the drafted recycle leads of a style (REAL sends; pairs with hit-oldest/hit-icp)
+  retarget-ooo [N]  SEND the offer to OOO leads who are back (run AFTER July 4th)
   autopilot         one generate+send pass
   loop              run the full daily loop by hand (includes send)
 
