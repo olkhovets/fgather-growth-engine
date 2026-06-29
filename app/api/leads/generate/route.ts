@@ -177,7 +177,8 @@ export async function POST(request: Request) {
       neverRecycledOnly: neverRecycledOnlyParam,
       oldestFirst: oldestFirstParam,
       optimizeSubject: optimizeSubjectParam,
-    } = body as { batchId: string; offset?: number; limit?: number; campaignId?: string; useFastModel?: boolean; useWebScraping?: boolean; useLandingPage?: boolean; useVideo?: boolean; useSampleOutput?: boolean; style?: string; workspaceId?: string; recycle?: boolean; neverRecycledOnly?: boolean; oldestFirst?: boolean; optimizeSubject?: boolean };
+      personas: personasParam,
+    } = body as { batchId: string; offset?: number; limit?: number; campaignId?: string; useFastModel?: boolean; useWebScraping?: boolean; useLandingPage?: boolean; useVideo?: boolean; useSampleOutput?: boolean; style?: string; workspaceId?: string; recycle?: boolean; neverRecycledOnly?: boolean; oldestFirst?: boolean; optimizeSubject?: boolean; personas?: string[] };
 
     // Auth: session for users, or CRON_SECRET + workspaceId for the autopilot orchestrator
     const cronSecret = process.env.CRON_SECRET;
@@ -262,6 +263,10 @@ export async function POST(request: Request) {
           // neverRecycledOnly targets the freshest-to-the-audience leads (recycleCount 0) — they've
           // only ever seen one email from us, so a hard-hitting new angle has the best shot.
           recycleCount: neverRecycledOnlyParam === true ? 0 : { lt: 2 },
+          // Persona targeting — focus the swing on right-fit ICP personas (the diagnosis showed 79% of
+          // the pool is unclassified and some are wrong-fit; the converters are consumer-insights/brand/
+          // marketing). When provided, only re-draft leads whose persona is in this set.
+          ...(Array.isArray(personasParam) && personasParam.length > 0 ? { persona: { in: personasParam } } : {}),
           OR: [{ recycledAt: null }, { recycledAt: { lt: cutoff } }],
           // Don't re-draft a lead already prepared in the requested recycle style and waiting to
           // send (else we'd burn tokens rewriting the same lead each tick before it ships). Keyed
