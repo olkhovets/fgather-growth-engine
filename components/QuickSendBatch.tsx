@@ -91,16 +91,22 @@ export default function QuickSendBatch() {
         </button>
 
         {prog && (
-          <div className="rounded-lg px-4 py-3 text-sm space-y-2" style={{ background: "var(--bg, #111)", color: "var(--text-primary)" }}>
-            <div className="font-medium">{prog.done ? "Done — " : "Sending… "}Sent {prog.sent} / {prog.target}</div>
-            {/* progress bar */}
-            <div className="h-1.5 w-full rounded-full overflow-hidden" style={{ background: "var(--border, #333)" }}>
-              <div className="h-full rounded-full transition-all" style={{ width: `${Math.min(100, Math.round((prog.sent / prog.target) * 100))}%`, background: "var(--accent, #6366f1)" }} />
+          <div className="rounded-lg px-4 py-4 text-sm space-y-3" style={{ background: "var(--bg, #111)", color: "var(--text-primary)" }}>
+            <div className="flex items-center justify-between">
+              <span className="font-medium flex items-center gap-2">
+                {!prog.done && <span className="inline-block h-2 w-2 rounded-full animate-ping" style={{ background: "var(--accent, #6366f1)" }} />}
+                {prog.done ? "Done" : "Writing + sending…"}
+              </span>
+              <span className="tabular-nums font-semibold">{prog.sent} / {prog.target} ({Math.min(100, Math.round((prog.sent / prog.target) * 100))}%)</span>
+            </div>
+            {/* progress bar — taller; the fill pulses while a round is in flight so it never looks frozen */}
+            <div className="h-3 w-full rounded-full overflow-hidden" style={{ background: "var(--border, #2a2a2a)" }}>
+              <div className={`h-full rounded-full transition-all duration-500 ${busy ? "animate-pulse" : ""}`} style={{ width: `${Math.max(2, Math.min(100, Math.round((prog.sent / prog.target) * 100)))}%`, background: "linear-gradient(90deg, var(--accent, #6366f1), #818cf8)" }} />
             </div>
             <div className="text-xs space-y-0.5" style={{ color: "var(--text-secondary)" }}>
-              <div>Written fresh: <span style={{ color: "var(--text-primary)" }}>{prog.generated}</span> · Rounds: {prog.rounds} · Skipped (not on a warmed inbox / already in a campaign): <span style={{ color: "var(--text-primary)" }}>{prog.sendSideSkipped}</span></div>
+              <div>{busy ? `Round ${prog.rounds + 1} in progress (writing ~8 fresh emails, ~30s)…` : `${prog.rounds} rounds`} · Written fresh: <span style={{ color: "var(--text-primary)" }}>{prog.generated}</span> · Skipped: <span style={{ color: "var(--text-primary)" }}>{prog.sendSideSkipped}</span></div>
               {prog.done && prog.sent < prog.target && <div style={{ color: "#fbbf24" }}>{prog.note} Reached {prog.sent} of {prog.target}.</div>}
-              {prog.done && prog.sent >= prog.target && <div style={{ color: "#4ade80" }}>Target reached.</div>}
+              {prog.done && prog.sent >= prog.target && <div style={{ color: "#4ade80" }}>✓ Target reached.</div>}
             </div>
           </div>
         )}

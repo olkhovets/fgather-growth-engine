@@ -69,9 +69,9 @@ export async function POST(request: Request) {
     // the caller loops, so the batch fills across rounds.
     let generated = 0;
     if (generateStyle) {
-      const GEN_PER_CALL = 12;
+      const GEN_PER_CALL = 8; // smaller rounds → the progress bar advances more often
       const genStart = Date.now();
-      while (generated < GEN_PER_CALL && Date.now() - genStart < 75_000) {
+      while (generated < GEN_PER_CALL && Date.now() - genStart < 70_000) {
         try {
           const g = await fetch(`${base}/api/leads/generate`, {
             method: "POST", headers: { "Content-Type": "application/json", "x-cron-secret": cron },
