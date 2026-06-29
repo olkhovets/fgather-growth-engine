@@ -18,8 +18,9 @@ export const maxDuration = 120;
  * Draft and send are now the SAME set: the counts make sense.
  */
 
-// Various good styles (exclude specialist-proof — it converted ~0 across ~3k sends).
-const GOOD_STYLES = ["direct-incentive", "holiday-incentive", "lean-personal", "social-proof", "insight-hook", "pain-led", "direct-ask"];
+// Various good styles (exclude specialist-proof — it converted ~0 across ~3k sends). Includes founder.
+const GOOD_STYLES = ["founder", "direct-incentive", "holiday-incentive", "lean-personal", "social-proof", "insight-hook", "pain-led", "direct-ask"];
+const ROUND_CAP = 12; // leads chosen+sent per loop round (paced by how fast we can write fresh founder)
 // Recipient gateways that quarantine cold mail (mirrors the send route). Pre-filtered out for "no-gateways".
 const STRICT_GATEWAYS = ["Microsoft", "Proofpoint", "Mimecast", "Barracuda"];
 const ICP_PERSONAS = ["consumer-insights", "brand-social", "product-marketing", "growth-general"];
@@ -56,31 +57,32 @@ export async function POST(request: Request) {
     const minGrade = Math.min(100, Math.max(0, typeof body.minGrade === "number" ? body.minGrade : DEFAULT_GRADE_FLOOR));
     // Ids the caller already tried this session — excluded so each loop round picks NEW leads.
     const excludeIds: string[] = Array.isArray(body.excludeIds) ? body.excludeIds.filter((s: unknown): s is string => typeof s === "string") : [];
-    // generateStyle: write BRAND-NEW emails in this style first (skip the existing/old drafts), then send
-    // them. Restricts the selection to that style. Used for the founder-style fresh send.
-    const generateStyle = typeof body.generateStyle === "string" && body.generateStyle.trim() ? body.generateStyle.trim() : null;
-    const stylesFilter = generateStyle ? [generateStyle] : GOOD_STYLES;
+    // Blend shares: ~40% fresh FOUNDER (credential + demo ask), ~40% INCENTIVE (proven money-forward),
+    // ~20% other good styles. Founder is generated fresh; the rest ship existing good drafts.
+    const founderShare = Math.min(1, Math.max(0, typeof body.founderShare === "number" ? body.founderShare : 0.4));
 
     const baseEnv = process.env.NEXTJS_URL || process.env.NEXTAUTH_URL;
     const base = baseEnv && baseEnv.startsWith("http") ? baseEnv.replace(/\/$/, "") : "https://peter-engine-working-copy.vercel.app";
 
-    // 0) FRESH GENERATION (optional): write new company-specific emails in generateStyle for sendable,
-    // eligible leads — overwriting whatever old draft they had. Capped per call (generation is slow);
-    // the caller loops, so the batch fills across rounds.
+    // This round sends at most ROUND_CAP (or whatever's left). Founder generation paces the round.
+    const roundTarget = Math.min(count, ROUND_CAP);
+    const wantFounder = Math.round(roundTarget * founderShare);
+    const wantIncentive = Math.round(roundTarget * incentiveShare);
+
+    // 0) Write the founder portion FRESH (company-specific) for sendable eligible leads, this round.
     let generated = 0;
-    if (generateStyle) {
-      const GEN_PER_CALL = 8; // smaller rounds → the progress bar advances more often
+    if (wantFounder > 0) {
       const genStart = Date.now();
-      while (generated < GEN_PER_CALL && Date.now() - genStart < 70_000) {
+      while (generated < wantFounder && Date.now() - genStart < 70_000) {
         try {
           const g = await fetch(`${base}/api/leads/generate`, {
             method: "POST", headers: { "Content-Type": "application/json", "x-cron-secret": cron },
-            body: JSON.stringify({ workspaceId: ws.id, recycle: true, oldestFirst: true, style: generateStyle, cooldownDays: COOLDOWN_DAYS, providerFilter: provider, useFastModel: true, limit: 10, ...(icpOnly ? { personas: ICP_PERSONAS } : {}) }),
+            body: JSON.stringify({ workspaceId: ws.id, recycle: true, oldestFirst: true, style: "founder", cooldownDays: COOLDOWN_DAYS, providerFilter: provider, useFastModel: true, limit: Math.min(10, wantFounder - generated), ...(icpOnly ? { personas: ICP_PERSONAS } : {}) }),
           });
           const gd = await g.json().catch(() => ({}));
           const did = Number(gd.done) || 0;
           generated += did;
-          if (did === 0) break; // nothing left to draft
+          if (did === 0) break; // no more leads to write founder for
         } catch { break; }
       }
     }
@@ -99,14 +101,14 @@ export async function POST(request: Request) {
         leadBatch: { workspaceId: ws.id },
         sentAt: { lt: cutoff }, suppressed: false, repliedAt: null, bouncedAt: null,
         recycleCount: { lt: 2 }, OR: [{ recycledAt: null }, { recycledAt: { lt: cutoff } }],
-        stepsJson: { not: null }, emailStyle: { in: stylesFilter },
+        stepsJson: { not: null }, emailStyle: { in: GOOD_STYLES },
         ...(icpOnly ? { persona: { in: ICP_PERSONAS } } : {}),
         ...providerWhere,
         ...(excludeIds.length ? { id: { notIn: excludeIds } } : {}),
       },
       select: { id: true, company: true, persona: true, emailStyle: true, step1Subject: true, step1Body: true },
       orderBy: { createdAt: "asc" }, // oldest-waiting first
-      take: count * 5, // over-pull wide so enough clear the higher quality bar
+      take: roundTarget * 12, // enough across all style buckets to fill the blend after grading
     });
 
     // 2) grade-filter: keep only the best-crafted (default >=85).
@@ -114,28 +116,30 @@ export async function POST(request: Request) {
       .map((l) => ({ l, score: gradeEmail({ subject: l.step1Subject ?? "", body: l.step1Body ?? "" }, { company: l.company }).score }))
       .filter((x) => x.score >= minGrade);
 
-    // 3) rank by PER-PERSONA performance, then split so INCENTIVE styles get their guaranteed share.
+    // 3) rank by PER-PERSONA performance, then build the blend: founder + incentive + rest, to roundTarget.
     const stats = await perPersonaStyleStats(ws.id);
     const ranked = graded.sort((a, b) => styleScore(b.l.persona, b.l.emailStyle, stats) - styleScore(a.l.persona, a.l.emailStyle, stats));
-    const incentive = ranked.filter((x) => isIncentiveStyle(x.l.emailStyle));
-    const rest = ranked.filter((x) => !isIncentiveStyle(x.l.emailStyle));
-    const wantIncentive = Math.round(count * incentiveShare);
+    const founderB = ranked.filter((x) => x.l.emailStyle === "founder");
+    const incentiveB = ranked.filter((x) => isIncentiveStyle(x.l.emailStyle));
+    const restB = ranked.filter((x) => x.l.emailStyle !== "founder" && !isIncentiveStyle(x.l.emailStyle));
     const chosen = [
-      ...incentive.slice(0, wantIncentive),
-      ...rest.slice(0, count - Math.min(wantIncentive, incentive.length)),
-    ].slice(0, count);
-    // top up from whichever bucket has slack if one ran short
-    if (chosen.length < count) {
+      ...founderB.slice(0, wantFounder),
+      ...incentiveB.slice(0, wantIncentive),
+      ...restB.slice(0, Math.max(0, roundTarget - wantFounder - wantIncentive)),
+    ];
+    // top up to roundTarget from any remaining ranked lead (any bucket) if a share ran short
+    if (chosen.length < roundTarget) {
       const have = new Set(chosen.map((x) => x.l.id));
-      for (const x of ranked) { if (chosen.length >= count) break; if (!have.has(x.l.id)) chosen.push(x); }
+      for (const x of ranked) { if (chosen.length >= roundTarget) break; if (!have.has(x.l.id)) chosen.push(x); }
     }
+    chosen.splice(roundTarget);
 
     const ids = chosen.map((x) => x.l.id);
     const styleMix: Record<string, number> = {};
     for (const x of chosen) styleMix[x.l.emailStyle ?? "?"] = (styleMix[x.l.emailStyle ?? "?"] ?? 0) + 1;
 
     if (ids.length === 0) {
-      return NextResponse.json({ ok: true, candidates: candidates.length, gradedGood: 0, chosen: 0, sent: 0, generated, attemptedIds: [], message: generateStyle && generated === 0 ? "No more leads left to write fresh emails for (pool drained)." : "No eligible drafts cleared the bar this round." });
+      return NextResponse.json({ ok: true, candidates: candidates.length, gradedGood: 0, chosen: 0, sent: 0, generated, attemptedIds: [], message: "No more eligible leads this round (pool drained or all in cooldown)." });
     }
 
     // 3) send exactly those ids.
@@ -144,7 +148,7 @@ export async function POST(request: Request) {
       const snd = await fetch(`${base}/api/incentives/launch`, {
         method: "POST",
         headers: { "Content-Type": "application/json", "x-cron-secret": cron },
-        body: JSON.stringify({ workspaceId: ws.id, recycle: true, useGeneratedSteps: true, leadIds: ids, cooldownDays: COOLDOWN_DAYS, sendLimit: count, providerFilter: provider }),
+        body: JSON.stringify({ workspaceId: ws.id, recycle: true, useGeneratedSteps: true, leadIds: ids, cooldownDays: COOLDOWN_DAYS, sendLimit: roundTarget, providerFilter: provider }),
       });
       const s = await snd.json().catch(() => ({}));
       sent = Number(s.totalUploaded ?? s.leads_uploaded ?? 0) || 0;

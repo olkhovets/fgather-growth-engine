@@ -32,8 +32,8 @@ export default function QuickSendBatch() {
       while (sent < target && rounds < MAX_ROUNDS) {
         const r = await fetch("/api/send-batch", {
           method: "POST", headers: { "Content-Type": "application/json" },
-          // generateStyle = write BRAND-NEW founder-style company-specific emails, then send them.
-          body: JSON.stringify({ count: target - sent, minGrade: Number(minGrade) || 85, providerFilter: provider, excludeIds: attempted, generateStyle: "founder" }),
+          // blend: ~40% fresh founder + ~40% incentive + ~20% other good styles (server defaults).
+          body: JSON.stringify({ count: target - sent, minGrade: Number(minGrade) || 85, providerFilter: provider, excludeIds: attempted }),
         });
         const d = await r.json();
         if (!r.ok) { setError(d.error || "Send failed."); break; }
@@ -64,7 +64,7 @@ export default function QuickSendBatch() {
       </summary>
       <div className="px-4 py-4 space-y-4" style={{ background: "var(--surface, #16161a)" }}>
         <p className="text-xs" style={{ color: "var(--text-secondary)" }}>
-          Writes <strong>brand-new</strong> company-specific emails in the founder style (quick credential + a demo ask, no gift), grade-checks them, and sends — skipping the old drafts. Because it&apos;s writing each one fresh, it runs in rounds and takes a few minutes for a big batch. (Chat experiment, not permanent.)
+          Sends a blend: <strong>~40% fresh founder</strong> (newly written per company — quick credential + demo ask, no gift), <strong>~40% incentive</strong> (the proven money-forward style), <strong>~20% other good styles</strong>. Grade-checked, right-fit ICP. Writing the founder portion fresh makes it run in rounds over a few minutes. (Chat experiment, not permanent.)
         </p>
 
         <div className="flex flex-wrap gap-3 items-end">
@@ -87,7 +87,7 @@ export default function QuickSendBatch() {
         </div>
 
         <button onClick={send} disabled={busy} className="rounded-xl px-5 py-3 text-sm font-semibold transition disabled:opacity-60" style={{ background: busy ? "#444" : "var(--accent, #6366f1)", color: "#fff" }}>
-          {busy ? `Writing + sending… ${prog?.sent ?? 0}/${prog?.target ?? count}` : `🚀  Write + send ${count || 0} fresh founder emails`}
+          {busy ? `Writing + sending… ${prog?.sent ?? 0}/${prog?.target ?? count}` : `🚀  Send ${count || 0} (founder + incentive blend)`}
         </button>
 
         {prog && (
