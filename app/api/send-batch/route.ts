@@ -20,6 +20,8 @@ export const maxDuration = 120;
 
 // Various good styles (exclude specialist-proof — it converted ~0 across ~3k sends).
 const GOOD_STYLES = ["direct-incentive", "holiday-incentive", "lean-personal", "social-proof", "insight-hook", "pain-led", "direct-ask"];
+// Recipient gateways that quarantine cold mail (mirrors the send route). Pre-filtered out for "no-gateways".
+const STRICT_GATEWAYS = ["Microsoft", "Proofpoint", "Mimecast", "Barracuda"];
 const ICP_PERSONAS = ["consumer-insights", "brand-social", "product-marketing", "growth-general"];
 // Quality floor. Raised to 85: the grade measures CRAFT (length, personalization, human tone, no spam
 // triggers), not conversion — even a 99 can flop on market fit — so we only let the best-crafted out
@@ -52,8 +54,17 @@ export async function POST(request: Request) {
     // "sprinkled in" regardless of what else ranks. Default 50%.
     const incentiveShare = Math.min(1, Math.max(0, typeof body.incentiveShare === "number" ? body.incentiveShare : 0.5));
     const minGrade = Math.min(100, Math.max(0, typeof body.minGrade === "number" ? body.minGrade : DEFAULT_GRADE_FLOOR));
+    // Ids the caller already tried this session — excluded so each loop round picks NEW leads.
+    const excludeIds: string[] = Array.isArray(body.excludeIds) ? body.excludeIds.filter((s: unknown): s is string => typeof s === "string") : [];
 
-    // 1) candidate pool: eligible, good-style drafted, (ICP). Over-pull so the grade filter has slack.
+    // PRE-FILTER selection by the SAME provider rule the send uses, so we don't choose 200 then watch
+    // 158 get filtered out at send time. no-gateways keeps Gmail + null/unknown + non-gateway providers.
+    const providerWhere =
+      provider === "google" ? { OR: [{ emailProvider: "Google" }, { emailProvider: null }] }
+      : provider === "no-gateways" ? { NOT: { emailProvider: { in: STRICT_GATEWAYS } } }
+      : {};
+
+    // 1) candidate pool: eligible, good-style drafted, sendable provider, (ICP). Over-pull for grading slack.
     const cutoff = new Date(Date.now() - COOLDOWN_DAYS * 24 * 60 * 60 * 1000);
     const candidates = await prisma.lead.findMany({
       where: {
@@ -62,6 +73,8 @@ export async function POST(request: Request) {
         recycleCount: { lt: 2 }, OR: [{ recycledAt: null }, { recycledAt: { lt: cutoff } }],
         stepsJson: { not: null }, emailStyle: { in: GOOD_STYLES },
         ...(icpOnly ? { persona: { in: ICP_PERSONAS } } : {}),
+        ...providerWhere,
+        ...(excludeIds.length ? { id: { notIn: excludeIds } } : {}),
       },
       select: { id: true, company: true, persona: true, emailStyle: true, step1Subject: true, step1Body: true },
       orderBy: { createdAt: "asc" }, // oldest-waiting first
@@ -114,13 +127,16 @@ export async function POST(request: Request) {
       sendErr = s.error || "";
     } catch (e) { sendErr = e instanceof Error ? e.message : "send failed"; }
 
-    const skipped = ids.length - sent;
+    const sendSideSkipped = ids.length - sent; // chosen but not shipped (unwarmed inbox / dupe / verify-fail)
+    const belowGrade = candidates.length - graded.length;
     const incCount = chosen.filter((x) => isIncentiveStyle(x.l.emailStyle)).length;
     return NextResponse.json({
       ok: true,
       requested: count, candidates: candidates.length, gradedGood: graded.length, chosen: ids.length, minGrade,
-      sent, skipped, eligible, prepared, provider, styleMix, incentiveCount: incCount,
-      message: `${graded.length}/${candidates.length} drafts cleared the quality bar (>=${minGrade}). Chose ${ids.length} — ${incCount} incentive (${Math.round((incCount / ids.length) * 100)}%), per-persona best styles: ${Object.entries(styleMix).map(([s, n]) => `${n} ${s}`).join(", ")}. Sent ${sent}${skipped > 0 ? `, skipped ${skipped} (off-provider / not on a warmed inbox)` : ""}.${sendErr ? ` Note: ${sendErr}` : ""}`,
+      sent, sendSideSkipped, belowGrade, eligible, prepared, provider, styleMix, incentiveCount: incCount,
+      attemptedIds: ids, // so the loop excludes these next round
+      poolMaybeMore: candidates.length >= count * 5, // candidate query hit its cap → likely more leads available
+      message: `Sent ${sent}/${ids.length} chosen${sendSideSkipped > 0 ? ` (${sendSideSkipped} not on a warmed inbox / already in a campaign)` : ""}.${belowGrade > 0 ? ` ${belowGrade} skipped below quality ${minGrade}.` : ""}${sendErr ? ` Note: ${sendErr}` : ""}`,
     });
   } catch (err) {
     return NextResponse.json({ error: err instanceof Error ? err.message : "Send failed" }, { status: 500 });
