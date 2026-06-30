@@ -104,7 +104,8 @@ export default function QuickSendBatch() {
               <div className={`h-full rounded-full transition-all duration-500 ${busy ? "animate-pulse" : ""}`} style={{ width: `${Math.max(2, Math.min(100, Math.round((prog.sent / prog.target) * 100)))}%`, background: "linear-gradient(90deg, var(--accent, #6366f1), #818cf8)" }} />
             </div>
             <div className="text-xs space-y-0.5" style={{ color: "var(--text-secondary)" }}>
-              <div>{busy ? `Round ${prog.rounds + 1} in progress (writing ~8 fresh emails, ~30s)…` : `${prog.rounds} rounds`} · Written fresh: <span style={{ color: "var(--text-primary)" }}>{prog.generated}</span> · Skipped: <span style={{ color: "var(--text-primary)" }}>{prog.sendSideSkipped}</span></div>
+              <div>{busy ? `Round ${prog.rounds + 1} writing fresh emails (~30s)…` : `${prog.rounds} rounds`} · Drafted this run: <span style={{ color: "var(--text-primary)" }}>{prog.generated}</span> · Shipped: <span style={{ color: "var(--text-primary)" }}>{prog.sent}</span></div>
+              {prog.generated > prog.sent + 10 && !prog.done && <div style={{ color: "#fbbf24" }}>Drafting faster than shipping — most fresh drafts are queued; shipping is the slow step.</div>}
               {prog.done && prog.sent < prog.target && <div style={{ color: "#fbbf24" }}>{prog.note} Reached {prog.sent} of {prog.target}.</div>}
               {prog.done && prog.sent >= prog.target && <div style={{ color: "#4ade80" }}>✓ Target reached.</div>}
             </div>

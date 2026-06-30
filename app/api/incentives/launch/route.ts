@@ -265,7 +265,9 @@ export async function POST(request: Request) {
         spMode = "created";
       }
 
-      const spAdd = await client.bulkAddLeadsToCampaign(spCampaignId, payloads, { verify_leads_on_import: true });
+      // recycles were already verified on their first send; re-verifying 2 weeks later rejects most
+      // and starves the upload (the "appended 1 of N" problem), so skip it for the recycle path.
+      const spAdd = await client.bulkAddLeadsToCampaign(spCampaignId, payloads, { verify_leads_on_import: false });
       await client.activateCampaign(spCampaignId).catch(() => {});
 
       // Re-engage stamp: bump recycle tracking + mark the style arm. Keep each lead's own amount/gift
