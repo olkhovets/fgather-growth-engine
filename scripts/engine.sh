@@ -132,6 +132,17 @@ case "$cmd" in
     curl -sS -X POST "$BASE_URL/api/incentives/launch" -H "x-cron-secret: ${CRON_SECRET}" -H "Content-Type: application/json" \
       -d "{\"oooRequeue\":true,\"sendLimit\":$lim,\"workspaceId\":\"$(_ws)\"}" | jq . 2>/dev/null || true ;;
 
+  shorten-pool)  # rewrite long existing drafts to punchy, looping until the pool is done (Claude spend, no send)
+    _auth; [[ -n "$(_ws)" ]] || { echo "ERROR: WORKSPACE_ID required in .env"; exit 1; }
+    _confirm "SHORTEN-POOL — rewrite long drafts to punchy across the whole pool (Claude spend; does NOT send)"
+    total=0
+    for i in $(seq 1 120); do
+      r=$(curl -sS -X POST "$BASE_URL/api/optimize/shorten-pool" -H "x-cron-secret: ${CRON_SECRET}" -H "Content-Type: application/json" -d "{\"workspaceId\":\"$(_ws)\"}")
+      n=$(echo "$r" | jq -r '.rewritten // 0' 2>/dev/null || echo 0)
+      total=$((total+n)); echo "round $i: rewrote $n (total $total)"
+      [ "$n" = "0" ] && { echo "done — no more long drafts."; break; }
+    done ;;
+
   autopilot-off|autopilot-on)  # pause/resume the automated senders (so manual batches don't fight them)
     _auth; [[ -n "$(_ws)" ]] || { echo "ERROR: WORKSPACE_ID required in .env"; exit 1; }
     on=$([[ "$cmd" == "autopilot-on" ]] && echo true || echo false)
@@ -175,6 +186,7 @@ WRITE (live infra — prompts before firing):
   recycle           re-draft the whole prior unsent pool (Claude spend; no send)
   hit-oldest [style] re-draft OLDEST never-touched leads, hard-hitting style + optimized subjects
   send-good [N] [prov]  ⮕ SEND N grade-checked good emails, per-persona best styles + incentives sprinkled (ICP; REAL sends)
+  shorten-pool      rewrite long existing drafts to short+punchy (loops; Claude spend, no send)
   autopilot-off / autopilot-on  pause/resume the automated senders
   send <batch> [N]  upload + activate a batch in Instantly (REAL sends)
   send-recycle [style] [N]  SEND the drafted recycle leads of a style (REAL sends; pairs with hit-oldest/hit-icp)
