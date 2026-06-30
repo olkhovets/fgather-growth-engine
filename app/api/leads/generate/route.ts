@@ -24,7 +24,8 @@ export const dynamic = "force-dynamic";
 // Allow up to 60s so a few Anthropic calls can finish (Vercel Pro; Hobby may still cap at 10s)
 export const maxDuration = 60;
 
-const MAX_BODY_WORDS = 150;
+const MAX_BODY_WORDS = 70;       // anything longer gets cut to punchy length
+const PUNCHY_TARGET_WORDS = 55;  // the short, punchy target the shortener cuts down to
 
 function wordCount(text: string): number {
   return text.trim().split(/\s+/).filter(Boolean).length;
@@ -716,16 +717,16 @@ Return ONLY valid JSON: { ${stepExample} }`;
           ).catch(() => {});
         }
 
-        // Auto-shorten any step body that exceeds word limit
+        // Auto-shorten any step body over the punchy limit — make it SHORT and PUNCHY, not just under a cap.
         for (const step of stepsArray) {
           if (wordCount(step.body) > MAX_BODY_WORDS) {
             try {
               const { text: shortened } = await callAnthropic(
                 anthropicKey,
-                `Shorten this cold email body to under ${MAX_BODY_WORDS} words. Preserve the key message and CTA. Return only the shortened body text, no commentary:\n\n${step.body}`,
-                { maxTokens: 300, model }
+                `Cut this cold email to UNDER ${PUNCHY_TARGET_WORDS} words. Short and punchy. Keep ONLY: the one-line hook about them, the single proof/offer, and the one ask. Delete every extra clause, hedge, and explanation. Keep the greeting and any gift amount exactly. Return only the rewritten body, no commentary:\n\n${step.body}`,
+                { maxTokens: 220, model }
               );
-              step.body = shortened.trim();
+              if (shortened.trim()) step.body = shortened.trim();
             } catch {
               // keep original if shorten fails
             }
