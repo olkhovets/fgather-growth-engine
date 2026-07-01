@@ -153,6 +153,22 @@ STEP 2+ - thread as a reply (Re: same subject). CONTINUITY MATTERS: assume step 
 STEP 3 - a gentle breakup or one fresh angle, keeping the gift and the ask consistent with the earlier steps.
 NEVER invent metrics, ARR, or guarantees. No em dashes, no AI-tell words. Subject: short, lowercase, founder-casual, e.g. "[company] + gather".`,
   },
+
+  // Outcome-Hook: attention-grabbing, emoji subject, sells the HUMAN OUTCOME (win/status/time), not the
+  // product. For a busy marketing director/CMO. Bolder than the plain styles on purpose (they get ~0%).
+  "outcome-hook": {
+    usePS: false,
+    prompt: `EMAIL STYLE: Outcome-Hook (attention-grabbing, ONE emoji in the subject, sells the human OUTCOME)
+For a busy marketing director/CMO who cares about their WIN, their boss, and their TIME. Grab attention. Whole body UNDER 50 words, punchy, confident, human.
+SUBJECT: lead with exactly ONE relevant emoji, then a short lowercase phrase naming a concrete OUTCOME they crave. Make it about THEIR career/life, not the product. Pick one, vary them, tailor to the company/a real competitor:
+  "🏆 steal [competitor]'s customers" · "⏰ go home early, [firstName]" · "🎯 impress your CMO" · "📉 stop guessing what [company]'s buyers want" · "👀 what [company]'s customers actually think" · "🧠 the campaign that makes you look brilliant" · "📊 content [company] can finally cite" · "⚡ creative that lands first try".
+  One emoji only, never a stack. No ALL CAPS. Not clickbait you can't pay off.
+BODY:
+ - Sentence 1: name the OUTCOME they want, specific to them — hit the number, ship creative that lands first try, steal share from a named competitor, kill the 6-week research wait (get home earlier), research the CMO trusts, content that gets cited, look like the genius in the room.
+ - Sentence 2: how Gather delivers it in ONE line — real consumer answers in days, not a six-week study; brands like Belk and Staples use us. Pick one proof, never stack.
+ - Offer + ask: tie in the gift as a nudge ("I'll put a [GIFT] behind a 15-min demo"), then one reply-first ask. NO links.
+Sell the benefit to the PERSON (winning, status, time), not features. NEVER invent metrics/ARR/guarantees. No em dashes, no AI-tell words. The subject emoji is intentional and wanted.`,
+  },
 };
 
 /**
@@ -463,7 +479,7 @@ export async function POST(request: Request) {
       // (like the Incentives Lab) so Results' offer A/B reveals which gift converts.
       const GIFT_AMOUNTS = [50, 100, 200];
       const GIFT_TYPES = ["Uber Eats card", "DoorDash card", "Amazon gift card"];
-      const useGift = resolvedStyle === "specialist-proof" || resolvedStyle === "direct-incentive" || resolvedStyle === "holiday-incentive" || resolvedStyle === "founder-incentive";
+      const useGift = resolvedStyle === "specialist-proof" || resolvedStyle === "direct-incentive" || resolvedStyle === "holiday-incentive" || resolvedStyle === "founder-incentive" || resolvedStyle === "outcome-hook";
       const giftAmount = useGift ? GIFT_AMOUNTS[leadIndex % GIFT_AMOUNTS.length] : null;
       const giftType = useGift ? GIFT_TYPES[Math.floor(leadIndex / GIFT_AMOUNTS.length) % GIFT_TYPES.length] : null;
       const giftBlock = useGift
@@ -489,7 +505,7 @@ GIFT CONTINUITY (critical — the steps are ONE ongoing thread, not separate ema
       // Style-specific sign-off: direct-ask uses first name only (brevity = credibility);
       // other styles append the company name for a light authority signal
       const senderFirstName = workspace.senderName?.trim().split(/\s+/)[0] ?? "Best";
-      const signoff = (resolvedStyle === "direct-ask" || resolvedStyle === "direct-incentive" || resolvedStyle === "holiday-incentive" || resolvedStyle === "founder" || resolvedStyle === "founder-incentive")
+      const signoff = (resolvedStyle === "direct-ask" || resolvedStyle === "direct-incentive" || resolvedStyle === "holiday-incentive" || resolvedStyle === "founder" || resolvedStyle === "founder-incentive" || resolvedStyle === "outcome-hook")
         ? senderFirstName
         : `${senderFirstName}, Gather`;
 
