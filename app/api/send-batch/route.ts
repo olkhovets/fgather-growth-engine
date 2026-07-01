@@ -20,8 +20,9 @@ export const maxDuration = 120;
 
 // Various good styles (exclude specialist-proof — it converted ~0 across ~3k sends). Includes the
 // founder-incentive combo (founder credential + money offer), which is what the fresh portion writes.
-const GOOD_STYLES = ["founder-incentive", "founder", "direct-incentive", "holiday-incentive", "lean-personal", "social-proof", "insight-hook", "pain-led", "direct-ask"];
-const FRESH_STYLE = "founder-incentive"; // the combo we write fresh per company
+const GOOD_STYLES = ["outcome-hook", "founder-incentive", "founder", "direct-incentive", "holiday-incentive", "lean-personal", "social-proof", "insight-hook", "pain-led", "direct-ask"];
+// The styles we write FRESH per company, alternated so we A/B the outcome-emoji angle vs the founder combo.
+const FRESH_STYLES = ["outcome-hook", "founder-incentive"];
 const ROUND_CAP = 12; // leads chosen+sent per loop round (paced by how fast we can write fresh founder)
 // Recipient gateways that quarantine cold mail (mirrors the send route). Pre-filtered out for "no-gateways".
 const STRICT_GATEWAYS = ["Microsoft", "Proofpoint", "Mimecast", "Barracuda"];
@@ -75,11 +76,14 @@ export async function POST(request: Request) {
     let generated = 0;
     if (wantFounder > 0) {
       const genStart = Date.now();
+      let genCall = 0;
       while (generated < wantFounder && Date.now() - genStart < 70_000) {
+        const freshStyle = FRESH_STYLES[genCall % FRESH_STYLES.length]; // alternate outcome-hook / founder-incentive
+        genCall += 1;
         try {
           const g = await fetch(`${base}/api/leads/generate`, {
             method: "POST", headers: { "Content-Type": "application/json", "x-cron-secret": cron },
-            body: JSON.stringify({ workspaceId: ws.id, recycle: true, oldestFirst: true, style: FRESH_STYLE, cooldownDays: COOLDOWN_DAYS, providerFilter: provider, useFastModel: true, limit: Math.min(10, wantFounder - generated), ...(icpOnly ? { personas: ICP_PERSONAS } : {}) }),
+            body: JSON.stringify({ workspaceId: ws.id, recycle: true, oldestFirst: true, style: freshStyle, cooldownDays: COOLDOWN_DAYS, providerFilter: provider, useFastModel: true, limit: Math.min(6, wantFounder - generated), ...(icpOnly ? { personas: ICP_PERSONAS } : {}) }),
           });
           const gd = await g.json().catch(() => ({}));
           const did = Number(gd.done) || 0;
@@ -121,9 +125,9 @@ export async function POST(request: Request) {
     // 3) rank by PER-PERSONA performance, then build the blend: founder + incentive + rest, to roundTarget.
     const stats = await perPersonaStyleStats(ws.id);
     const ranked = graded.sort((a, b) => styleScore(b.l.persona, b.l.emailStyle, stats) - styleScore(a.l.persona, a.l.emailStyle, stats));
-    const founderB = ranked.filter((x) => x.l.emailStyle === FRESH_STYLE);                                    // fresh founder+money combo
-    const incentiveB = ranked.filter((x) => isIncentiveStyle(x.l.emailStyle) && x.l.emailStyle !== FRESH_STYLE); // existing direct-incentive/holiday
-    const restB = ranked.filter((x) => x.l.emailStyle !== FRESH_STYLE && !isIncentiveStyle(x.l.emailStyle));    // other good styles
+    const founderB = ranked.filter((x) => FRESH_STYLES.includes(x.l.emailStyle ?? ""));                                       // fresh outcome-hook / founder combo
+    const incentiveB = ranked.filter((x) => isIncentiveStyle(x.l.emailStyle) && !FRESH_STYLES.includes(x.l.emailStyle ?? "")); // existing direct-incentive/holiday
+    const restB = ranked.filter((x) => !FRESH_STYLES.includes(x.l.emailStyle ?? "") && !isIncentiveStyle(x.l.emailStyle));     // other good styles
     const chosen = [
       ...founderB.slice(0, wantFounder),
       ...incentiveB.slice(0, wantIncentive),
