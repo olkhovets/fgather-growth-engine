@@ -10,10 +10,10 @@ type Progress = { sent: number; target: number; generated: number; sendSideSkipp
  * batch of good emails (per-persona styles + guaranteed incentive share) via /api/send-batch.
  * Collapsed by default and visually flagged so it's clear this isn't a core feature.
  */
-export default function QuickSendBatch() {
-  const [count, setCount] = useState("200");
+export default function QuickSendBatch({ home = false, defaultCount = "200" }: { home?: boolean; defaultCount?: string } = {}) {
+  const [count, setCount] = useState(defaultCount);
   const [minGrade, setMinGrade] = useState("85");
-  const [provider, setProvider] = useState("no-gateways");
+  const [provider, setProvider] = useState(home ? "all" : "no-gateways");
   const [busy, setBusy] = useState(false);
   const [prog, setProg] = useState<Progress | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -57,14 +57,14 @@ export default function QuickSendBatch() {
   const inputStyle = { background: "var(--bg, #111)", color: "var(--text-primary)", border: "1px solid var(--border, #333)" };
 
   return (
-    <details className="mb-6 rounded-xl overflow-hidden" style={{ border: "1px dashed var(--accent, #6366f1)" }} open>
-      <summary className="cursor-pointer select-none px-4 py-3 flex items-center gap-2 text-sm font-medium" style={{ background: "rgba(99,102,241,0.08)", color: "var(--text-primary)" }}>
-        <span>⚡ Quick Send</span>
-        <span className="text-[10px] uppercase tracking-wide px-2 py-0.5 rounded-full" style={{ background: "rgba(99,102,241,0.2)", color: "var(--accent, #818cf8)" }}>temporary · chat experiment</span>
+    <details className="mb-6 rounded-xl overflow-hidden" style={{ border: home ? "1px solid var(--accent, #6366f1)" : "1px dashed var(--accent, #6366f1)" }} open>
+      <summary className="cursor-pointer select-none px-4 py-3 flex items-center gap-2 font-semibold" style={{ background: "rgba(99,102,241,0.10)", color: "var(--text-primary)", fontSize: home ? "1rem" : "0.875rem" }}>
+        <span>{home ? "🚀 Recycle & send fresh sequences" : "⚡ Quick Send"}</span>
+        {!home && <span className="text-[10px] uppercase tracking-wide px-2 py-0.5 rounded-full" style={{ background: "rgba(99,102,241,0.2)", color: "var(--accent, #818cf8)" }}>temporary · chat experiment</span>}
       </summary>
       <div className="px-4 py-4 space-y-4" style={{ background: "var(--surface, #16161a)" }}>
         <p className="text-xs" style={{ color: "var(--text-secondary)" }}>
-          Sends a blend: <strong>~40% fresh founder-incentive combo</strong> (newly written per company — founder credential + a money offer, continuous across the sequence), <strong>~40% existing incentive</strong>, <strong>~20% other good styles</strong>. Grade-checked, right-fit ICP. Writing the founder combos fresh makes it run in rounds over a few minutes. (Chat experiment, not permanent.)
+          Recycles right-fit ICP leads and writes <strong>brand-new punchy sequences</strong> — a blend of the founder-incentive combo (credential + money offer, continuous across steps) and other proven styles — grade-checked, then sends. Runs in rounds; watch it climb below.
         </p>
 
         <div className="flex flex-wrap gap-3 items-end">
@@ -87,7 +87,7 @@ export default function QuickSendBatch() {
         </div>
 
         <button onClick={send} disabled={busy} className="rounded-xl px-5 py-3 text-sm font-semibold transition disabled:opacity-60" style={{ background: busy ? "#444" : "var(--accent, #6366f1)", color: "#fff" }}>
-          {busy ? `Writing + sending… ${prog?.sent ?? 0}/${prog?.target ?? count}` : `🚀  Send ${count || 0} (founder + incentive blend)`}
+          {busy ? `Crafting + sending… ${prog?.sent ?? 0}/${prog?.target ?? count}` : `🚀  Recycle ${count || 0} · craft fresh sequences · send`}
         </button>
 
         {prog && (

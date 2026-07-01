@@ -1,5 +1,6 @@
 "use client";
 import DashboardSidebar from "@/components/DashboardSidebar";
+import QuickSendBatch from "@/components/QuickSendBatch";
 
 import Link from "next/link";
 import { useSession, signOut } from "next-auth/react";
@@ -231,6 +232,9 @@ export default function DashboardPage() {
               {creating ? "Creating…" : "New Campaign"}
             </button>
           </div>
+
+          {/* Front-and-center one-press launcher: recycle 300, craft fresh punchy sequences, send. */}
+          <QuickSendBatch home defaultCount="300" />
 
           {/* Two paths, same outcome — make the overlap with the sidebar explicit */}
           {hasOnboarding && (
