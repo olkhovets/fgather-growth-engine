@@ -20,9 +20,10 @@ export const maxDuration = 120;
 
 // Various good styles (exclude specialist-proof — it converted ~0 across ~3k sends). Includes the
 // founder-incentive combo (founder credential + money offer), which is what the fresh portion writes.
-const GOOD_STYLES = ["outcome-hook", "founder-incentive", "founder", "direct-incentive", "holiday-incentive", "lean-personal", "social-proof", "insight-hook", "pain-led", "direct-ask"];
-// The styles we write FRESH per company, alternated so we A/B the outcome-emoji angle vs the founder combo.
-const FRESH_STYLES = ["outcome-hook", "founder-incentive"];
+const GOOD_STYLES = ["outcome-hook", "curiosity-gap", "founder-incentive", "founder", "direct-incentive", "holiday-incentive", "lean-personal", "social-proof", "insight-hook", "pain-led", "direct-ask"];
+// The styles we write FRESH per company, alternated so we A/B the captivating angles head-to-head:
+// outcome-emoji (+gift), curiosity-gap (no gift, pure attention), and the founder-incentive combo.
+const FRESH_STYLES = ["outcome-hook", "curiosity-gap", "founder-incentive"];
 const ROUND_CAP = 12; // leads chosen+sent per loop round (paced by how fast we can write fresh founder)
 // Recipient gateways that quarantine cold mail (mirrors the send route). Pre-filtered out for "no-gateways".
 const STRICT_GATEWAYS = ["Microsoft", "Proofpoint", "Mimecast", "Barracuda"];

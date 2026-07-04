@@ -167,7 +167,23 @@ BODY:
  - Sentence 1: name the OUTCOME they want, specific to them — hit the number, ship creative that lands first try, steal share from a named competitor, kill the 6-week research wait (get home earlier), research the CMO trusts, content that gets cited, look like the genius in the room.
  - Sentence 2: how Gather delivers it in ONE line — real consumer answers in days, not a six-week study; brands like Belk and Staples use us. Pick one proof, never stack.
  - Offer + ask: tie in the gift as a nudge ("I'll put a [GIFT] behind a 15-min demo"), then one reply-first ask. NO links.
-Sell the benefit to the PERSON (winning, status, time), not features. NEVER invent metrics/ARR/guarantees. No em dashes, no AI-tell words. The subject emoji is intentional and wanted.`,
+Sell the benefit to the PERSON (winning, status, time), not features. NEVER invent metrics/ARR/guarantees. No em dashes, no AI-tell words. The subject emoji is intentional and wanted.
+Rotate the ANGLE across leads so they're not all the same — career-win (impress the CMO, look brilliant, always call it right), time-back (get weekends back, stop late-night guessing), competitive (steal share from a named competitor, beat them to the insight), loss-aversion (stop paying for creative that flops, you're guessing expensively).
+HONESTY (non-negotiable): the subject makes a promise the BODY must actually pay off. No fake urgency or scarcity, no invented results, no "Re:"/"following up" implying prior contact, no fabricated personal details. Captivating, never deceptive.`,
+  },
+
+  // Curiosity-Gap: a pure attention/insight play, NO gift. Opens a real, honest knowledge gap about
+  // THEIR customers and offers a specific taste of the answer. Tests whether curiosity beats money.
+  "curiosity-gap": {
+    usePS: false,
+    prompt: `EMAIL STYLE: Curiosity-Gap (honest curiosity, insight-forward, value not money, ONE emoji subject)
+For a marketing director/CMO. Open a REAL knowledge gap about what THEIR customers actually think — then offer a concrete taste of the answer. Whole body UNDER 45 words. No gift, no money.
+SUBJECT: one relevant emoji + a short lowercase curiosity line grounded in something true about them, e.g. "🔍 what [company]'s customers actually think" · "💬 the thing your buyers won't say in a survey" · "❓ why your last campaign may have underperformed" · "👀 [company]'s buyers vs what you assume". Never clickbait you can't pay off.
+BODY:
+ - Sentence 1: name the specific gap — the thing they can't see about their buyers today (tie to their category/product from the research).
+ - Sentence 2: we close it with real consumer answers in days (not a six-week study); brands like Belk and Staples use us. One proof, never stack.
+ - Close: a low-friction, value-first ask — offer to send ONE real insight or a quick teardown for their category. Reply-first, NO links.
+HONESTY (non-negotiable): the curiosity in the subject must be genuinely answered by the body. No fake urgency, no invented stats, no fake prior-contact, no fabricated details. Intriguing, never deceptive. NEVER invent metrics/ARR. No em dashes, no AI-tell words.`,
   },
 };
 
@@ -505,7 +521,7 @@ GIFT CONTINUITY (critical — the steps are ONE ongoing thread, not separate ema
       // Style-specific sign-off: direct-ask uses first name only (brevity = credibility);
       // other styles append the company name for a light authority signal
       const senderFirstName = workspace.senderName?.trim().split(/\s+/)[0] ?? "Best";
-      const signoff = (resolvedStyle === "direct-ask" || resolvedStyle === "direct-incentive" || resolvedStyle === "holiday-incentive" || resolvedStyle === "founder" || resolvedStyle === "founder-incentive" || resolvedStyle === "outcome-hook")
+      const signoff = (resolvedStyle === "direct-ask" || resolvedStyle === "direct-incentive" || resolvedStyle === "holiday-incentive" || resolvedStyle === "founder" || resolvedStyle === "founder-incentive" || resolvedStyle === "outcome-hook" || resolvedStyle === "curiosity-gap")
         ? senderFirstName
         : `${senderFirstName}, Gather`;
 
