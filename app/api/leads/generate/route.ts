@@ -583,7 +583,11 @@ ${usePS ? `- Include a P.S. line in step 1 — reference something real and spec
 - Write as a human peer, not a marketer
 - Sign off every email with the SENDER'S name (yours), never the recipient's name. Use exactly: ${signoff}
 
-${styleConfig.prompt}${researchPlaybookBlock()}${learningsText}${experimentBlock}${customInstructionsText}${giftBlock}${wildcardBlock}`;
+${styleConfig.prompt}${researchPlaybookBlock()}${learningsText}${experimentBlock}${customInstructionsText}${giftBlock}${wildcardBlock}${
+  ["quirky-incentive", "outcome-hook", "curiosity-gap"].includes(resolvedStyle)
+    ? `\n\n*** SUBJECT OVERRIDE (this style, highest priority — ignore any earlier rule to keep the subject plain/lowercase/1-4-words/no-emoji/no-clickbait) ***\nThe subject MUST be captivating and use AN EMOJI and/or a punchy provocative outcome. It is meant to grab a marketing director and drive the open. Examples of the REQUIRED vibe: "go home early 🍿", "🏆 steal their customers", "impress your CMO", "stop guessing", "worth $100? 💰", or even just "gather". One emoji or a small stack is REQUIRED unless a provocative outcome phrase is used instead. Do NOT write a plain descriptive subject like "[company]'s creative testing" — that defeats the whole test.`
+    : ""
+}`;
       let companyContextBlock = "";
       let companyContextRaw: string | null = null;
       if (useWebScraping && lead.website?.trim()) {

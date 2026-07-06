@@ -33,8 +33,8 @@ export default function QuickSendBatch({ home = false, defaultCount = "200" }: {
       while (sent < target && rounds < MAX_ROUNDS) {
         const r = await fetch("/api/send-batch", {
           method: "POST", headers: { "Content-Type": "application/json" },
-          // quirky test blend + source (recycle existing or pull new leads). Apollo runs on round 1 only.
-          body: JSON.stringify({ count: target - sent, minGrade: Number(minGrade) || 85, providerFilter: provider, excludeIds: attempted, source: rounds === 0 ? src : "recycle" }),
+          // quirky test: write (almost) everything FRESH so no old long drafts slip through; source toggle.
+          body: JSON.stringify({ count: target - sent, minGrade: Number(minGrade) || 85, providerFilter: provider, excludeIds: attempted, source: rounds === 0 ? src : "recycle", founderShare: 0.9 }),
         });
         const d = await r.json();
         if (!r.ok) { setError(d.error || "Send failed."); break; }
