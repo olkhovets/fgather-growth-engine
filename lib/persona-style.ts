@@ -8,7 +8,7 @@ import { prisma } from "@/lib/prisma";
  * Gather has booked came from a money-forward email) plus a small confidence nudge for more sends.
  */
 
-export const INCENTIVE_STYLES = ["direct-incentive", "holiday-incentive", "founder-incentive", "outcome-hook"];
+export const INCENTIVE_STYLES = ["direct-incentive", "holiday-incentive", "founder-incentive", "outcome-hook", "quirky-incentive"];
 
 export type StyleStat = { sends: number; positives: number };
 
