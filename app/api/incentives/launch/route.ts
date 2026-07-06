@@ -245,7 +245,9 @@ export async function POST(request: Request) {
         delayDays: i < numSteps - 1 ? 3 : 0,
       }));
 
-      const SP_NAME = `${campaignStyle} Recycle (rolling)`;
+      // Allow a caller-supplied campaign name (e.g. a per-day "Quirky Test 2026-07-06") so re-contacting
+      // an already-sent lead lands in a NEW campaign instead of being deduped away by the rolling one.
+      const SP_NAME = typeof body.campaignName === "string" && body.campaignName.trim() ? body.campaignName.trim() : `${campaignStyle} Recycle (rolling)`;
       const existingSp = body.freshCampaign === true
         ? null
         : await prisma.sentCampaign.findFirst({ where: { workspaceId: ws.id, name: SP_NAME }, orderBy: { createdAt: "desc" }, select: { instantlyCampaignId: true } });

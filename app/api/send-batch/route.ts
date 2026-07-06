@@ -170,7 +170,8 @@ export async function POST(request: Request) {
       const snd = await fetch(`${base}/api/incentives/launch`, {
         method: "POST",
         headers: { "Content-Type": "application/json", "x-cron-secret": cron },
-        body: JSON.stringify({ workspaceId: ws.id, recycle: true, useGeneratedSteps: true, leadIds: ids, cooldownDays: COOLDOWN_DAYS, sendLimit: roundTarget, providerFilter: provider }),
+        // Per-day campaign so re-contacting an already-sent lead isn't deduped away by the rolling one.
+        body: JSON.stringify({ workspaceId: ws.id, recycle: true, useGeneratedSteps: true, leadIds: ids, cooldownDays: COOLDOWN_DAYS, sendLimit: roundTarget, providerFilter: provider, campaignName: `Quirky Test ${new Date().toISOString().slice(0, 10)}` }),
       });
       const s = await snd.json().catch(() => ({}));
       sent = Number(s.totalUploaded ?? s.leads_uploaded ?? 0) || 0;
