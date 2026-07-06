@@ -17,6 +17,7 @@ import { researchPlaybookBlock } from "@/lib/cold-email-research";
 import { gradeEmail } from "@/lib/email-grader";
 import { loadApprovedStyles } from "@/lib/style-proposer";
 import { generateSubjectCandidates, scoreSubject } from "@/lib/subject-engine";
+import { mechanismForIndex, subjectMechanismBlock, MECHANISM_TAG_PREFIX } from "@/lib/subject-mechanisms";
 import { randomUUID } from "crypto";
 
 export const dynamic = "force-dynamic";
@@ -511,6 +512,10 @@ export async function POST(request: Request) {
       const styleConfig = STYLE_GUIDES[resolvedStyle] ?? approvedStyles[resolvedStyle] ?? STYLE_GUIDES["direct-ask"];
       const usePS = styleConfig.usePS;
 
+      // Quirky styles A/B eight radical SUBJECT MECHANISMS — rotate one per lead, inject it, tag the lead.
+      const isQuirky = ["quirky-incentive", "outcome-hook", "curiosity-gap"].includes(resolvedStyle);
+      const mechanism = isQuirky ? mechanismForIndex(leadIndex) : null;
+
       // specialist-proof carries a gift-for-demo, and we VARY the amount per lead
       // (like the Incentives Lab) so Results' offer A/B reveals which gift converts.
       const GIFT_AMOUNTS = [50, 100, 200];
@@ -584,8 +589,8 @@ ${usePS ? `- Include a P.S. line in step 1 — reference something real and spec
 - Sign off every email with the SENDER'S name (yours), never the recipient's name. Use exactly: ${signoff}
 
 ${styleConfig.prompt}${researchPlaybookBlock()}${learningsText}${experimentBlock}${customInstructionsText}${giftBlock}${wildcardBlock}${
-  ["quirky-incentive", "outcome-hook", "curiosity-gap"].includes(resolvedStyle)
-    ? `\n\n*** SUBJECT OVERRIDE (this style, highest priority — ignore any earlier rule to keep the subject plain/lowercase/1-4-words/no-emoji/no-clickbait) ***\nThe subject MUST be captivating and use AN EMOJI and/or a punchy provocative outcome. It is meant to grab a marketing director and drive the open. Examples of the REQUIRED vibe: "go home early 🍿", "🏆 steal their customers", "impress your CMO", "stop guessing", "worth $100? 💰", or even just "gather". One emoji or a small stack is REQUIRED unless a provocative outcome phrase is used instead. Do NOT write a plain descriptive subject like "[company]'s creative testing" — that defeats the whole test.`
+  mechanism
+    ? `\n\n*** SUBJECT OVERRIDE (highest priority — ignore any earlier rule to keep the subject plain/lowercase/1-4-words/no-emoji/no-clickbait) ***\nThe subject MUST be captivating and grab a marketing director. Do NOT write a plain descriptive subject like "[company]'s creative testing" — that defeats the whole test.${subjectMechanismBlock(mechanism)}`
     : ""
 }`;
       let companyContextBlock = "";
@@ -860,6 +865,8 @@ Return ONLY valid JSON: { ${stepExample} }`;
         }
 
         if (useGift && giftAmount) { update.incentiveAmount = giftAmount; update.incentiveGiftType = giftType; }
+        // Tag the subject mechanism so reply rate is measured per mechanism (survives the send).
+        if (mechanism) update.incentiveSubjectStyle = `${MECHANISM_TAG_PREFIX}${mechanism.key}`;
         await prisma.lead.update({
           where: { id: lead.id },
           data: update,
