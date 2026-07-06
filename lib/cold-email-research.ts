@@ -95,7 +95,7 @@ export function researchTacticsForExperiments(): ResearchRule[] {
 
 // --- Numeric thresholds the deterministic grader scores against (single source of truth) ---
 export const RUBRIC = {
-  body: { idealMaxWords: 65, hardMaxWords: 110, flagWords: 140 },
+  body: { idealMaxWords: 45, hardMaxWords: 80, flagWords: 110 },
   subject: { idealMaxWords: 4, hardMaxWords: 7 },
   readability: { targetGrade: 5, hardGrade: 9, longSentenceWords: 25 },
   links: { idealMax: 1, hardMax: 2 },

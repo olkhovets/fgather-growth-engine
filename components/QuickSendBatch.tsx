@@ -14,6 +14,7 @@ export default function QuickSendBatch({ home = false, defaultCount = "200" }: {
   const [count, setCount] = useState(defaultCount);
   const [minGrade, setMinGrade] = useState("85");
   const [provider, setProvider] = useState(home ? "all" : "no-gateways");
+  const [src, setSrc] = useState<"recycle" | "new">("recycle");
   const [busy, setBusy] = useState(false);
   const [prog, setProg] = useState<Progress | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -32,8 +33,8 @@ export default function QuickSendBatch({ home = false, defaultCount = "200" }: {
       while (sent < target && rounds < MAX_ROUNDS) {
         const r = await fetch("/api/send-batch", {
           method: "POST", headers: { "Content-Type": "application/json" },
-          // blend: ~40% fresh founder + ~40% incentive + ~20% other good styles (server defaults).
-          body: JSON.stringify({ count: target - sent, minGrade: Number(minGrade) || 85, providerFilter: provider, excludeIds: attempted }),
+          // quirky test blend + source (recycle existing or pull new leads). Apollo runs on round 1 only.
+          body: JSON.stringify({ count: target - sent, minGrade: Number(minGrade) || 85, providerFilter: provider, excludeIds: attempted, source: rounds === 0 ? src : "recycle" }),
         });
         const d = await r.json();
         if (!r.ok) { setError(d.error || "Send failed."); break; }
@@ -64,8 +65,17 @@ export default function QuickSendBatch({ home = false, defaultCount = "200" }: {
       </summary>
       <div className="px-4 py-4 space-y-4" style={{ background: "var(--surface, #16161a)" }}>
         <p className="text-xs" style={{ color: "var(--text-secondary)" }}>
-          Recycles right-fit ICP leads and writes <strong>brand-new punchy sequences</strong> — a blend of the founder-incentive combo (credential + money offer, continuous across steps) and other proven styles — grade-checked, then sends. Runs in rounds; watch it climb below.
+          Writes <strong>brand-new ultra-short sequences</strong> with <strong>quirky, captivating subjects</strong> (emojis + punchy outcomes like &quot;go home early&quot; / &quot;steal their customers&quot;), tiny bodies, and the <strong>money offer</strong> doing the closing — a mix across the quirky styles, sequences kept continuous. Grade-checked, right-fit ICP. Runs in rounds; watch it climb below.
         </p>
+
+        <div className="flex gap-1 p-1 rounded-lg w-fit" style={{ background: "var(--bg, #111)" }}>
+          {(["recycle", "new"] as const).map((s) => (
+            <button key={s} onClick={() => setSrc(s)} className="px-3 py-1.5 rounded-md text-xs font-medium transition" style={{ background: src === s ? "var(--accent, #6366f1)" : "transparent", color: src === s ? "#fff" : "var(--text-secondary)" }}>
+              {s === "recycle" ? "♻️ Recycle existing" : "✨ Get new leads"}
+            </button>
+          ))}
+        </div>
+        {src === "new" && <p className="text-[11px]" style={{ color: "#fbbf24" }}>New leads pull from Apollo first — needs Apollo credits; if none come in it falls back to recycling.</p>}
 
         <div className="flex flex-wrap gap-3 items-end">
           <label className="space-y-1">

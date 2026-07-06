@@ -20,10 +20,11 @@ export const maxDuration = 120;
 
 // Various good styles (exclude specialist-proof — it converted ~0 across ~3k sends). Includes the
 // founder-incentive combo (founder credential + money offer), which is what the fresh portion writes.
-const GOOD_STYLES = ["outcome-hook", "curiosity-gap", "founder-incentive", "founder", "direct-incentive", "holiday-incentive", "lean-personal", "social-proof", "insight-hook", "pain-led", "direct-ask"];
-// The styles we write FRESH per company, alternated so we A/B the captivating angles head-to-head:
-// outcome-emoji (+gift), curiosity-gap (no gift, pure attention), and the founder-incentive combo.
-const FRESH_STYLES = ["outcome-hook", "curiosity-gap", "founder-incentive"];
+const GOOD_STYLES = ["quirky-incentive", "outcome-hook", "curiosity-gap", "founder-incentive", "founder", "direct-incentive", "holiday-incentive", "lean-personal", "social-proof", "insight-hook", "pain-led", "direct-ask"];
+// The styles we write FRESH per company for the current test — quirky captivating subjects + ultra-short
+// bodies + money. Rotation is money-dominant (quirky-incentive 2x, outcome-hook), with a curiosity-gap
+// control (no gift) to A/B whether attention alone converts. All ultra-short, all subject-driven.
+const FRESH_STYLES = ["quirky-incentive", "outcome-hook", "quirky-incentive", "curiosity-gap"];
 const ROUND_CAP = 12; // leads chosen+sent per loop round (paced by how fast we can write fresh founder)
 // Recipient gateways that quarantine cold mail (mirrors the send route). Pre-filtered out for "no-gateways".
 const STRICT_GATEWAYS = ["Microsoft", "Proofpoint", "Mimecast", "Barracuda"];
@@ -61,12 +62,26 @@ export async function POST(request: Request) {
     const minGrade = Math.min(100, Math.max(0, typeof body.minGrade === "number" ? body.minGrade : DEFAULT_GRADE_FLOOR));
     // Ids the caller already tried this session — excluded so each loop round picks NEW leads.
     const excludeIds: string[] = Array.isArray(body.excludeIds) ? body.excludeIds.filter((s: unknown): s is string => typeof s === "string") : [];
+    // Source: "recycle" (re-touch already-sent leads, default) or "new" (pull fresh leads from Apollo
+    // first, then send). New-leads needs Apollo credits; if none come in, we fall back to recycle.
+    const source: "recycle" | "new" = body.source === "new" ? "new" : "recycle";
+    let newLeadsPulled = 0;
     // Blend shares: ~40% fresh FOUNDER-INCENTIVE combo (founder credential + money offer, written fresh
     // per company), ~40% existing INCENTIVE (direct-incentive/holiday), ~20% other good styles.
     const founderShare = Math.min(1, Math.max(0, typeof body.founderShare === "number" ? body.founderShare : 0.4));
 
     const baseEnv = process.env.NEXTJS_URL || process.env.NEXTAUTH_URL;
     const base = baseEnv && baseEnv.startsWith("http") ? baseEnv.replace(/\/$/, "") : "https://peter-engine-working-copy.vercel.app";
+
+    // "New leads" source: pull from Apollo first (best-effort). Needs credits; if none come in we still
+    // proceed on the recycle pool so the run isn't wasted.
+    if (source === "new") {
+      try {
+        const ing = await fetch(`${base}/api/apollo/ingest`, { method: "GET", headers: { Authorization: `Bearer ${cron}` } });
+        const ij = await ing.json().catch(() => ({}));
+        newLeadsPulled = Number(ij.inserted ?? ij.ingested ?? 0) || 0;
+      } catch { /* best effort */ }
+    }
 
     // This round sends at most ROUND_CAP (or whatever's left). Founder generation paces the round.
     const roundTarget = Math.min(count, ROUND_CAP);
@@ -171,9 +186,10 @@ export async function POST(request: Request) {
       ok: true,
       requested: count, candidates: candidates.length, gradedGood: graded.length, chosen: ids.length, minGrade, generated,
       sent, sendSideSkipped, belowGrade, eligible, prepared, provider, styleMix, incentiveCount: incCount,
+      source, newLeadsPulled,
       attemptedIds: ids, // so the loop excludes these next round
       poolMaybeMore: candidates.length >= count * 5, // candidate query hit its cap → likely more leads available
-      message: `Sent ${sent}/${ids.length} chosen${sendSideSkipped > 0 ? ` (${sendSideSkipped} not on a warmed inbox / already in a campaign)` : ""}.${belowGrade > 0 ? ` ${belowGrade} skipped below quality ${minGrade}.` : ""}${sendErr ? ` Note: ${sendErr}` : ""}`,
+      message: `${source === "new" ? `Apollo: +${newLeadsPulled} new leads. ` : ""}Sent ${sent}/${ids.length} chosen${sendSideSkipped > 0 ? ` (${sendSideSkipped} not on a warmed inbox / already in a campaign)` : ""}.${belowGrade > 0 ? ` ${belowGrade} skipped below quality ${minGrade}.` : ""}${sendErr ? ` Note: ${sendErr}` : ""}`,
     });
   } catch (err) {
     return NextResponse.json({ error: err instanceof Error ? err.message : "Send failed" }, { status: 500 });

@@ -24,8 +24,8 @@ export const dynamic = "force-dynamic";
 // Allow up to 60s so a few Anthropic calls can finish (Vercel Pro; Hobby may still cap at 10s)
 export const maxDuration = 60;
 
-const MAX_BODY_WORDS = 70;       // anything longer gets cut to punchy length
-const PUNCHY_TARGET_WORDS = 55;  // the short, punchy target the shortener cuts down to
+const MAX_BODY_WORDS = 45;       // anything longer gets cut — feedback: emails too long, make them punctual
+const PUNCHY_TARGET_WORDS = 30;  // the short, punchy target the shortener cuts down to (money does the talking)
 
 function wordCount(text: string): number {
   return text.trim().split(/\s+/).filter(Boolean).length;
@@ -184,6 +184,26 @@ BODY:
  - Sentence 2: we close it with real consumer answers in days (not a six-week study); brands like Belk and Staples use us. One proof, never stack.
  - Close: a low-friction, value-first ask — offer to send ONE real insight or a quick teardown for their category. Reply-first, NO links.
 HONESTY (non-negotiable): the curiosity in the subject must be genuinely answered by the body. No fake urgency, no invented stats, no fake prior-contact, no fabricated details. Intriguing, never deceptive. NEVER invent metrics/ARR. No em dashes, no AI-tell words.`,
+  },
+
+  // Quirky-Incentive: the STAR of the current test — maximum-captivation subject + ULTRA-short body +
+  // the money does the closing. Subject drives the open/click; body is 2-3 tiny lines; gift is the hook.
+  "quirky-incentive": {
+    usePS: false,
+    prompt: `EMAIL STYLE: Quirky-Incentive (captivating subject + ULTRA-SHORT body + money does the talking)
+The SUBJECT does the work; the tiny body + the gift close. Whole body UNDER 30 words. Zero clutter.
+SUBJECT — maximum captivation, minimal length. Rotate across these flavors so they're not samey:
+  · a punchy provocative outcome: "go home early", "steal their customers", "impress your CMO", "stop guessing"
+  · one or two fitting emojis: "🍿", "🏆 💰", "🎯", "👀"
+  · a single curiosity word or the brand: "gather", "quick one", "worth $100?"
+  Make someone WANT to click. One emoji-stack is fine. No ALL CAPS. Never clickbait the body can't back up.
+BODY — under 30 words, 2-3 tiny sentences MAX, no essay, no proof-stacking (one brand name only if it fits):
+  1. one line on what's in it for THEM, tied to their company/category (real);
+  2. the money, plainly: "I'll send you a [GIFT] to take a 15-min demo";
+  3. one reply-first ask. NO links.
+Let the subject + the gift carry it. No credential paragraph.
+STEP 2+ (reply thread, subject = "Re: " + step 1 subject) — even SHORTER. Call the SAME gift back ("that [GIFT] still stands"), one nudge, the ask. NEVER re-introduce or change the gift amount/type. Keep every step consistent so the sequence reads as one continuous thread.
+HONESTY: the subject must connect to something real in the tiny body — captivating, not a lie. NEVER invent metrics/ARR. No em dashes, no AI-tell words.`,
   },
 };
 
@@ -495,7 +515,7 @@ export async function POST(request: Request) {
       // (like the Incentives Lab) so Results' offer A/B reveals which gift converts.
       const GIFT_AMOUNTS = [50, 100, 200];
       const GIFT_TYPES = ["Uber Eats card", "DoorDash card", "Amazon gift card"];
-      const useGift = resolvedStyle === "specialist-proof" || resolvedStyle === "direct-incentive" || resolvedStyle === "holiday-incentive" || resolvedStyle === "founder-incentive" || resolvedStyle === "outcome-hook";
+      const useGift = resolvedStyle === "specialist-proof" || resolvedStyle === "direct-incentive" || resolvedStyle === "holiday-incentive" || resolvedStyle === "founder-incentive" || resolvedStyle === "outcome-hook" || resolvedStyle === "quirky-incentive";
       const giftAmount = useGift ? GIFT_AMOUNTS[leadIndex % GIFT_AMOUNTS.length] : null;
       const giftType = useGift ? GIFT_TYPES[Math.floor(leadIndex / GIFT_AMOUNTS.length) % GIFT_TYPES.length] : null;
       const giftBlock = useGift
@@ -521,7 +541,7 @@ GIFT CONTINUITY (critical — the steps are ONE ongoing thread, not separate ema
       // Style-specific sign-off: direct-ask uses first name only (brevity = credibility);
       // other styles append the company name for a light authority signal
       const senderFirstName = workspace.senderName?.trim().split(/\s+/)[0] ?? "Best";
-      const signoff = (resolvedStyle === "direct-ask" || resolvedStyle === "direct-incentive" || resolvedStyle === "holiday-incentive" || resolvedStyle === "founder" || resolvedStyle === "founder-incentive" || resolvedStyle === "outcome-hook" || resolvedStyle === "curiosity-gap")
+      const signoff = (resolvedStyle === "direct-ask" || resolvedStyle === "direct-incentive" || resolvedStyle === "holiday-incentive" || resolvedStyle === "founder" || resolvedStyle === "founder-incentive" || resolvedStyle === "outcome-hook" || resolvedStyle === "curiosity-gap" || resolvedStyle === "quirky-incentive")
         ? senderFirstName
         : `${senderFirstName}, Gather`;
 
