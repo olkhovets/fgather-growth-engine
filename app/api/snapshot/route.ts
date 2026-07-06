@@ -5,6 +5,7 @@ import { getLinkedInSignal, getCrossChannelSignals } from "@/lib/cross-channel";
 import { buildBudgetPlan } from "@/lib/budget-shifter";
 import { getDeliverabilityForWorkspace } from "@/lib/deliverability";
 import { rateStylesByReply } from "@/lib/style-performance";
+import { rateSubjectMechanisms } from "@/lib/subject-mechanisms";
 
 export const dynamic = "force-dynamic";
 
@@ -32,7 +33,7 @@ export async function GET(request: Request) {
   const out = [];
   for (const ws of workspaces) {
     try {
-      const [memory, li, cross, budget, sent24, recycled24, specialistRecycled24, positives24, deliverability, stylePerf] = await Promise.all([
+      const [memory, li, cross, budget, sent24, recycled24, specialistRecycled24, positives24, deliverability, stylePerf, subjMechanisms] = await Promise.all([
         getAggregatedMemory(ws.id),
         getLinkedInSignal(ws.id),
         getCrossChannelSignals(ws.id),
@@ -43,6 +44,7 @@ export async function GET(request: Request) {
         prisma.lead.count({ where: { leadBatch: { workspaceId: ws.id }, repliedAt: { gte: since }, replyStatus: "positive" } }),
         getDeliverabilityForWorkspace(ws.id),
         rateStylesByReply(ws.id),
+        rateSubjectMechanisms(ws.id),
       ]);
 
       const emailPositives = Object.values(memory.byPersona).reduce((a, m) => a + (m.positive_reply_count ?? 0), 0);
@@ -77,6 +79,9 @@ export async function GET(request: Request) {
           // Which email style is actually booking replies (confidence-rated), at a glance.
           winningStyle: stylePerf.leader,
           stylesRated: stylePerf.styles.slice(0, 5).map((s) => ({ style: s.style, sent: s.sent, positives: s.positives, rate: Math.round(s.rate * 10000) / 100 })),
+          // Which of the 8 radical subject MECHANISMS is winning (career/money/anti-sales/emoji/etc.).
+          winningSubjectMechanism: subjMechanisms.leader,
+          subjectMechanisms: subjMechanisms.mechanisms.filter((m) => m.sent > 0),
         },
         linkedin: li.totals,
         crossChannel: { suggestion: cross.suggestion, priorityPersonas: cross.priorityPersonas.slice(0, 5) },

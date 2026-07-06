@@ -274,7 +274,9 @@ export async function POST(request: Request) {
       // (set during generation) so the by-amount/by-gift A/B stays per-lead-accurate.
       await prisma.lead.updateMany({
         where: { id: { in: parsed.map((p) => p.lead.id) } },
-        data: { recycledAt: new Date(), recycleCount: { increment: 1 }, requeueAt: null, incentiveSubjectStyle: campaignStyle },
+        // NOTE: do NOT overwrite incentiveSubjectStyle here — generation stamps it with the subject-mechanism
+        // tag ("subj:<key>") that we A/B on, and clobbering it would destroy the per-mechanism measurement.
+        data: { recycledAt: new Date(), recycleCount: { increment: 1 }, requeueAt: null },
       });
 
       const spUploaded = spAdd.leads_uploaded ?? 0;
