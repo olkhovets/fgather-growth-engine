@@ -5,6 +5,7 @@ import { prisma } from "@/lib/prisma";
 import { matchBrandProof } from "@/lib/brand-proof";
 import { GOOD_STYLES, FRESH_STYLES, styleLabel, activeFreshStyleLabels, isSendableLength, bodyWordCount, MAX_SENDABLE_BODY_WORDS } from "@/lib/send-styles";
 import { getDeliverabilityForWorkspace } from "@/lib/deliverability";
+import { scoreLeadFit } from "@/lib/lead-fit";
 
 export const dynamic = "force-dynamic";
 
@@ -74,7 +75,7 @@ export async function GET(request: Request) {
       prisma.lead.findMany({
         where: readyWhere,
         select: {
-          id: true, name: true, company: true, industry: true, vertical: true, persona: true,
+          id: true, name: true, company: true, industry: true, vertical: true, persona: true, jobTitle: true,
           emailStyle: true, incentiveAmount: true, incentiveGiftType: true,
           step1Subject: true, step1Body: true,
         },
@@ -87,7 +88,7 @@ export async function GET(request: Request) {
     // If the "write 3 now" button just generated specific drafts, pull those exact leads and show them
     // first — the honest way to see the CURRENT style (there's no per-draft timestamp to sort on).
     const previewSelect = {
-      id: true, name: true, company: true, industry: true, vertical: true, persona: true,
+      id: true, name: true, company: true, industry: true, vertical: true, persona: true, jobTitle: true,
       emailStyle: true, incentiveAmount: true, incentiveGiftType: true,
       step1Subject: true, step1Body: true,
     } as const;
@@ -101,9 +102,11 @@ export async function GET(request: Request) {
     const shortRows = combined.filter((l) => isSendableLength(l.step1Body));
     const longInSample = previewRows.filter((l) => !isSendableLength(l.step1Body)).length;
 
-    // Each preview shows WHICH similar-brand proof it will lead with — makes the personalization visible.
+    // Each preview shows WHICH similar-brand proof it will lead with + its ICP FIT tier — so both the
+    // personalization and the targeting are visible at a glance.
     const previews = shortRows.slice(0, 8).map((l) => {
       const m = matchBrandProof({ company: l.company, industry: l.industry, vertical: l.vertical, persona: l.persona });
+      const fit = scoreLeadFit(l);
       return {
         name: l.name,
         company: l.company,
@@ -112,11 +115,17 @@ export async function GET(request: Request) {
         gift: l.incentiveAmount ? `$${l.incentiveAmount} ${l.incentiveGiftType ?? "gift"}` : null,
         matchedBrand: m.primary.name,
         matchedFamily: m.family,
+        fitTier: fit.tier,
         words: bodyWordCount(l.step1Body),
         subject: l.step1Subject,
         body: l.step1Body,
       };
     });
+
+    // ICP-fit distribution across the ready sample — how much of what's queued is actually Gather's
+    // ICP (B2C marketing leaders at consumer brands) vs off-fit that shouldn't be sent.
+    const fitCounts = { core: 0, maybe: 0, off: 0 };
+    for (const l of previewRows) fitCounts[scoreLeadFit(l).tier] += 1;
 
     // Gift buckets → readable labels.
     const giftBuckets: Bucket[] = readyByGift
@@ -144,6 +153,8 @@ export async function GET(request: Request) {
       // Length health: how many recent drafts are too long to send (indigestible blocks). Long drafts are
       // filtered out of the send until they're shortened (recycle re-writes them tight, or the shorten tool).
       length: { maxSendableWords: MAX_SENDABLE_BODY_WORDS, longInSample, sampled: previewRows.length },
+      // Targeting: ICP-fit spread of the ready sample (off-fit is dropped at send). Peter's biggest lever.
+      fit: { ...fitCounts, sampled: previewRows.length },
       // Inbox-placement chip: fold deliverability into the send view instead of a separate menu.
       deliverability: deliverability
         ? { verdict: deliverability.verdict, avgHealth: deliverability.avgHealth, hasHealthData: deliverability.hasHealthData }

@@ -6,6 +6,7 @@ import { gradeEmail, judgeEmailContent } from "@/lib/email-grader";
 import { perPersonaStyleStats, styleScore, isIncentiveStyle } from "@/lib/persona-style";
 import { GOOD_STYLES, FRESH_STYLES, isSendableLength } from "@/lib/send-styles";
 import { decrypt } from "@/lib/encryption";
+import { scoreLeadFit } from "@/lib/lead-fit";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 120;
@@ -138,7 +139,7 @@ export async function POST(request: Request) {
         ...providerWhere,
         ...(excludeIds.length ? { id: { notIn: excludeIds } } : {}),
       },
-      select: { id: true, company: true, persona: true, emailStyle: true, step1Subject: true, step1Body: true },
+      select: { id: true, company: true, persona: true, emailStyle: true, step1Subject: true, step1Body: true, jobTitle: true, industry: true, vertical: true },
       orderBy: { createdAt: "asc" }, // oldest-waiting first
       take: roundTarget * 12, // enough across all style buckets to fill the blend after grading
     });
@@ -148,12 +149,22 @@ export async function POST(request: Request) {
     //    regardless of grade — old long drafts in the pool are filtered until they're shortened.
     const graded = candidates
       .filter((l) => isSendableLength(l.step1Body))
-      .map((l) => ({ l, score: gradeEmail({ subject: l.step1Subject ?? "", body: l.step1Body ?? "" }, { company: l.company }).score }))
+      .map((l) => ({ l, score: gradeEmail({ subject: l.step1Subject ?? "", body: l.step1Body ?? "" }, { company: l.company }).score, fit: scoreLeadFit(l) }))
       .filter((x) => x.score >= minGrade);
 
-    // 3) rank by PER-PERSONA performance, then build the blend: founder + incentive + rest, to roundTarget.
+    // 2b) FIT gate — the best email still gets no reply from a wrong-fit lead. Gather's ICP is B2C
+    //     marketing leaders at consumer brands; drop clear off-ICP leads (B2B/tech company or a
+    //     non-marketing title). Missing data stays "maybe" (not dropped). body.fitGate=false disables.
+    const fitGate = body.fitGate !== false;
+    const fitEligible = fitGate ? graded.filter((x) => x.fit.tier !== "off") : graded;
+    const offIcp = graded.length - fitEligible.length;
+
+    // 3) rank by FIT tier first (core ICP ahead of maybe), then per-persona reply performance, then build the blend.
     const stats = await perPersonaStyleStats(ws.id);
-    const ranked = graded.sort((a, b) => styleScore(b.l.persona, b.l.emailStyle, stats) - styleScore(a.l.persona, a.l.emailStyle, stats));
+    const fitRank = (t: string) => (t === "core" ? 2 : t === "maybe" ? 1 : 0);
+    const ranked = fitEligible.sort((a, b) =>
+      (fitRank(b.fit.tier) - fitRank(a.fit.tier)) ||
+      (styleScore(b.l.persona, b.l.emailStyle, stats) - styleScore(a.l.persona, a.l.emailStyle, stats)));
     const founderB = ranked.filter((x) => FRESH_STYLES.includes(x.l.emailStyle ?? ""));                                       // fresh outcome-hook / founder combo
     const incentiveB = ranked.filter((x) => isIncentiveStyle(x.l.emailStyle) && !FRESH_STYLES.includes(x.l.emailStyle ?? "")); // existing direct-incentive/holiday
     const restB = ranked.filter((x) => !FRESH_STYLES.includes(x.l.emailStyle ?? "") && !isIncentiveStyle(x.l.emailStyle));     // other good styles
@@ -228,12 +239,12 @@ export async function POST(request: Request) {
     const incCount = chosen.filter((x) => isIncentiveStyle(x.l.emailStyle)).length;
     return NextResponse.json({
       ok: true,
-      requested: count, candidates: candidates.length, gradedGood: graded.length, chosen: ids.length, minGrade, generated, qualityRejected,
+      requested: count, candidates: candidates.length, gradedGood: graded.length, chosen: ids.length, minGrade, generated, qualityRejected, offIcp,
       sent, sendSideSkipped, belowGrade, eligible, prepared, provider, styleMix, incentiveCount: incCount,
       source, newLeadsPulled,
       attemptedIds: [...ids, ...rejectedIds], // exclude sent AND judge-rejected next round so the loop advances
       poolMaybeMore: candidates.length >= count * 5, // candidate query hit its cap → likely more leads available
-      message: `${source === "new" ? `Apollo: +${newLeadsPulled} new leads. ` : ""}Sent ${sent}/${ids.length} chosen${sendSideSkipped > 0 ? ` (${sendSideSkipped} not on a warmed inbox / already in a campaign)` : ""}.${belowGrade > 0 ? ` ${belowGrade} below craft ${minGrade}.` : ""}${qualityRejected > 0 ? ` ${qualityRejected} cut by the quality judge (too generic).` : ""}${sendErr ? ` Note: ${sendErr}` : ""}`,
+      message: `${source === "new" ? `Apollo: +${newLeadsPulled} new leads. ` : ""}Sent ${sent}/${ids.length} chosen${sendSideSkipped > 0 ? ` (${sendSideSkipped} not on a warmed inbox / already in a campaign)` : ""}.${belowGrade > 0 ? ` ${belowGrade} below craft ${minGrade}.` : ""}${offIcp > 0 ? ` ${offIcp} off-ICP (wrong-fit) skipped.` : ""}${qualityRejected > 0 ? ` ${qualityRejected} cut by the quality judge (too generic).` : ""}${sendErr ? ` Note: ${sendErr}` : ""}`,
     });
   } catch (err) {
     return NextResponse.json({ error: err instanceof Error ? err.message : "Send failed" }, { status: 500 });

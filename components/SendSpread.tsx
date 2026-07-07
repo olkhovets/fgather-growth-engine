@@ -18,10 +18,14 @@ type Preview = {
   gift: string | null;
   matchedBrand: string;
   matchedFamily: string;
+  fitTier: "core" | "maybe" | "off";
   words: number;
   subject: string | null;
   body: string | null;
 };
+
+const FIT_LABEL: Record<string, string> = { core: "Core ICP", maybe: "Maybe", off: "Off-ICP" };
+const FIT_COLOR: Record<string, string> = { core: "#1A7A4A", maybe: "#b45309", off: "#dc2626" };
 type Data = {
   workspace: { name: string; email: string | null; product: string | null };
   leads: { total: number; byPersona: Bucket[] };
@@ -29,6 +33,7 @@ type Data = {
   activeStyles: string[];
   deliverability: { verdict: string; avgHealth: number | null; hasHealthData: boolean } | null;
   length: { maxSendableWords: number; longInSample: number; sampled: number };
+  fit: { core: number; maybe: number; off: number; sampled: number };
   previews: Preview[];
 };
 
@@ -128,7 +133,7 @@ export default function SendSpread() {
     );
   }
 
-  const { workspace, leads, ready, previews, activeStyles, deliverability, length } = data;
+  const { workspace, leads, ready, previews, activeStyles, deliverability, length, fit } = data;
   const delivColor = deliverability ? (DELIV_COLOR[deliverability.verdict] ?? "var(--text-tertiary)") : "var(--text-tertiary)";
 
   return (
@@ -176,6 +181,16 @@ export default function SendSpread() {
                   {i > 0 ? " · " : ""}<span style={{ color: "var(--text-secondary)" }}>{s}</span>
                 </span>
               ))} <span style={{ color: "var(--text-tertiary)" }}>— attention-grab subject + deep-research proof, every email.</span>
+            </p>
+          )}
+
+          {/* Targeting: ICP-fit of the ready sample. Off-fit is dropped at send — the biggest reply lever. */}
+          {fit.sampled > 0 && (
+            <p className="text-xs" style={{ color: "var(--text-tertiary)" }}>
+              Targeting (sample of {fit.sampled}):{" "}
+              <span style={{ color: FIT_COLOR.core }}>{fit.core} core ICP</span> ·{" "}
+              <span style={{ color: FIT_COLOR.maybe }}>{fit.maybe} maybe</span> ·{" "}
+              <span style={{ color: FIT_COLOR.off }}>{fit.off} off-ICP (dropped at send)</span>
             </p>
           )}
 
@@ -234,6 +249,7 @@ export default function SendSpread() {
                           <span className="text-xs" style={{ color: "var(--text-tertiary)" }}>{p.name ?? "—"}{p.company ? ` · ${p.company}` : ""}</span>
                           <span className="text-[10px] px-1.5 py-0.5 rounded-full" style={{ background: "var(--surface-subtle)", color: "var(--text-secondary)" }}>{prettyPersona(p.persona)}</span>
                           <span className="text-[10px] px-1.5 py-0.5 rounded-full" style={{ background: "var(--surface-subtle)", color: "var(--text-secondary)" }}>{p.style}</span>
+                          <span className="text-[10px] px-1.5 py-0.5 rounded-full" title="ICP fit" style={{ background: "var(--surface-subtle)", color: FIT_COLOR[p.fitTier] }}>{FIT_LABEL[p.fitTier]}</span>
                           {p.gift && <span className="text-[10px] px-1.5 py-0.5 rounded-full" style={{ background: "var(--surface-subtle)", color: "var(--text-secondary)" }}>{p.gift}</span>}
                           {/* Shows the personalization working: which real Gather customer this email leads with */}
                           <span className="text-[10px] px-1.5 py-0.5 rounded-full" title="Similar-brand proof this email will lead with" style={{ background: "var(--accent)", color: "#fff" }}>proof: {p.matchedBrand}</span>
