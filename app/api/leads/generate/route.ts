@@ -646,8 +646,10 @@ ${styleConfig.prompt}${researchPlaybookBlock()}${brandProofText}${learningsText}
       // Deep web research — the real "connect on a personal level" step. Live web search per lead for a
       // recent, specific hook (a post, a launch, a funding round, a hire, the phase their brand is in).
       // Slow + costly; opt-in. Best-effort — null (nothing real found / call failed) falls back to the scrape.
+      // Give the researcher Gather's real capabilities + proof so it picks the signal WE can best speak to.
+      const gatherForResearch = [productSummary, proofPointsText, socialProofText].filter(Boolean).join("\n").slice(0, 1500) || null;
       const deepResearch = useDeepResearch
-        ? await deepResearchLead(anthropicKey, { name: lead.name, jobTitle: lead.jobTitle, company: lead.company, website: lead.website, industry: lead.industry }, model, companyContextRaw)
+        ? await deepResearchLead(anthropicKey, { name: lead.name, jobTitle: lead.jobTitle, company: lead.company, website: lead.website, industry: lead.industry }, model, companyContextRaw, gatherForResearch)
         : null;
       const deepResearchText = deepResearchBlock(deepResearch);
       // Avoid two competing "open sentence 1 on this" instructions: when deep research found a real hook,
@@ -876,7 +878,7 @@ Return ONLY valid JSON: { ${stepExample} }`;
           try {
             const verdict = await judgeEmailContent(anthropicKey, stepsArray[0], { company: lead.company, persona: lead.persona, product: productSummary }, model);
             if (verdict) judgeScores = { p: verdict.personalizationScore, pf: verdict.problemFirstScore, sh: verdict.subjectHookScore, hu: verdict.humanScore };
-            if (verdict && (verdict.humanScore < 60 || verdict.personalizationScore < 60 || verdict.problemFirstScore < 40 || verdict.subjectHookScore < 55)) {
+            if (verdict && (verdict.humanScore < 60 || verdict.personalizationScore < 55 || (verdict.problemFirstScore + verdict.subjectHookScore) < 90)) {
               const jfixes = verdict.fixes.length ? verdict.fixes : ["Rewrite so it reads like a real person genuinely reaching out. Open with a SPECIFIC, real read on this company, lead with the problem they feel + the ROI, then the matched proof, then one reply-first ask."];
               const jf = `${userMessage}\n\nA reply-rate judge scored your step1 — human/real-person ${verdict.humanScore}/100, personalization ${verdict.personalizationScore}/100, problem+ROI ${verdict.problemFirstScore}/100, subject-hook ${verdict.subjectHookScore}/100. The #1 fix: make it feel like a REAL person genuinely reaching out to help THIS person (natural voice, contractions, personality) — strip anything that reads template/AI. Make the SUBJECT inviting like a person (a concrete value-exchange like "$50 for 3 minutes", a sharp number, or a curiosity gap about them; never "quick question"/"checking in"). Lead with their problem + the ROI. Keep the body to 3 short lines under ${MAX_BODY_WORDS} words:\n${jfixes.map((f) => `- ${f}`).join("\n")}\n\nReturn ONLY valid JSON for step1: { "step1": { "subject": "...", "body": "..." } }`;
               const { text: jr } = await callAnthropic(anthropicKey, jf, { maxTokens: 800, model, systemPrompt });

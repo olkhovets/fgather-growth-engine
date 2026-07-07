@@ -11,7 +11,12 @@
  * NEVER invents — the prompt forbids it and low-confidence results are dropped.
  */
 
-export type DeepResearch = { hook: string; source: string; confidence: number };
+export type DeepResearch = {
+  hook: string;        // the real, recent signal about them
+  connection: string;  // WHY Gather is relevant to that signal (their situation ↔ what Gather does)
+  source: string;
+  confidence: number;
+};
 
 // Basic web-search tool variant — broadly supported (incl. Haiku 4.5). The _20260209 dynamic-filtering
 // variant is Opus 4.8/4.7/4.6 + Sonnet 4.6 only, so keep the basic one for the engine's default model.
@@ -25,25 +30,34 @@ export async function deepResearchLead(
   lead: { name?: string | null; jobTitle?: string | null; company?: string | null; website?: string | null; industry?: string | null },
   model: string,
   siteText?: string | null,
+  gatherContext?: string | null,
 ): Promise<DeepResearch | null> {
   const company = lead.company?.trim();
   // Need at least a company (or a name) to research — otherwise there's nothing to search for.
   if (!company && !lead.name?.trim()) return null;
 
   const who = `${lead.name?.trim() || "the contact"}${lead.jobTitle ? `, ${lead.jobTitle}` : ""} at ${company || "their company"}`;
-  const system = `You are a sharp B2B researcher finding ONE professionally-appropriate way to open a cold email so it feels researched, not blasted. Use web search to find something REAL and RECENT (ideally the last ~6 months) about their COMPANY or their PROFESSIONAL WORK — a marketing/brand move: a campaign or product they just launched, a rebrand or repositioning, a funding round, an expansion or new market, a marketing/brand leadership hire, an award, a notable new customer, or the clear PHASE their brand/marketing is in right now (scaling, repositioning, launching a line, moving off an agency).
+  const gather = gatherContext?.trim() || "Gather runs real AI-moderated consumer/buyer research in days (not a six-week study) and turns it into on-brand content, so marketing teams know what their customers actually want BEFORE they spend, validate campaigns and creative pre-launch, and stop guessing.";
+  const system = `You are a sharp B2B researcher. Your job: search WIDELY for everything recent and public about a prospect's company, then pick the ONE signal that most directly connects to what WE do — and articulate that connection.
+
+WHAT WE (Gather) DO — match signals against this:
+${gather}
+
+PROCESS:
+1. Search broadly (their site, recent news, press, campaigns, product/line launches, funding, expansions, marketing/brand hires, rebrands, the phase their brand/marketing is in). Cast a wide net.
+2. Of everything you find, choose the SINGLE signal where our capability is most obviously relevant — the one that makes a "we work on exactly this" connection land. A new product line, a launch, a rebrand, entering a new market, or a "scaling / repositioning / guessing at creative" moment are gold because they're all moments a brand needs to know what buyers want before spending.
+3. State the connection plainly: their situation ↔ what we help with.
 
 HARD RULES:
-- Report ONLY what you actually find in search results. Never guess, never invent, never state anything you can't source. Specific and true beats impressive.
-- BUSINESS/PUBLIC signals only. NEVER anything personal or private (family, health, hobbies, personal social posts, opinions, appearance, where they live). It must be something one professional could naturally mention to another in a first email without it feeling like they've been watched.
-- The "not weird" test: if referencing it would make the recipient think "how/why do you know that about me," it fails — use a company-level marketing signal instead.
-- If you can't find a specific, real, business-appropriate signal, say so honestly (empty hook) rather than reaching.`;
+- Report ONLY what you actually find. Never guess, never invent, never state anything you can't source. Specific and true beats impressive.
+- BUSINESS/PUBLIC signals only. NEVER personal/private life (family, health, hobbies, personal posts, opinions, where they live). It must pass the "not weird" test: if referencing it would make them think "how do you know that about me," use a company-level marketing signal instead.
+- If nothing specific, real, and relevant to what we do is found, say so honestly (empty hook) rather than reaching.`;
 
-  const user = `Find the single best, most specific, RECENT, business-appropriate hook to open a cold email to ${who}${lead.website ? ` (${lead.website})` : ""}${lead.industry ? `, industry: ${lead.industry}` : ""}. Prefer a marketing/brand/company signal over anything about them as an individual.${siteText ? `\n\nTheir site (context, not a substitute for search): ${siteText.slice(0, 700)}` : ""}
+  const user = `Research ${who}${lead.website ? ` (${lead.website})` : ""}${lead.industry ? `, industry: ${lead.industry}` : ""}. Search widely, then pick the ONE recent, real, business-appropriate signal that best connects to what we do, and explain the connection.${siteText ? `\n\nTheir site (context, not a substitute for search): ${siteText.slice(0, 700)}` : ""}
 
 Return STRICT JSON only, nothing else:
-{"hook":"<one specific, real, recent, business-appropriate thing about their company/work to reference>","source":"<where you saw it>","confidence":<0-100, how sure you are it's real, specific, and not weird to mention>}
-If nothing specific, real, and appropriate was found: {"hook":"","source":"","confidence":0}`;
+{"hook":"<the one specific, real, recent signal about their company/work>","connection":"<one plain sentence: their situation ↔ what we help with, e.g. 'they just launched a new line, which is exactly when knowing what buyers want before spending pays off'>","source":"<where you saw it>","confidence":<0-100, how sure you are it's real, specific, relevant, and not weird>}
+If nothing real and relevant was found: {"hook":"","connection":"","source":"","confidence":0}`;
 
   const messages: Array<{ role: string; content: unknown }> = [{ role: "user", content: user }];
 
@@ -64,11 +78,16 @@ If nothing specific, real, and appropriate was found: {"hook":"","source":"","co
       const start = text.indexOf("{");
       const end = text.lastIndexOf("}");
       if (start < 0 || end < 0) return null;
-      const j = JSON.parse(text.slice(start, end + 1)) as { hook?: string; source?: string; confidence?: number };
+      const j = JSON.parse(text.slice(start, end + 1)) as { hook?: string; connection?: string; source?: string; confidence?: number };
       const hook = typeof j.hook === "string" ? j.hook.trim() : "";
       const confidence = Math.max(0, Math.min(100, Number(j.confidence) || 0));
       if (!hook || confidence < MIN_CONFIDENCE) return null;
-      return { hook, source: typeof j.source === "string" ? j.source.trim() : "", confidence };
+      return {
+        hook,
+        connection: typeof j.connection === "string" ? j.connection.trim() : "",
+        source: typeof j.source === "string" ? j.source.trim() : "",
+        confidence,
+      };
     }
     return null;
   } catch {
@@ -76,14 +95,15 @@ If nothing specific, real, and appropriate was found: {"hook":"","source":"","co
   }
 }
 
-/** Prompt block injecting the researched hook as the email's opener. Empty when no hook was found. */
+/** Prompt block injecting the researched hook + Gather-relevance connection as the opener. Empty when no hook. */
 export function deepResearchBlock(r: DeepResearch | null): string {
   if (!r) return "";
-  return `\n\n*** REAL RESEARCHED HOOK (verified via live web research — THIS is your sentence-1 opener, override any other opener instruction) ***
-Open by referencing this real, recent thing about their company/work: ${r.hook}${r.source ? ` (source: ${r.source})` : ""}.
-HOW to reference it so it lands (not weird):
-- Sound like one marketing person casually noticing another's work — "saw [Company] just launched X" / "looks like you're mid-[phase]" — NOT like a dossier. One short clause, then move on.
-- Reference it because it's RELEVANT to why you're writing (it connects to the problem/proof), not just to prove you did homework. If it doesn't connect, mention it lightly and pivot fast.
-- Do NOT restate it word-for-word, do NOT gush, do NOT list multiple facts. One natural nod in sentence 1, then the bridge to why it matters, then proof + ask.
+  return `\n\n*** REAL RESEARCHED HOOK + WHY WE'RE RELEVANT (verified via live web research — THIS is your sentence-1 opener, override any other opener instruction) ***
+The real, recent signal about them: ${r.hook}${r.source ? ` (source: ${r.source})` : ""}.
+Why we connect to it: ${r.connection || "it's a moment where knowing what their buyers want before spending pays off"}.
+HOW to use it so it lands (not weird, genuinely relatable):
+- Open sentence 1 on the signal like one marketer casually noticing another's work — "saw [Company] just launched X" / "looks like you're mid-[phase]" — NOT a dossier. One short clause.
+- Then in the SAME breath, make the connection: this is exactly the kind of thing we help with (tie their signal to our value, the "we work on exactly this" moment). That connection is why the email is worth their reply.
+- Do NOT restate the fact word-for-word, do NOT gush, do NOT list multiple facts. One natural nod, then the relevance, then the ask.
 - Never contradict, exaggerate, or invent beyond this fact. If it would feel intrusive to mention, drop it and open on their category instead.`;
 }

@@ -37,10 +37,12 @@ const COOLDOWN_DAYS = 10;
 // Quality JUDGE floors (LLM pass, the "is it actually good / not boring" gate the deterministic grader
 // can't see). An email must clear BOTH before it ships: real personalization (a specific trigger, not
 // just naming the company) and problem-first framing. Judged only on the final chosen set (cheap).
-const JUDGE_HUMAN_FLOOR = 60;           // below this = reads AI/template, not a real person → do not send (top metric)
-const JUDGE_PERSONALIZATION_FLOOR = 60; // below this = generic/shallow → do not send
-const JUDGE_PROBLEM_FLOOR = 40;         // below this = solution-dump / no hook → do not send
-const JUDGE_SUBJECT_FLOOR = 55;         // below this = boring/templated subject nobody opens → do not send
+// Gate design (avoid over-gating to zero): HUMAN is the firm floor (personability is the #1 metric),
+// PERSONALIZATION is a firm-but-lower floor, and the two secondary dims (problem + subject) only need
+// to clear a COMBINED bar — so one slightly-weak secondary doesn't kill an otherwise great, human email.
+const JUDGE_HUMAN_FLOOR = 60;            // reads AI/template, not a real person → do not send (top metric)
+const JUDGE_PERSONALIZATION_FLOOR = 55;  // generic/shallow → do not send
+const JUDGE_SECONDARY_COMBINED = 90;     // problemFirst + subjectHook must sum to this (avg ~45 each)
 const JUDGE_CONCURRENCY = 6;
 
 export async function POST(request: Request) {
@@ -207,8 +209,8 @@ export async function POST(request: Request) {
         ));
         slice.forEach((x, j) => {
           const v = verdicts[j];
-          // fail-open on null (judge unreachable); fail-closed on a real low human/personalization/problem/subject score.
-          const ok = !v || (v.humanScore >= JUDGE_HUMAN_FLOOR && v.personalizationScore >= JUDGE_PERSONALIZATION_FLOOR && v.problemFirstScore >= JUDGE_PROBLEM_FLOOR && v.subjectHookScore >= JUDGE_SUBJECT_FLOOR);
+          // fail-open on null (judge unreachable). Firm floors: human + personalization; secondary dims combined.
+          const ok = !v || (v.humanScore >= JUDGE_HUMAN_FLOOR && v.personalizationScore >= JUDGE_PERSONALIZATION_FLOOR && (v.problemFirstScore + v.subjectHookScore) >= JUDGE_SECONDARY_COMBINED);
           if (ok) passed.push(x); else { qualityRejected += 1; rejectedIds.push(x.l.id); }
         });
       }
