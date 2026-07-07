@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 /**
  * "What's about to go out" — one digestible panel for the launch page. Answers the four things an
@@ -81,13 +81,41 @@ export default function SendSpread() {
   const [err, setErr] = useState<string | null>(null);
   const [open, setOpen] = useState(true);
   const [openPreview, setOpenPreview] = useState<number | null>(0);
+  const [sampling, setSampling] = useState(false);
+  const [sampleMsg, setSampleMsg] = useState<string | null>(null);
 
-  useEffect(() => {
-    fetch("/api/send-preview")
+  const refresh = useCallback((ids?: string[]) => {
+    const q = ids && ids.length ? `?ids=${ids.map(encodeURIComponent).join(",")}` : "";
+    fetch(`/api/send-preview${q}`)
       .then((r) => r.json())
       .then((d) => (d.error ? setErr(d.error) : setData(d)))
       .catch(() => setErr("Could not load the send preview."));
   }, []);
+
+  useEffect(() => { refresh(); }, [refresh]);
+
+  // Generate a few drafts RIGHT NOW with the current style/formula, so the preview shows what the engine
+  // actually writes today (not the stale stored pool). Re-drafts a few eligible leads; nothing is sent.
+  const sampleNow = async () => {
+    setSampling(true);
+    setSampleMsg(null);
+    try {
+      const res = await fetch("/api/leads/generate", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ recycle: true, limit: 3, useFastModel: true, useWebScraping: true }),
+      });
+      const d = await res.json().catch(() => ({}));
+      if (!res.ok) { setSampleMsg(d.error || "Could not generate a sample."); return; }
+      if ((d.done ?? 0) === 0) { setSampleMsg("No eligible leads to sample right now (all recent or none past cooldown)."); return; }
+      setSampleMsg(`Wrote ${d.done} fresh draft(s) with the current style — shown at the top.`);
+      setOpenPreview(0);
+      refresh(Array.isArray(d.leadIds) ? d.leadIds : undefined);
+    } catch {
+      setSampleMsg("Sample request failed.");
+    } finally {
+      setSampling(false);
+    }
+  };
 
   if (err) return null; // fail quiet — this is an at-a-glance aid, never a blocker
   if (!data) {
@@ -175,7 +203,13 @@ export default function SendSpread() {
 
               {/* Previews — real drafted step-1 emails, short-enough-to-send only, each with matched proof */}
               <div>
-                <p className="text-xs font-semibold tracking-wide mb-2" style={{ color: "var(--text-tertiary)" }}>PREVIEWS ({previews.length}) · short only, ≤{length.maxSendableWords}w</p>
+                <div className="flex items-center justify-between gap-2 mb-2">
+                  <p className="text-xs font-semibold tracking-wide" style={{ color: "var(--text-tertiary)" }}>PREVIEWS ({previews.length}) · short only, ≤{length.maxSendableWords}w · newest first</p>
+                  <button onClick={sampleNow} disabled={sampling} className="text-xs underline" style={{ color: "var(--accent)" }}>
+                    {sampling ? "Writing…" : "See current style (write 3 now)"}
+                  </button>
+                </div>
+                {sampleMsg && <p className="text-xs mb-2" style={{ color: "var(--text-tertiary)" }}>{sampleMsg}</p>}
                 {length.longInSample > 0 && (
                   <p className="text-xs mb-2" style={{ color: "#b45309" }}>
                     {length.longInSample} of the last {length.sampled} drafts are too long to send (indigestible blocks). They&apos;re filtered out — recycle to rewrite them tight, or run the shorten tool.

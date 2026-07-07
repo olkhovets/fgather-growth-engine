@@ -26,12 +26,14 @@ function toBuckets(rows: Array<{ _count: number } & Record<string, unknown>>, fi
     .sort((a, b) => b.count - a.count);
 }
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
     const session = await getServerSession(authOptions);
     if (!session?.user?.id) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
+    // Optional ?ids=a,b,c — show these specific freshly-generated drafts first (used by "write 3 now").
+    const focusIds = (new URL(request.url).searchParams.get("ids") || "").split(",").map((s) => s.trim()).filter(Boolean);
     const workspace = await prisma.workspace.findUnique({
       where: { userId: session.user.id },
       select: { id: true, senderName: true, productSummary: true, user: { select: { email: true } } },
@@ -72,20 +74,32 @@ export async function GET() {
       prisma.lead.findMany({
         where: readyWhere,
         select: {
-          name: true, company: true, industry: true, vertical: true, persona: true,
+          id: true, name: true, company: true, industry: true, vertical: true, persona: true,
           emailStyle: true, incentiveAmount: true, incentiveGiftType: true,
           step1Subject: true, step1Body: true,
         },
-        orderBy: { recycledAt: "asc" }, // the ones that would go out soonest
+        orderBy: { createdAt: "desc" }, // newest leads first (no per-draft timestamp exists); the "write 3 now" button shows fresh output explicitly
         take: 120, // sample: we filter to short (sendable-length) below, then show the first few
       }),
       getDeliverabilityForWorkspace(wsId).catch(() => null),
     ]);
 
+    // If the "write 3 now" button just generated specific drafts, pull those exact leads and show them
+    // first — the honest way to see the CURRENT style (there's no per-draft timestamp to sort on).
+    const previewSelect = {
+      id: true, name: true, company: true, industry: true, vertical: true, persona: true,
+      emailStyle: true, incentiveAmount: true, incentiveGiftType: true,
+      step1Subject: true, step1Body: true,
+    } as const;
+    const focusRows = focusIds.length > 0
+      ? await prisma.lead.findMany({ where: { id: { in: focusIds }, leadBatch: { workspaceId: wsId }, stepsJson: { not: null } }, select: previewSelect })
+      : [];
+
     // Only preview drafts that are actually SHORT enough to send (a few tight lines), matching what the
     // send path now enforces — so the preview reflects reality, not the old long blocks in the pool.
-    const shortRows = previewRows.filter((l) => isSendableLength(l.step1Body));
-    const longInSample = previewRows.length - shortRows.length;
+    const combined = [...focusRows, ...previewRows.filter((l) => !focusIds.includes(l.id))];
+    const shortRows = combined.filter((l) => isSendableLength(l.step1Body));
+    const longInSample = previewRows.filter((l) => !isSendableLength(l.step1Body)).length;
 
     // Each preview shows WHICH similar-brand proof it will lead with — makes the personalization visible.
     const previews = shortRows.slice(0, 8).map((l) => {
