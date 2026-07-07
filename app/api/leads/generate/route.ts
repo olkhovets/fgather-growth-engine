@@ -18,6 +18,7 @@ import { gradeEmail } from "@/lib/email-grader";
 import { loadApprovedStyles } from "@/lib/style-proposer";
 import { generateSubjectCandidates, scoreSubject } from "@/lib/subject-engine";
 import { mechanismForIndex, subjectMechanismBlock, MECHANISM_TAG_PREFIX } from "@/lib/subject-mechanisms";
+import { brandProofBlock } from "@/lib/brand-proof";
 import { randomUUID } from "crypto";
 
 export const dynamic = "force-dynamic";
@@ -27,6 +28,17 @@ export const maxDuration = 60;
 
 const MAX_BODY_WORDS = 45;       // anything longer gets cut — feedback: emails too long, make them punctual
 const PUNCHY_TARGET_WORDS = 30;  // the short, punchy target the shortener cuts down to (money does the talking)
+
+// THE REPLY FORMULA — the standing OKR (memory: okr-reply-formula), injected into EVERY email regardless
+// of style. We optimize for one thing: a human hitting reply. Every email must hit all five. This frames
+// the whole prompt; the per-style guide below is just the flavor it's delivered in.
+const REPLY_FORMULA = `*** THE REPLY FORMULA — this is the whole job. Every email must hit all FIVE, whatever the style. ***
+We are optimizing for ONE outcome: a busy B2C marketing leader hits REPLY. Not opens, not awareness — a reply that leads to a booked demo. Hit all five or the email fails:
+1. SUBJECT that stops the scroll — make them curious enough to open, specific to THEM. Provocative, a sharp number, a curiosity gap, quirky, or one fitting emoji are all fair game. Never generic, never "checking in" / "quick question" with nothing behind it.
+2. BODY ultra-punchy — a few short lines, ~40 words. If they remember one thing, make it the OUTCOME they get, not our name.
+3. DEEP RESEARCH, every single email — name ONE real, specific thing about THIS company and this person's role: their actual motion, a recent launch, their category, something from their site. If you can't be specific about them, you haven't earned the reply. NEVER "companies like yours" or generic flattery.
+4. COMMON GROUND + PROOF-OF-OUTCOME — connect on a real shared challenge in their world, then land the matched proof: "Gather helped [a brand like them] do exactly [specific outcome]." Make the ROI vivid and self-interested — they stop guessing what buyers want, ship creative that lands the first time, know before they spend, look brilliant to their boss.
+5. HUMAN, zero AI tells — read it back: if it sounds like a chatbot wrote it, rewrite it. Sharp, direct, a little cocky, like a real person typed it in five minutes. AI-sounding copy is the #1 reply killer. Banned words/em-dashes are hard rules.`;
 
 function wordCount(text: string): number {
   return text.trim().split(/\s+/).filter(Boolean).length;
@@ -290,7 +302,10 @@ export async function POST(request: Request) {
       }
       sessionUserId = session.user.id;
     }
-    const useWebScraping = useWebScrapingParam === true;
+    // Deep research per email is now the DEFAULT (OKR formula item #3): read the lead's site unless a
+    // caller explicitly opts out. Best-effort (4s cap) and only when the lead has a website; it falls
+    // back to persona pain when a site can't be read, so it never blocks generation.
+    const useWebScraping = useWebScrapingParam !== false;
     const useLandingPage = useLandingPageParam === true;
     const useVideo = useVideoParam === true;
     const useSampleOutput = useSampleOutputParam === true;
@@ -550,6 +565,14 @@ GIFT CONTINUITY (critical — the steps are ONE ongoing thread, not separate ema
         ? senderFirstName
         : `${senderFirstName}, Gather`;
 
+      // Similar-brand proof: pick the ONE Gather customer that actually looks like this lead and
+      // lead with it ("a brand like you already does this"), instead of the generic 4-logo stack.
+      // social-proof style may stack a same-family second name; every other style uses exactly one.
+      const brandProofText = brandProofBlock(
+        { company: lead.company, industry: lead.industry, vertical: lead.vertical, persona: lead.persona },
+        { allowStack: resolvedStyle === "social-proof" }
+      );
+
       // Detect B2C brand register so language can shift from ROI/efficiency to craft/quality
       const register = inferRegister(lead.persona, lead.industry, lead.vertical);
       const registerBlock = register === "btoc-brand"
@@ -558,6 +581,8 @@ GIFT CONTINUITY (critical — the steps are ONE ongoing thread, not separate ema
 
       // Build stable system prompt per style (cached by Anthropic per unique prompt text)
       const systemPrompt = `You are an expert B2B cold email writer for ${workspace.senderName ?? "the sender"}.
+
+${REPLY_FORMULA}
 
 PRODUCT:
 ${productSummary}
@@ -588,7 +613,7 @@ ${usePS ? `- Include a P.S. line in step 1 — reference something real and spec
 - Write as a human peer, not a marketer
 - Sign off every email with the SENDER'S name (yours), never the recipient's name. Use exactly: ${signoff}
 
-${styleConfig.prompt}${researchPlaybookBlock()}${learningsText}${experimentBlock}${customInstructionsText}${giftBlock}${wildcardBlock}${
+${styleConfig.prompt}${researchPlaybookBlock()}${brandProofText}${learningsText}${experimentBlock}${customInstructionsText}${giftBlock}${wildcardBlock}${
   mechanism
     ? `\n\n*** SUBJECT OVERRIDE (highest priority — ignore any earlier rule to keep the subject plain/lowercase/1-4-words/no-emoji/no-clickbait) ***\nThe subject MUST be captivating and grab a marketing director. Do NOT write a plain descriptive subject like "[company]'s creative testing" — that defeats the whole test.${subjectMechanismBlock(mechanism)}`
     : ""

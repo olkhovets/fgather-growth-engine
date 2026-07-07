@@ -4,6 +4,7 @@ import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { gradeEmail } from "@/lib/email-grader";
 import { perPersonaStyleStats, styleScore, isIncentiveStyle } from "@/lib/persona-style";
+import { GOOD_STYLES, FRESH_STYLES } from "@/lib/send-styles";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 120;
@@ -18,13 +19,9 @@ export const maxDuration = 120;
  * Draft and send are now the SAME set: the counts make sense.
  */
 
-// Various good styles (exclude specialist-proof — it converted ~0 across ~3k sends). Includes the
-// founder-incentive combo (founder credential + money offer), which is what the fresh portion writes.
-const GOOD_STYLES = ["quirky-incentive", "outcome-hook", "curiosity-gap", "founder-incentive", "founder", "direct-incentive", "holiday-incentive", "lean-personal", "social-proof", "insight-hook", "pain-led", "direct-ask"];
-// The styles we write FRESH per company for the current test — quirky captivating subjects + ultra-short
-// bodies + money. Rotation is money-dominant (quirky-incentive 2x, outcome-hook), with a curiosity-gap
-// control (no gift) to A/B whether attention alone converts. All ultra-short, all subject-driven.
-const FRESH_STYLES = ["quirky-incentive", "outcome-hook", "quirky-incentive", "curiosity-gap"];
+// GOOD_STYLES (eligible-to-send filter) and FRESH_STYLES (written fresh each round) now live in
+// lib/send-styles.ts — the single source of truth shared with the send-preview. Both are personable-
+// first with the quirky/gimmick family retired (it booked ~0). Change the mix there, not here.
 const ROUND_CAP = 12; // leads chosen+sent per loop round (paced by how fast we can write fresh founder)
 // Recipient gateways that quarantine cold mail (mirrors the send route). Pre-filtered out for "no-gateways".
 const STRICT_GATEWAYS = ["Microsoft", "Proofpoint", "Mimecast", "Barracuda"];
@@ -94,12 +91,15 @@ export async function POST(request: Request) {
       const genStart = Date.now();
       let genCall = 0;
       while (generated < wantFounder && Date.now() - genStart < 70_000) {
-        const freshStyle = FRESH_STYLES[genCall % FRESH_STYLES.length]; // alternate outcome-hook / founder-incentive
+        const freshStyle = FRESH_STYLES[genCall % FRESH_STYLES.length]; // rotate the personable, brand-matched styles
         genCall += 1;
         try {
           const g = await fetch(`${base}/api/leads/generate`, {
             method: "POST", headers: { "Content-Type": "application/json", "x-cron-secret": cron },
-            body: JSON.stringify({ workspaceId: ws.id, recycle: true, oldestFirst: true, style: freshStyle, cooldownDays: COOLDOWN_DAYS, providerFilter: provider, useFastModel: true, limit: Math.min(6, wantFounder - generated), ...(icpOnly ? { personas: ICP_PERSONAS } : {}) }),
+            // useWebScraping: fetch each lead's site (best-effort, 4s cap) so step 1 opens on a REAL read of
+            // THEIR company, not just persona/industry. Signal-based personalization is the top reply-rate
+            // lever in the 2026 data; it fails gracefully to the persona pain when a site can't be read.
+            body: JSON.stringify({ workspaceId: ws.id, recycle: true, oldestFirst: true, style: freshStyle, cooldownDays: COOLDOWN_DAYS, providerFilter: provider, useFastModel: true, useWebScraping: true, limit: Math.min(6, wantFounder - generated), ...(icpOnly ? { personas: ICP_PERSONAS } : {}) }),
           });
           const gd = await g.json().catch(() => ({}));
           const did = Number(gd.done) || 0;
