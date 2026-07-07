@@ -2,9 +2,11 @@ import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { gradeEmail } from "@/lib/email-grader";
+import { gradeEmail, judgeEmailContent } from "@/lib/email-grader";
 import { perPersonaStyleStats, styleScore, isIncentiveStyle } from "@/lib/persona-style";
-import { GOOD_STYLES, FRESH_STYLES } from "@/lib/send-styles";
+import { GOOD_STYLES, FRESH_STYLES, isSendableLength } from "@/lib/send-styles";
+import { decrypt } from "@/lib/encryption";
+import { scoreLeadFit } from "@/lib/lead-fit";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 120;
@@ -31,6 +33,13 @@ const ICP_PERSONAS = ["consumer-insights", "brand-social", "product-marketing", 
 // and rely on the offer/targeting/timing levers to actually convert. Tunable via body.minGrade.
 const DEFAULT_GRADE_FLOOR = 85;
 const COOLDOWN_DAYS = 10;
+// Quality JUDGE floors (LLM pass, the "is it actually good / not boring" gate the deterministic grader
+// can't see). An email must clear BOTH before it ships: real personalization (a specific trigger, not
+// just naming the company) and problem-first framing. Judged only on the final chosen set (cheap).
+const JUDGE_PERSONALIZATION_FLOOR = 60; // below this = generic/shallow → do not send
+const JUDGE_PROBLEM_FLOOR = 40;         // below this = solution-dump / no hook → do not send
+const JUDGE_SUBJECT_FLOOR = 55;         // below this = boring/templated subject nobody opens → do not send
+const JUDGE_CONCURRENCY = 6;
 
 export async function POST(request: Request) {
   try {
@@ -40,13 +49,14 @@ export async function POST(request: Request) {
 
     // Auth: operator session (website button) OR CRON_SECRET + workspaceId (CLI).
     const viaCron = request.headers.get("x-cron-secret") === cron && typeof body.workspaceId === "string";
-    let ws: { id: string } | null = null;
+    const wsSelect = { id: true, anthropicKey: true, anthropicModel: true, productSummary: true } as const;
+    let ws: { id: string; anthropicKey: string | null; anthropicModel: string | null; productSummary: string | null } | null = null;
     if (viaCron) {
-      ws = await prisma.workspace.findUnique({ where: { id: body.workspaceId }, select: { id: true } });
+      ws = await prisma.workspace.findUnique({ where: { id: body.workspaceId }, select: wsSelect });
     } else {
       const session = await getServerSession(authOptions);
       if (!session?.user?.id) return NextResponse.json({ error: "Please log in." }, { status: 401 });
-      ws = await prisma.workspace.findUnique({ where: { userId: session.user.id }, select: { id: true } });
+      ws = await prisma.workspace.findUnique({ where: { userId: session.user.id }, select: wsSelect });
     }
     if (!ws) return NextResponse.json({ error: "No workspace." }, { status: 400 });
     const count = Math.min(1000, Math.max(1, Number(body.count) || 200));
@@ -99,7 +109,8 @@ export async function POST(request: Request) {
             // useWebScraping: fetch each lead's site (best-effort, 4s cap) so step 1 opens on a REAL read of
             // THEIR company, not just persona/industry. Signal-based personalization is the top reply-rate
             // lever in the 2026 data; it fails gracefully to the persona pain when a site can't be read.
-            body: JSON.stringify({ workspaceId: ws.id, recycle: true, oldestFirst: true, style: freshStyle, cooldownDays: COOLDOWN_DAYS, providerFilter: provider, useFastModel: true, useWebScraping: true, limit: Math.min(6, wantFounder - generated), ...(icpOnly ? { personas: ICP_PERSONAS } : {}) }),
+            // judgeQuality:false — the send gate below runs the SAME judge on the chosen set, so skip it here to avoid double-judging.
+            body: JSON.stringify({ workspaceId: ws.id, recycle: true, oldestFirst: true, style: freshStyle, cooldownDays: COOLDOWN_DAYS, providerFilter: provider, useFastModel: true, useWebScraping: true, judgeQuality: false, limit: Math.min(6, wantFounder - generated), ...(icpOnly ? { personas: ICP_PERSONAS } : {}) }),
           });
           const gd = await g.json().catch(() => ({}));
           const did = Number(gd.done) || 0;
@@ -128,23 +139,36 @@ export async function POST(request: Request) {
         ...providerWhere,
         ...(excludeIds.length ? { id: { notIn: excludeIds } } : {}),
       },
-      select: { id: true, company: true, persona: true, emailStyle: true, step1Subject: true, step1Body: true },
+      select: { id: true, company: true, persona: true, emailStyle: true, step1Subject: true, step1Body: true, jobTitle: true, industry: true, vertical: true },
       orderBy: { createdAt: "asc" }, // oldest-waiting first
       take: roundTarget * 12, // enough across all style buckets to fill the blend after grading
     });
 
-    // 2) grade-filter: keep only the best-crafted (default >=85).
+    // 2) length + grade filter: drop indigestible-length drafts outright (a few tight lines only), then
+    //    keep the best-crafted (default >=85). The length cap guarantees only short bodies ever send,
+    //    regardless of grade — old long drafts in the pool are filtered until they're shortened.
     const graded = candidates
-      .map((l) => ({ l, score: gradeEmail({ subject: l.step1Subject ?? "", body: l.step1Body ?? "" }, { company: l.company }).score }))
+      .filter((l) => isSendableLength(l.step1Body))
+      .map((l) => ({ l, score: gradeEmail({ subject: l.step1Subject ?? "", body: l.step1Body ?? "" }, { company: l.company }).score, fit: scoreLeadFit(l) }))
       .filter((x) => x.score >= minGrade);
 
-    // 3) rank by PER-PERSONA performance, then build the blend: founder + incentive + rest, to roundTarget.
+    // 2b) FIT gate — the best email still gets no reply from a wrong-fit lead. Gather's ICP is B2C
+    //     marketing leaders at consumer brands; drop clear off-ICP leads (B2B/tech company or a
+    //     non-marketing title). Missing data stays "maybe" (not dropped). body.fitGate=false disables.
+    const fitGate = body.fitGate !== false;
+    const fitEligible = fitGate ? graded.filter((x) => x.fit.tier !== "off") : graded;
+    const offIcp = graded.length - fitEligible.length;
+
+    // 3) rank by FIT tier first (core ICP ahead of maybe), then per-persona reply performance, then build the blend.
     const stats = await perPersonaStyleStats(ws.id);
-    const ranked = graded.sort((a, b) => styleScore(b.l.persona, b.l.emailStyle, stats) - styleScore(a.l.persona, a.l.emailStyle, stats));
+    const fitRank = (t: string) => (t === "core" ? 2 : t === "maybe" ? 1 : 0);
+    const ranked = fitEligible.sort((a, b) =>
+      (fitRank(b.fit.tier) - fitRank(a.fit.tier)) ||
+      (styleScore(b.l.persona, b.l.emailStyle, stats) - styleScore(a.l.persona, a.l.emailStyle, stats)));
     const founderB = ranked.filter((x) => FRESH_STYLES.includes(x.l.emailStyle ?? ""));                                       // fresh outcome-hook / founder combo
     const incentiveB = ranked.filter((x) => isIncentiveStyle(x.l.emailStyle) && !FRESH_STYLES.includes(x.l.emailStyle ?? "")); // existing direct-incentive/holiday
     const restB = ranked.filter((x) => !FRESH_STYLES.includes(x.l.emailStyle ?? "") && !isIncentiveStyle(x.l.emailStyle));     // other good styles
-    const chosen = [
+    let chosen = [
       ...founderB.slice(0, wantFounder),
       ...incentiveB.slice(0, wantIncentive),
       ...restB.slice(0, Math.max(0, roundTarget - wantFounder - wantIncentive)),
@@ -156,12 +180,42 @@ export async function POST(request: Request) {
     }
     chosen.splice(roundTarget);
 
+    // QUALITY JUDGE gate — the LLM "is it actually good, not a boring paragraph" pass the deterministic
+    // grader can't see. An email ships only if it clears REAL personalization (a specific trigger, not
+    // just naming the company) AND problem-first framing. Judged on the small chosen set only (cheap).
+    // Fail-open if the judge is unavailable (length + deterministic 85 gates still applied). body.judgeQuality=false disables.
+    let qualityRejected = 0;
+    const rejectedIds: string[] = [];
+    const judgeOn = body.judgeQuality !== false && Boolean(ws.anthropicKey) && chosen.length > 0;
+    if (judgeOn) {
+      const key = decrypt(ws.anthropicKey!);
+      const jmodel = ws.anthropicModel ?? "claude-haiku-4-5";
+      const product = ws.productSummary ?? null;
+      const passed: typeof chosen = [];
+      for (let i = 0; i < chosen.length; i += JUDGE_CONCURRENCY) {
+        const slice = chosen.slice(i, i + JUDGE_CONCURRENCY);
+        const verdicts = await Promise.all(slice.map((x) =>
+          judgeEmailContent(key, { subject: x.l.step1Subject ?? "", body: x.l.step1Body ?? "" },
+            { company: x.l.company, persona: x.l.persona, product }, jmodel).catch(() => null)
+        ));
+        slice.forEach((x, j) => {
+          const v = verdicts[j];
+          // fail-open on null (judge unreachable); fail-closed on a real low personalization/problem/subject score.
+          const ok = !v || (v.personalizationScore >= JUDGE_PERSONALIZATION_FLOOR && v.problemFirstScore >= JUDGE_PROBLEM_FLOOR && v.subjectHookScore >= JUDGE_SUBJECT_FLOOR);
+          if (ok) passed.push(x); else { qualityRejected += 1; rejectedIds.push(x.l.id); }
+        });
+      }
+      chosen = passed;
+    }
+
     const ids = chosen.map((x) => x.l.id);
     const styleMix: Record<string, number> = {};
     for (const x of chosen) styleMix[x.l.emailStyle ?? "?"] = (styleMix[x.l.emailStyle ?? "?"] ?? 0) + 1;
 
     if (ids.length === 0) {
-      return NextResponse.json({ ok: true, candidates: candidates.length, gradedGood: 0, chosen: 0, sent: 0, generated, attemptedIds: [], message: "No more eligible leads this round (pool drained or all in cooldown)." });
+      // If everything got judge-rejected, still exclude those ids next round so the loop advances and
+      // generates fresh replacements instead of re-judging the same boring drafts.
+      return NextResponse.json({ ok: true, candidates: candidates.length, gradedGood: graded.length, chosen: 0, sent: 0, generated, qualityRejected, attemptedIds: rejectedIds, message: qualityRejected > 0 ? `${qualityRejected} draft(s) failed the quality judge (too generic / not problem-first) — none good enough to send this round.` : "No more eligible leads this round (pool drained or all in cooldown)." });
     }
 
     // 3) send exactly those ids.
@@ -185,12 +239,12 @@ export async function POST(request: Request) {
     const incCount = chosen.filter((x) => isIncentiveStyle(x.l.emailStyle)).length;
     return NextResponse.json({
       ok: true,
-      requested: count, candidates: candidates.length, gradedGood: graded.length, chosen: ids.length, minGrade, generated,
+      requested: count, candidates: candidates.length, gradedGood: graded.length, chosen: ids.length, minGrade, generated, qualityRejected, offIcp,
       sent, sendSideSkipped, belowGrade, eligible, prepared, provider, styleMix, incentiveCount: incCount,
       source, newLeadsPulled,
-      attemptedIds: ids, // so the loop excludes these next round
+      attemptedIds: [...ids, ...rejectedIds], // exclude sent AND judge-rejected next round so the loop advances
       poolMaybeMore: candidates.length >= count * 5, // candidate query hit its cap → likely more leads available
-      message: `${source === "new" ? `Apollo: +${newLeadsPulled} new leads. ` : ""}Sent ${sent}/${ids.length} chosen${sendSideSkipped > 0 ? ` (${sendSideSkipped} not on a warmed inbox / already in a campaign)` : ""}.${belowGrade > 0 ? ` ${belowGrade} skipped below quality ${minGrade}.` : ""}${sendErr ? ` Note: ${sendErr}` : ""}`,
+      message: `${source === "new" ? `Apollo: +${newLeadsPulled} new leads. ` : ""}Sent ${sent}/${ids.length} chosen${sendSideSkipped > 0 ? ` (${sendSideSkipped} not on a warmed inbox / already in a campaign)` : ""}.${belowGrade > 0 ? ` ${belowGrade} below craft ${minGrade}.` : ""}${offIcp > 0 ? ` ${offIcp} off-ICP (wrong-fit) skipped.` : ""}${qualityRejected > 0 ? ` ${qualityRejected} cut by the quality judge (too generic).` : ""}${sendErr ? ` Note: ${sendErr}` : ""}`,
     });
   } catch (err) {
     return NextResponse.json({ error: err instanceof Error ? err.message : "Send failed" }, { status: 500 });

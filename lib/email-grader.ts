@@ -1,5 +1,5 @@
 import { callAnthropic } from "@/lib/anthropic";
-import { RUBRIC, SPAM_WORDS, FILLER_OPENERS, AI_TELL_WORDS } from "@/lib/cold-email-research";
+import { RUBRIC, SPAM_WORDS, FILLER_OPENERS, AI_TELL_WORDS, GENERIC_SUBJECTS } from "@/lib/cold-email-research";
 
 /**
  * Email-quality grader — "are the emails good?" answered against the data-backed rubric in
@@ -116,10 +116,13 @@ export function gradeEmail(
   // lowercase bonus (mirrors internal email), proper nouns excepted — reward absence of Title Case
   const titleCase = subject.split(/\s+/).filter((w) => /^[A-Z][a-z]+$/.test(w)).length >= 3;
   if (titleCase) subjScore = Math.min(subjScore, 70);
+  // Anti-boring: a generic/templated subject ("quick question", "checking in") grabs no attention — cap hard.
+  const subjGeneric = GENERIC_SUBJECTS.some((g) => subjLower === g || subjLower.startsWith(g + " ") || subjLower.startsWith(g + ",") || subjLower.replace(/[^a-z ]/g, "").trim() === g);
+  if (subjGeneric) subjScore = Math.min(subjScore, 35);
   dims.push({
     key: "subject", label: "Subject line", weight: 2, score: subjScore,
-    note: `${sw} words${subjSalesy ? ", salesy" : ""}${subjAllCaps ? ", ALL CAPS" : ""}${titleCase ? ", Title Case" : ""}`,
-    fix: subjScore < 60 ? `Rewrite the subject to <=${RUBRIC.subject.idealMaxWords} lowercase words anchored to their world, no sell, no exclamation.` : undefined,
+    note: `${sw} words${subjSalesy ? ", salesy" : ""}${subjAllCaps ? ", ALL CAPS" : ""}${titleCase ? ", Title Case" : ""}${subjGeneric ? ", generic/templated" : ""}`,
+    fix: subjScore < 60 ? (subjGeneric ? `The subject "${subject}" is generic and gets ignored — make it grab a busy marketing leader: a specific number, a curiosity gap about THEM, a provocative outcome, or a fitting emoji. No "quick question"/"checking in".` : `Rewrite the subject to <=${RUBRIC.subject.idealMaxWords} lowercase words anchored to their world, no sell, no exclamation.`) : undefined,
   });
 
   // 3. Opener (weight 2) — first sentence about them, no filler/self-intro (HARD fail).
@@ -229,6 +232,7 @@ function finalize(dims: DimensionScore[], hardFail: boolean): EmailGrade {
 export type JudgeResult = {
   personalizationScore: number; // 0-100
   problemFirstScore: number;    // 0-100
+  subjectHookScore: number;     // 0-100 — would a busy marketing leader actually open it?
   notes: string;
   fixes: string[];
 };
@@ -244,10 +248,11 @@ export async function judgeEmailContent(
   context: { company?: string | null; persona?: string | null; product?: string | null },
   model: string
 ): Promise<JudgeResult | null> {
-  const system = `You are a cold-email reply-rate judge. Score two things on 0-100 and give concrete fixes. Be strict and specific.
+  const system = `You are a cold-email reply-rate judge. Score three things on 0-100 and give concrete fixes. Be strict and specific.
 - personalizationScore: is the opener a REAL, specific read on THIS company/role (their actual motion, a trigger like a launch/hire/funding) with a "so this likely means…" bridge — vs generic ("love what you're doing"), person-trivia, or mail-merge filler? Generic = low.
 - problemFirstScore: does it lead with a problem the prospect already cares about BEFORE pitching the product, with specific/named proof after — vs opening with the solution/feature dump? Solution-first = low.
-Return STRICT JSON only: {"personalizationScore":N,"problemFirstScore":N,"notes":"...","fixes":["...","..."]}`;
+- subjectHookScore: would a BUSY marketing leader with a full inbox actually open this? Reward genuine curiosity, a specific number, a provocative outcome, or a sharp emoji that is specific to THEM. Punish hard: generic/templated subjects ("quick question", "checking in", "following up", "intro", "your company"), vague, or anything that reads like every other cold email. Attention-grabbing AND honest = high; boring or clickbait-it-can't-back-up = low.
+Return STRICT JSON only: {"personalizationScore":N,"problemFirstScore":N,"subjectHookScore":N,"notes":"...","fixes":["...","..."]}`;
   const user = `Company: ${context.company ?? "unknown"} | Role/persona: ${context.persona ?? "unknown"}${context.product ? ` | Our product: ${context.product}` : ""}
 
 SUBJECT: ${email.subject}
@@ -261,6 +266,7 @@ Score it. STRICT JSON only.`;
     return {
       personalizationScore: Math.max(0, Math.min(100, Number(json.personalizationScore) || 0)),
       problemFirstScore: Math.max(0, Math.min(100, Number(json.problemFirstScore) || 0)),
+      subjectHookScore: Math.max(0, Math.min(100, Number(json.subjectHookScore) || 0)),
       notes: typeof json.notes === "string" ? json.notes : "",
       fixes: Array.isArray(json.fixes) ? json.fixes.filter((x: unknown): x is string => typeof x === "string") : [],
     };
@@ -289,6 +295,11 @@ export async function gradeEmailFull(
       key: "problemFirst", label: "Problem-first", weight: 3, score: judge.problemFirstScore,
       note: judge.notes.slice(0, 120),
       fix: judge.problemFirstScore < 60 ? (judge.fixes[1] ?? judge.fixes[0] ?? "Lead with a problem they already care about before pitching; put named proof after.") : undefined,
+    },
+    {
+      key: "subjectHook", label: "Subject hook", weight: 2, score: judge.subjectHookScore,
+      note: judge.notes.slice(0, 120),
+      fix: judge.subjectHookScore < 60 ? (judge.fixes[2] ?? "Make the subject grab a busy marketing leader: a specific number, a curiosity gap about them, a provocative outcome, or a fitting emoji. Never generic ('quick question', 'checking in').") : undefined,
     },
   ];
   return finalize([...base.dimensions, ...extra], base.hardFail);

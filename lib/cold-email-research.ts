@@ -95,7 +95,7 @@ export function researchTacticsForExperiments(): ResearchRule[] {
 
 // --- Numeric thresholds the deterministic grader scores against (single source of truth) ---
 export const RUBRIC = {
-  body: { idealMaxWords: 45, hardMaxWords: 80, flagWords: 110 },
+  body: { idealMaxWords: 40, hardMaxWords: 55, flagWords: 65 },
   subject: { idealMaxWords: 4, hardMaxWords: 7 },
   readability: { targetGrade: 5, hardGrade: 9, longSentenceWords: 25 },
   links: { idealMax: 1, hardMax: 2 },
@@ -114,6 +114,15 @@ export const FILLER_OPENERS = [
   "i hope this finds you well", "i hope this email finds you well", "i hope you're doing well",
   "my name is", "allow me to introduce", "i wanted to reach out", "i'm reaching out",
   "i am reaching out", "i wanted to connect", "i just wanted to", "hope all is well",
+];
+
+// Generic / low-attention subject lines — the templated openers a busy marketing leader ignores.
+// A subject that IS one of these (or starts with it) gets its subject score capped: it grabs no attention.
+export const GENERIC_SUBJECTS = [
+  "quick question", "quick chat", "checking in", "following up", "follow up", "touching base",
+  "reaching out", "introduction", "intro", "connecting", "let's connect", "opportunity",
+  "partnership", "quick call", "your company", "a question", "hello", "hi there", "catching up",
+  "circling back", "just checking in", "wanted to connect", "collaboration", "picking your brain",
 ];
 
 // AI-tell vocabulary (cluster-scored, never a single-word fail).

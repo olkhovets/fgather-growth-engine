@@ -3,8 +3,9 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { matchBrandProof } from "@/lib/brand-proof";
-import { GOOD_STYLES, FRESH_STYLES, styleLabel, activeFreshStyleLabels } from "@/lib/send-styles";
+import { GOOD_STYLES, FRESH_STYLES, styleLabel, activeFreshStyleLabels, isSendableLength, bodyWordCount, MAX_SENDABLE_BODY_WORDS } from "@/lib/send-styles";
 import { getDeliverabilityForWorkspace } from "@/lib/deliverability";
+import { scoreLeadFit } from "@/lib/lead-fit";
 
 export const dynamic = "force-dynamic";
 
@@ -26,12 +27,14 @@ function toBuckets(rows: Array<{ _count: number } & Record<string, unknown>>, fi
     .sort((a, b) => b.count - a.count);
 }
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
     const session = await getServerSession(authOptions);
     if (!session?.user?.id) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
+    // Optional ?ids=a,b,c — show these specific freshly-generated drafts first (used by "write 3 now").
+    const focusIds = (new URL(request.url).searchParams.get("ids") || "").split(",").map((s) => s.trim()).filter(Boolean);
     const workspace = await prisma.workspace.findUnique({
       where: { userId: session.user.id },
       select: { id: true, senderName: true, productSummary: true, user: { select: { email: true } } },
@@ -72,19 +75,38 @@ export async function GET() {
       prisma.lead.findMany({
         where: readyWhere,
         select: {
-          name: true, company: true, industry: true, vertical: true, persona: true,
+          id: true, name: true, company: true, industry: true, vertical: true, persona: true, jobTitle: true,
           emailStyle: true, incentiveAmount: true, incentiveGiftType: true,
           step1Subject: true, step1Body: true,
         },
-        orderBy: { recycledAt: "asc" }, // the ones that would go out soonest
-        take: 8,
+        orderBy: { createdAt: "desc" }, // newest leads first (no per-draft timestamp exists); the "write 3 now" button shows fresh output explicitly
+        take: 120, // sample: we filter to short (sendable-length) below, then show the first few
       }),
       getDeliverabilityForWorkspace(wsId).catch(() => null),
     ]);
 
-    // Each preview shows WHICH similar-brand proof it will lead with — makes the personalization visible.
-    const previews = previewRows.map((l) => {
+    // If the "write 3 now" button just generated specific drafts, pull those exact leads and show them
+    // first — the honest way to see the CURRENT style (there's no per-draft timestamp to sort on).
+    const previewSelect = {
+      id: true, name: true, company: true, industry: true, vertical: true, persona: true, jobTitle: true,
+      emailStyle: true, incentiveAmount: true, incentiveGiftType: true,
+      step1Subject: true, step1Body: true,
+    } as const;
+    const focusRows = focusIds.length > 0
+      ? await prisma.lead.findMany({ where: { id: { in: focusIds }, leadBatch: { workspaceId: wsId }, stepsJson: { not: null } }, select: previewSelect })
+      : [];
+
+    // Only preview drafts that are actually SHORT enough to send (a few tight lines), matching what the
+    // send path now enforces — so the preview reflects reality, not the old long blocks in the pool.
+    const combined = [...focusRows, ...previewRows.filter((l) => !focusIds.includes(l.id))];
+    const shortRows = combined.filter((l) => isSendableLength(l.step1Body));
+    const longInSample = previewRows.filter((l) => !isSendableLength(l.step1Body)).length;
+
+    // Each preview shows WHICH similar-brand proof it will lead with + its ICP FIT tier — so both the
+    // personalization and the targeting are visible at a glance.
+    const previews = shortRows.slice(0, 8).map((l) => {
       const m = matchBrandProof({ company: l.company, industry: l.industry, vertical: l.vertical, persona: l.persona });
+      const fit = scoreLeadFit(l);
       return {
         name: l.name,
         company: l.company,
@@ -93,10 +115,17 @@ export async function GET() {
         gift: l.incentiveAmount ? `$${l.incentiveAmount} ${l.incentiveGiftType ?? "gift"}` : null,
         matchedBrand: m.primary.name,
         matchedFamily: m.family,
+        fitTier: fit.tier,
+        words: bodyWordCount(l.step1Body),
         subject: l.step1Subject,
         body: l.step1Body,
       };
     });
+
+    // ICP-fit distribution across the ready sample — how much of what's queued is actually Gather's
+    // ICP (B2C marketing leaders at consumer brands) vs off-fit that shouldn't be sent.
+    const fitCounts = { core: 0, maybe: 0, off: 0 };
+    for (const l of previewRows) fitCounts[scoreLeadFit(l).tier] += 1;
 
     // Gift buckets → readable labels.
     const giftBuckets: Bucket[] = readyByGift
@@ -121,6 +150,11 @@ export async function GET() {
       },
       // What kind of emails the engine writes fresh right now — so the operator is always aware.
       activeStyles: activeFreshStyleLabels(),
+      // Length health: how many recent drafts are too long to send (indigestible blocks). Long drafts are
+      // filtered out of the send until they're shortened (recycle re-writes them tight, or the shorten tool).
+      length: { maxSendableWords: MAX_SENDABLE_BODY_WORDS, longInSample, sampled: previewRows.length },
+      // Targeting: ICP-fit spread of the ready sample (off-fit is dropped at send). Peter's biggest lever.
+      fit: { ...fitCounts, sampled: previewRows.length },
       // Inbox-placement chip: fold deliverability into the send view instead of a separate menu.
       deliverability: deliverability
         ? { verdict: deliverability.verdict, avgHealth: deliverability.avgHealth, hasHealthData: deliverability.hasHealthData }

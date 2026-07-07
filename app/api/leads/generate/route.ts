@@ -14,7 +14,7 @@ import { generateLandingPageContent, landingPageContentForEmailPrompt } from "@/
 import { logActivity } from "@/lib/activity";
 import { validateEmailSteps, autoFixEmailContent } from "@/lib/email-validator";
 import { researchPlaybookBlock } from "@/lib/cold-email-research";
-import { gradeEmail } from "@/lib/email-grader";
+import { gradeEmail, judgeEmailContent } from "@/lib/email-grader";
 import { loadApprovedStyles } from "@/lib/style-proposer";
 import { generateSubjectCandidates, scoreSubject } from "@/lib/subject-engine";
 import { mechanismForIndex, subjectMechanismBlock, MECHANISM_TAG_PREFIX } from "@/lib/subject-mechanisms";
@@ -26,8 +26,8 @@ export const dynamic = "force-dynamic";
 // Allow up to 60s so a few Anthropic calls can finish (Vercel Pro; Hobby may still cap at 10s)
 export const maxDuration = 60;
 
-const MAX_BODY_WORDS = 45;       // anything longer gets cut — feedback: emails too long, make them punctual
-const PUNCHY_TARGET_WORDS = 30;  // the short, punchy target the shortener cuts down to (money does the talking)
+const MAX_BODY_WORDS = 40;       // hard ceiling — anything longer gets cut. Feedback: bodies are indigestible blocks; a few tight lines only.
+const PUNCHY_TARGET_WORDS = 28;  // the short target the shortener cuts down to — 3 lines: the personal read, the proof, the ask.
 
 // THE REPLY FORMULA — the standing OKR (memory: okr-reply-formula), injected into EVERY email regardless
 // of style. We optimize for one thing: a human hitting reply. Every email must hit all five. This frames
@@ -35,7 +35,7 @@ const PUNCHY_TARGET_WORDS = 30;  // the short, punchy target the shortener cuts 
 const REPLY_FORMULA = `*** THE REPLY FORMULA — this is the whole job. Every email must hit all FIVE, whatever the style. ***
 We are optimizing for ONE outcome: a busy B2C marketing leader hits REPLY. Not opens, not awareness — a reply that leads to a booked demo. Hit all five or the email fails:
 1. SUBJECT that stops the scroll — make them curious enough to open, specific to THEM. Provocative, a sharp number, a curiosity gap, quirky, or one fitting emoji are all fair game. Never generic, never "checking in" / "quick question" with nothing behind it.
-2. BODY ultra-punchy — a few short lines, ~40 words. If they remember one thing, make it the OUTCOME they get, not our name.
+2. BODY ultra-punchy — 3 short lines, HARD ceiling 40 words, never a block of text. One line = the specific personal read on them; one line = the proof-of-outcome; one line = the ask. If it doesn't fit, cut words, not the personalization. Indigestible paragraphs get deleted, so write tight from the start.
 3. DEEP RESEARCH, every single email — name ONE real, specific thing about THIS company and this person's role: their actual motion, a recent launch, their category, something from their site. If you can't be specific about them, you haven't earned the reply. NEVER "companies like yours" or generic flattery.
 4. COMMON GROUND + PROOF-OF-OUTCOME — connect on a real shared challenge in their world, then land the matched proof: "Gather helped [a brand like them] do exactly [specific outcome]." Make the ROI vivid and self-interested — they stop guessing what buyers want, ship creative that lands the first time, know before they spend, look brilliant to their boss.
 5. HUMAN, zero AI tells — read it back: if it sounds like a chatbot wrote it, rewrite it. Sharp, direct, a little cocky, like a real person typed it in five minutes. AI-sounding copy is the #1 reply killer. Banned words/em-dashes are hard rules.`;
@@ -289,7 +289,11 @@ export async function POST(request: Request) {
       personas: personasParam,
       cooldownDays: cooldownDaysParam,
       providerFilter: providerFilterParam,
-    } = body as { batchId: string; offset?: number; limit?: number; campaignId?: string; useFastModel?: boolean; useWebScraping?: boolean; useLandingPage?: boolean; useVideo?: boolean; useSampleOutput?: boolean; style?: string; workspaceId?: string; recycle?: boolean; neverRecycledOnly?: boolean; oldestFirst?: boolean; optimizeSubject?: boolean; personas?: string[]; cooldownDays?: number; providerFilter?: string };
+      judgeQuality: judgeQualityParam,
+    } = body as { batchId: string; offset?: number; limit?: number; campaignId?: string; useFastModel?: boolean; useWebScraping?: boolean; useLandingPage?: boolean; useVideo?: boolean; useSampleOutput?: boolean; style?: string; workspaceId?: string; recycle?: boolean; neverRecycledOnly?: boolean; oldestFirst?: boolean; optimizeSubject?: boolean; personas?: string[]; cooldownDays?: number; providerFilter?: string; judgeQuality?: boolean };
+    // Judge quality at birth (LLM personalization + problem-first pass) unless the caller opts out. The
+    // send-batch path sets this false because it runs the SAME judge at the send gate (avoid double-judging).
+    const judgeQuality = judgeQualityParam !== false;
 
     // Auth: session for users, or CRON_SECRET + workspaceId for the autopilot orchestrator
     const cronSecret = process.env.CRON_SECRET;
@@ -602,7 +606,7 @@ STEP JOBS — each step has one specific job, do not blur them:
 
 EMAIL RULES:
 - Subject line: SHORT — aim for 1–4 lowercase words (proper nouns aside), anchored to their world. No clickbait, no ALL CAPS, no sell. (Data: under-4-word subjects reply 4.2x higher than long ones.)
-- Step 1 body: 3–4 short sentences, ideally under 75 words and never over ${MAX_BODY_WORDS}
+- Step 1 body: 3 short lines, a hard maximum of ${MAX_BODY_WORDS} words — a few tight lines, NEVER an indigestible block. Cut words before you exceed this.
 ${linkPolicy}
 ${usePS ? `- Include a P.S. line in step 1 — reference something real and specific about them (recent launch, campaign, hire, news)` : `- Do NOT include a P.S. line — the style requires a clean ending`}
 - Steps 2+ must NOT open with a greeting — they thread as inbox replies (Re: subject)
@@ -809,7 +813,7 @@ Return ONLY valid JSON: { ${stepExample} }`;
             try {
               const { text: shortened } = await callAnthropic(
                 anthropicKey,
-                `Cut this cold email to UNDER ${PUNCHY_TARGET_WORDS} words. Short and punchy. Keep ONLY: the one-line hook about them, the single proof/offer, and the one ask. Delete every extra clause, hedge, and explanation. Keep the greeting and any gift amount exactly. Return only the rewritten body, no commentary:\n\n${step.body}`,
+                `Rewrite this cold email to 3 short lines, UNDER ${PUNCHY_TARGET_WORDS} words. KEEP the deep personalization — the specific, real detail about THIS company/person must stay. Structure: line 1 = that specific personal read on them; line 2 = the one proof-of-outcome (a brand like them + what they got); line 3 = the one reply-first ask (keep any gift amount exactly). Delete every hedge, extra clause, and explanation — but never delete the personal detail or turn it generic. Keep the greeting. Return only the rewritten body, no commentary:\n\n${step.body}`,
                 { maxTokens: 220, model }
               );
               if (shortened.trim()) step.body = shortened.trim();
@@ -842,6 +846,37 @@ Return ONLY valid JSON: { ${stepExample} }`;
             }
           } catch {
             // keep the original if the revision call fails
+          }
+        }
+
+        // Quality JUDGE at birth (LLM) — the deep-personalization + problem-first check a regex can't see,
+        // so a fresh email is GOOD when written, not written-then-rejected at the send gate. One judge call;
+        // one targeted regen if it's generic or solution-first. Best-effort — never blocks generation.
+        let judgeScores: { p: number; pf: number; sh: number } | null = null;
+        if (judgeQuality) {
+          try {
+            const verdict = await judgeEmailContent(anthropicKey, stepsArray[0], { company: lead.company, persona: lead.persona, product: productSummary }, model);
+            if (verdict) judgeScores = { p: verdict.personalizationScore, pf: verdict.problemFirstScore, sh: verdict.subjectHookScore };
+            if (verdict && (verdict.personalizationScore < 60 || verdict.problemFirstScore < 40 || verdict.subjectHookScore < 55)) {
+              const jfixes = verdict.fixes.length ? verdict.fixes : ["Open with a SPECIFIC, real read on this company (their actual motion, not generic praise). Lead with the problem they already feel before any pitch. Then the matched proof, then one reply-first ask."];
+              const jf = `${userMessage}\n\nA reply-rate judge scored your step1 — personalization ${verdict.personalizationScore}/100, problem-first ${verdict.problemFirstScore}/100, subject-hook ${verdict.subjectHookScore}/100. Too generic, solution-first, or a boring subject nobody opens. Fix EXACTLY this — and make the SUBJECT grab a busy marketing leader (a specific number, a curiosity gap about them, a provocative outcome, or a fitting emoji; never "quick question"/"checking in"). Keep the body to 3 short lines under ${MAX_BODY_WORDS} words:\n${jfixes.map((f) => `- ${f}`).join("\n")}\n\nReturn ONLY valid JSON for step1: { "step1": { "subject": "...", "body": "..." } }`;
+              const { text: jr } = await callAnthropic(anthropicKey, jf, { maxTokens: 800, model, systemPrompt });
+              const jj = JSON.parse(jr.slice(jr.indexOf("{"), jr.lastIndexOf("}") + 1)) as Record<string, { subject?: string; body?: string }>;
+              const s1 = jj.step1;
+              if (s1?.subject && s1?.body) {
+                const revised = { subject: autoFixEmailContent(s1.subject.trim()), body: autoFixEmailContent(s1.body.trim()) };
+                // Accept only if it stays sendable-length and doesn't regress the deterministic craft score;
+                // the send-gate judge is the final arbiter, so a best-effort improvement here is enough.
+                const revisedGrade = gradeEmail(revised, { company: lead.company });
+                if (wordCount(revised.body) <= MAX_BODY_WORDS + 5 && revisedGrade.score >= grade.score - 3) {
+                  stepsArray[0] = revised;
+                  grade = revisedGrade;
+                  step1Regenerated = true;
+                }
+              }
+            }
+          } catch {
+            // judge is best-effort — never block generation on it
           }
         }
 
@@ -896,17 +931,17 @@ Return ONLY valid JSON: { ${stepExample} }`;
           where: { id: lead.id },
           data: update,
         });
-        return { leadId: lead.id, usage, gradeScore: grade.score, step1Regenerated };
+        return { leadId: lead.id, usage, gradeScore: grade.score, step1Regenerated, judge: judgeScores };
       } catch (err) {
         console.error(`Lead ${lead.id} personalize error:`, err instanceof Error ? err.message : err);
-        return { leadId: lead.id, usage, gradeScore: null as number | null, step1Regenerated: false };
+        return { leadId: lead.id, usage, gradeScore: null as number | null, step1Regenerated: false, judge: null as { p: number; pf: number; sh: number } | null };
       }
     };
 
     // Process with limited concurrency to avoid exhausting DB connection pool
     // Claude API calls can be parallel but DB writes need to be controlled
     const CONCURRENCY = 5;
-    const results: Array<{ leadId: string; usage: { input_tokens: number; output_tokens: number }; gradeScore?: number | null; step1Regenerated?: boolean }> = [];
+    const results: Array<{ leadId: string; usage: { input_tokens: number; output_tokens: number }; gradeScore?: number | null; step1Regenerated?: boolean; judge?: { p: number; pf: number; sh: number } | null }> = [];
     for (let i = 0; i < chunk.length; i += CONCURRENCY) {
       const batch = chunk.slice(i, i + CONCURRENCY);
       // Global index (offset + position) keeps experiment round-robin balanced across chunks
@@ -927,6 +962,14 @@ Return ONLY valid JSON: { ${stepExample} }`;
     const graded = results.map((r) => r.gradeScore).filter((s): s is number => typeof s === "number");
     const avgGrade = graded.length > 0 ? Math.round(graded.reduce((a, b) => a + b, 0) / graded.length) : null;
     const regenerated = results.filter((r) => r.step1Regenerated).length;
+    // First-draft judge averages (personalization / problem-first / subject-hook) — visibility into whether
+    // the generated emails actually clear the send-gate floors, so quality isn't a black box.
+    const judged = results.map((r) => r.judge).filter((j): j is { p: number; pf: number; sh: number } => !!j);
+    const avgJudge = judged.length > 0 ? {
+      personalization: Math.round(judged.reduce((a, j) => a + j.p, 0) / judged.length),
+      problemFirst: Math.round(judged.reduce((a, j) => a + j.pf, 0) / judged.length),
+      subjectHook: Math.round(judged.reduce((a, j) => a + j.sh, 0) / judged.length),
+    } : null;
 
     await logActivity(workspace.id, "generate",
       `Generated ${chunk.length} email sequence${chunk.length === 1 ? "" : "s"} (${numSteps} steps each)${avgGrade !== null ? ` — avg quality ${avgGrade}/100${regenerated > 0 ? `, ${regenerated} auto-rewritten` : ""}` : ""} — ${total - chunk.length} remain`,
@@ -937,6 +980,7 @@ Return ONLY valid JSON: { ${stepExample} }`;
         batchId,
         avgGrade,
         regenerated,
+        ...(avgJudge ? { avgJudge } : {}),
         ...(usageTotal.input_tokens > 0 ? { input_tokens: usageTotal.input_tokens, output_tokens: usageTotal.output_tokens } : {}),
       }
     );
@@ -945,6 +989,8 @@ Return ONLY valid JSON: { ${stepExample} }`;
       done: chunk.length,
       total,
       leadIds,
+      avgGrade,
+      avgJudge,
       usage: usageTotal.input_tokens > 0 || usageTotal.output_tokens > 0 ? usageTotal : undefined,
       message: `Personalized ${chunk.length} lead(s), ${numSteps} steps each.`,
     });

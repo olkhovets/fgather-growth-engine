@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 /**
  * "What's about to go out" — one digestible panel for the launch page. Answers the four things an
@@ -18,15 +18,22 @@ type Preview = {
   gift: string | null;
   matchedBrand: string;
   matchedFamily: string;
+  fitTier: "core" | "maybe" | "off";
+  words: number;
   subject: string | null;
   body: string | null;
 };
+
+const FIT_LABEL: Record<string, string> = { core: "Core ICP", maybe: "Maybe", off: "Off-ICP" };
+const FIT_COLOR: Record<string, string> = { core: "#1A7A4A", maybe: "#b45309", off: "#dc2626" };
 type Data = {
   workspace: { name: string; email: string | null; product: string | null };
   leads: { total: number; byPersona: Bucket[] };
   ready: { total: number; byPersona: Bucket[]; byStyle: Bucket[]; byGift: Bucket[] };
   activeStyles: string[];
   deliverability: { verdict: string; avgHealth: number | null; hasHealthData: boolean } | null;
+  length: { maxSendableWords: number; longInSample: number; sampled: number };
+  fit: { core: number; maybe: number; off: number; sampled: number };
   previews: Preview[];
 };
 
@@ -79,13 +86,43 @@ export default function SendSpread() {
   const [err, setErr] = useState<string | null>(null);
   const [open, setOpen] = useState(true);
   const [openPreview, setOpenPreview] = useState<number | null>(0);
+  const [sampling, setSampling] = useState(false);
+  const [sampleMsg, setSampleMsg] = useState<string | null>(null);
 
-  useEffect(() => {
-    fetch("/api/send-preview")
+  const refresh = useCallback((ids?: string[]) => {
+    const q = ids && ids.length ? `?ids=${ids.map(encodeURIComponent).join(",")}` : "";
+    fetch(`/api/send-preview${q}`)
       .then((r) => r.json())
       .then((d) => (d.error ? setErr(d.error) : setData(d)))
       .catch(() => setErr("Could not load the send preview."));
   }, []);
+
+  useEffect(() => { refresh(); }, [refresh]);
+
+  // Generate a few drafts RIGHT NOW with the current style/formula, so the preview shows what the engine
+  // actually writes today (not the stale stored pool). Re-drafts a few eligible leads; nothing is sent.
+  const sampleNow = async () => {
+    setSampling(true);
+    setSampleMsg(null);
+    try {
+      const res = await fetch("/api/leads/generate", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ recycle: true, limit: 3, useFastModel: true, useWebScraping: true }),
+      });
+      const d = await res.json().catch(() => ({}));
+      if (!res.ok) { setSampleMsg(d.error || "Could not generate a sample."); return; }
+      if ((d.done ?? 0) === 0) { setSampleMsg("No eligible leads to sample right now (all recent or none past cooldown)."); return; }
+      const j = d.avgJudge;
+      const jStr = j ? ` Quality: personalization ${j.personalization}, subject ${j.subjectHook}, problem-first ${j.problemFirst} /100.` : "";
+      setSampleMsg(`Wrote ${d.done} fresh draft(s) with the current style — shown at the top.${jStr}`);
+      setOpenPreview(0);
+      refresh(Array.isArray(d.leadIds) ? d.leadIds : undefined);
+    } catch {
+      setSampleMsg("Sample request failed.");
+    } finally {
+      setSampling(false);
+    }
+  };
 
   if (err) return null; // fail quiet — this is an at-a-glance aid, never a blocker
   if (!data) {
@@ -96,7 +133,7 @@ export default function SendSpread() {
     );
   }
 
-  const { workspace, leads, ready, previews, activeStyles, deliverability } = data;
+  const { workspace, leads, ready, previews, activeStyles, deliverability, length, fit } = data;
   const delivColor = deliverability ? (DELIV_COLOR[deliverability.verdict] ?? "var(--text-tertiary)") : "var(--text-tertiary)";
 
   return (
@@ -147,6 +184,16 @@ export default function SendSpread() {
             </p>
           )}
 
+          {/* Targeting: ICP-fit of the ready sample. Off-fit is dropped at send — the biggest reply lever. */}
+          {fit.sampled > 0 && (
+            <p className="text-xs" style={{ color: "var(--text-tertiary)" }}>
+              Targeting (sample of {fit.sampled}):{" "}
+              <span style={{ color: FIT_COLOR.core }}>{fit.core} core ICP</span> ·{" "}
+              <span style={{ color: FIT_COLOR.maybe }}>{fit.maybe} maybe</span> ·{" "}
+              <span style={{ color: FIT_COLOR.off }}>{fit.off} off-ICP (dropped at send)</span>
+            </p>
+          )}
+
           {ready.total === 0 ? (
             <p className="text-sm" style={{ color: "var(--text-tertiary)" }}>
               Nothing drafted yet. Generate sequences below (or pull leads) and this fills in with the spread + previews.
@@ -171,9 +218,20 @@ export default function SendSpread() {
                 </div>
               </div>
 
-              {/* Previews — real drafted step-1 emails, each showing the matched similar-brand proof */}
+              {/* Previews — real drafted step-1 emails, short-enough-to-send only, each with matched proof */}
               <div>
-                <p className="text-xs font-semibold tracking-wide mb-2" style={{ color: "var(--text-tertiary)" }}>PREVIEWS ({previews.length})</p>
+                <div className="flex items-center justify-between gap-2 mb-2">
+                  <p className="text-xs font-semibold tracking-wide" style={{ color: "var(--text-tertiary)" }}>PREVIEWS ({previews.length}) · short only, ≤{length.maxSendableWords}w · newest first</p>
+                  <button onClick={sampleNow} disabled={sampling} className="text-xs underline" style={{ color: "var(--accent)" }}>
+                    {sampling ? "Writing…" : "See current style (write 3 now)"}
+                  </button>
+                </div>
+                {sampleMsg && <p className="text-xs mb-2" style={{ color: "var(--text-tertiary)" }}>{sampleMsg}</p>}
+                {length.longInSample > 0 && (
+                  <p className="text-xs mb-2" style={{ color: "#b45309" }}>
+                    {length.longInSample} of the last {length.sampled} drafts are too long to send (indigestible blocks). They&apos;re filtered out — recycle to rewrite them tight, or run the shorten tool.
+                  </p>
+                )}
                 <div className="rounded-lg border divide-y" style={{ borderColor: "var(--border)" }}>
                   {previews.map((p, i) => (
                     <div key={i} className="p-3">
@@ -182,12 +240,16 @@ export default function SendSpread() {
                           <p className="text-sm font-medium truncate" style={{ color: "var(--text-primary)" }}>
                             {p.subject || "(no subject)"}
                           </p>
-                          <span className="text-xs flex-shrink-0" style={{ color: "var(--text-tertiary)" }}>{openPreview === i ? "–" : "+"}</span>
+                          <span className="flex items-center gap-2 flex-shrink-0">
+                            <span className="text-[10px] tabular-nums" style={{ color: p.words <= 40 ? "#1A7A4A" : "var(--text-tertiary)" }}>{p.words}w</span>
+                            <span className="text-xs" style={{ color: "var(--text-tertiary)" }}>{openPreview === i ? "–" : "+"}</span>
+                          </span>
                         </div>
                         <div className="flex flex-wrap items-center gap-1.5 mt-1">
                           <span className="text-xs" style={{ color: "var(--text-tertiary)" }}>{p.name ?? "—"}{p.company ? ` · ${p.company}` : ""}</span>
                           <span className="text-[10px] px-1.5 py-0.5 rounded-full" style={{ background: "var(--surface-subtle)", color: "var(--text-secondary)" }}>{prettyPersona(p.persona)}</span>
                           <span className="text-[10px] px-1.5 py-0.5 rounded-full" style={{ background: "var(--surface-subtle)", color: "var(--text-secondary)" }}>{p.style}</span>
+                          <span className="text-[10px] px-1.5 py-0.5 rounded-full" title="ICP fit" style={{ background: "var(--surface-subtle)", color: FIT_COLOR[p.fitTier] }}>{FIT_LABEL[p.fitTier]}</span>
                           {p.gift && <span className="text-[10px] px-1.5 py-0.5 rounded-full" style={{ background: "var(--surface-subtle)", color: "var(--text-secondary)" }}>{p.gift}</span>}
                           {/* Shows the personalization working: which real Gather customer this email leads with */}
                           <span className="text-[10px] px-1.5 py-0.5 rounded-full" title="Similar-brand proof this email will lead with" style={{ background: "var(--accent)", color: "#fff" }}>proof: {p.matchedBrand}</span>
