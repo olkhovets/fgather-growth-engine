@@ -855,9 +855,9 @@ Return ONLY valid JSON: { ${stepExample} }`;
         if (judgeQuality) {
           try {
             const verdict = await judgeEmailContent(anthropicKey, stepsArray[0], { company: lead.company, persona: lead.persona, product: productSummary }, model);
-            if (verdict && (verdict.personalizationScore < 60 || verdict.problemFirstScore < 40)) {
+            if (verdict && (verdict.personalizationScore < 60 || verdict.problemFirstScore < 40 || verdict.subjectHookScore < 55)) {
               const jfixes = verdict.fixes.length ? verdict.fixes : ["Open with a SPECIFIC, real read on this company (their actual motion, not generic praise). Lead with the problem they already feel before any pitch. Then the matched proof, then one reply-first ask."];
-              const jf = `${userMessage}\n\nA reply-rate judge scored your step1 — personalization ${verdict.personalizationScore}/100, problem-first ${verdict.problemFirstScore}/100. Too generic or solution-first to earn a reply. Fix EXACTLY this, keep it to 3 short lines under ${MAX_BODY_WORDS} words:\n${jfixes.map((f) => `- ${f}`).join("\n")}\n\nReturn ONLY valid JSON for step1: { "step1": { "subject": "...", "body": "..." } }`;
+              const jf = `${userMessage}\n\nA reply-rate judge scored your step1 — personalization ${verdict.personalizationScore}/100, problem-first ${verdict.problemFirstScore}/100, subject-hook ${verdict.subjectHookScore}/100. Too generic, solution-first, or a boring subject nobody opens. Fix EXACTLY this — and make the SUBJECT grab a busy marketing leader (a specific number, a curiosity gap about them, a provocative outcome, or a fitting emoji; never "quick question"/"checking in"). Keep the body to 3 short lines under ${MAX_BODY_WORDS} words:\n${jfixes.map((f) => `- ${f}`).join("\n")}\n\nReturn ONLY valid JSON for step1: { "step1": { "subject": "...", "body": "..." } }`;
               const { text: jr } = await callAnthropic(anthropicKey, jf, { maxTokens: 800, model, systemPrompt });
               const jj = JSON.parse(jr.slice(jr.indexOf("{"), jr.lastIndexOf("}") + 1)) as Record<string, { subject?: string; body?: string }>;
               const s1 = jj.step1;

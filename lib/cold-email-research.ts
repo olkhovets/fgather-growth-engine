@@ -116,6 +116,15 @@ export const FILLER_OPENERS = [
   "i am reaching out", "i wanted to connect", "i just wanted to", "hope all is well",
 ];
 
+// Generic / low-attention subject lines — the templated openers a busy marketing leader ignores.
+// A subject that IS one of these (or starts with it) gets its subject score capped: it grabs no attention.
+export const GENERIC_SUBJECTS = [
+  "quick question", "quick chat", "checking in", "following up", "follow up", "touching base",
+  "reaching out", "introduction", "intro", "connecting", "let's connect", "opportunity",
+  "partnership", "quick call", "your company", "a question", "hello", "hi there", "catching up",
+  "circling back", "just checking in", "wanted to connect", "collaboration", "picking your brain",
+];
+
 // AI-tell vocabulary (cluster-scored, never a single-word fail).
 export const AI_TELL_WORDS = [
   "leverage", "delve", "streamline", "synergy", "unlock", "empower", "revolutionize",

@@ -37,6 +37,7 @@ const COOLDOWN_DAYS = 10;
 // just naming the company) and problem-first framing. Judged only on the final chosen set (cheap).
 const JUDGE_PERSONALIZATION_FLOOR = 60; // below this = generic/shallow → do not send
 const JUDGE_PROBLEM_FLOOR = 40;         // below this = solution-dump / no hook → do not send
+const JUDGE_SUBJECT_FLOOR = 55;         // below this = boring/templated subject nobody opens → do not send
 const JUDGE_CONCURRENCY = 6;
 
 export async function POST(request: Request) {
@@ -188,8 +189,8 @@ export async function POST(request: Request) {
         ));
         slice.forEach((x, j) => {
           const v = verdicts[j];
-          // fail-open on null (judge unreachable); fail-closed on a real low personalization/problem score.
-          const ok = !v || (v.personalizationScore >= JUDGE_PERSONALIZATION_FLOOR && v.problemFirstScore >= JUDGE_PROBLEM_FLOOR);
+          // fail-open on null (judge unreachable); fail-closed on a real low personalization/problem/subject score.
+          const ok = !v || (v.personalizationScore >= JUDGE_PERSONALIZATION_FLOOR && v.problemFirstScore >= JUDGE_PROBLEM_FLOOR && v.subjectHookScore >= JUDGE_SUBJECT_FLOOR);
           if (ok) passed.push(x); else { qualityRejected += 1; rejectedIds.push(x.l.id); }
         });
       }
