@@ -15,6 +15,7 @@ export default function QuickSendBatch({ home = false, defaultCount = "200" }: {
   const [minGrade, setMinGrade] = useState("85");
   const [provider, setProvider] = useState(home ? "all" : "no-gateways");
   const [src, setSrc] = useState<"recycle" | "new">("recycle");
+  const [deep, setDeep] = useState(false);
   const [busy, setBusy] = useState(false);
   const [prog, setProg] = useState<Progress | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -34,7 +35,7 @@ export default function QuickSendBatch({ home = false, defaultCount = "200" }: {
         const r = await fetch("/api/send-batch", {
           method: "POST", headers: { "Content-Type": "application/json" },
           // quirky test: write (almost) everything FRESH so no old long drafts slip through; source toggle.
-          body: JSON.stringify({ count: target - sent, minGrade: Number(minGrade) || 85, providerFilter: provider, excludeIds: attempted, source: rounds === 0 ? src : "recycle", founderShare: 0.9 }),
+          body: JSON.stringify({ count: target - sent, minGrade: Number(minGrade) || 85, providerFilter: provider, excludeIds: attempted, source: rounds === 0 ? src : "recycle", founderShare: 0.9, deepResearch: deep }),
         });
         const d = await r.json();
         if (!r.ok) { setError(d.error || "Send failed."); break; }
@@ -53,7 +54,7 @@ export default function QuickSendBatch({ home = false, defaultCount = "200" }: {
       setProg((p) => (p ? { ...p, done: true } : p));
       setBusy(false);
     }
-  }, [count, minGrade, provider]);
+  }, [count, minGrade, provider, src, deep]);
 
   const inputStyle = { background: "var(--bg, #111)", color: "var(--text-primary)", border: "1px solid var(--border, #333)" };
 
@@ -76,6 +77,13 @@ export default function QuickSendBatch({ home = false, defaultCount = "200" }: {
           ))}
         </div>
         {src === "new" && <p className="text-[11px]" style={{ color: "#fbbf24" }}>New leads pull from Apollo first — needs Apollo credits; if none come in it falls back to recycling.</p>}
+
+        <label className="flex items-start gap-2 cursor-pointer">
+          <input type="checkbox" checked={deep} onChange={(e) => setDeep(e.target.checked)} className="mt-0.5" />
+          <span className="text-xs" style={{ color: "var(--text-secondary)" }}>
+            🔬 <strong>Deep research each lead</strong> — live web search for a real, recent hook (a post, launch, funding, hire, the phase their brand is in) to open on a genuine personal connection. Much slower + costs more per lead, higher signal.
+          </span>
+        </label>
 
         <div className="flex flex-wrap gap-3 items-end">
           <label className="space-y-1">
