@@ -72,6 +72,8 @@ export async function POST(request: Request) {
     // Source: "recycle" (re-touch already-sent leads, default) or "new" (pull fresh leads from Apollo
     // first, then send). New-leads needs Apollo credits; if none come in, we fall back to recycle.
     const source: "recycle" | "new" = body.source === "new" ? "new" : "recycle";
+    // Deep per-lead web research on the freshly-written emails (slower + costlier, higher-signal). Off by default.
+    const deepResearch = body.deepResearch === true;
     let newLeadsPulled = 0;
     // Blend shares: ~40% fresh FOUNDER-INCENTIVE combo (founder credential + money offer, written fresh
     // per company), ~40% existing INCENTIVE (direct-incentive/holiday), ~20% other good styles.
@@ -110,7 +112,8 @@ export async function POST(request: Request) {
             // THEIR company, not just persona/industry. Signal-based personalization is the top reply-rate
             // lever in the 2026 data; it fails gracefully to the persona pain when a site can't be read.
             // judgeQuality:false — the send gate below runs the SAME judge on the chosen set, so skip it here to avoid double-judging.
-            body: JSON.stringify({ workspaceId: ws.id, recycle: true, oldestFirst: true, style: freshStyle, cooldownDays: COOLDOWN_DAYS, providerFilter: provider, useFastModel: true, useWebScraping: true, judgeQuality: false, limit: Math.min(6, wantFounder - generated), ...(icpOnly ? { personas: ICP_PERSONAS } : {}) }),
+            // deepResearch — live web research per lead for a real personal hook (slower/costlier); forwarded from the caller's toggle.
+            body: JSON.stringify({ workspaceId: ws.id, recycle: true, oldestFirst: true, style: freshStyle, cooldownDays: COOLDOWN_DAYS, providerFilter: provider, useFastModel: true, useWebScraping: true, judgeQuality: false, deepResearch, limit: Math.min(6, wantFounder - generated), ...(icpOnly ? { personas: ICP_PERSONAS } : {}) }),
           });
           const gd = await g.json().catch(() => ({}));
           const did = Number(gd.done) || 0;

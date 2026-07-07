@@ -107,7 +107,7 @@ export default function SendSpread() {
     try {
       const res = await fetch("/api/leads/generate", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ recycle: true, limit: 3, useFastModel: true, useWebScraping: true }),
+        body: JSON.stringify({ recycle: true, limit: 3, useFastModel: true, useWebScraping: true, deepResearch: true }),
       });
       const d = await res.json().catch(() => ({}));
       if (!res.ok) { setSampleMsg(d.error || "Could not generate a sample."); return; }

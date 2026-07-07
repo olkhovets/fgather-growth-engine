@@ -19,12 +19,14 @@ import { loadApprovedStyles } from "@/lib/style-proposer";
 import { generateSubjectCandidates, scoreSubject } from "@/lib/subject-engine";
 import { mechanismForIndex, subjectMechanismBlock, MECHANISM_TAG_PREFIX } from "@/lib/subject-mechanisms";
 import { brandProofBlock } from "@/lib/brand-proof";
+import { deepResearchLead, deepResearchBlock } from "@/lib/deep-research";
 import { randomUUID } from "crypto";
 
 export const dynamic = "force-dynamic";
 
 // Allow up to 60s so a few Anthropic calls can finish (Vercel Pro; Hobby may still cap at 10s)
-export const maxDuration = 60;
+// Up to 300s (Vercel Fluid): deep web research per lead is slow but higher-signal; give it room.
+export const maxDuration = 300;
 
 const MAX_BODY_WORDS = 40;       // hard ceiling — anything longer gets cut. Feedback: bodies are indigestible blocks; a few tight lines only.
 const PUNCHY_TARGET_WORDS = 28;  // the short target the shortener cuts down to — 3 lines: the personal read, the proof, the ask.
@@ -290,7 +292,11 @@ export async function POST(request: Request) {
       cooldownDays: cooldownDaysParam,
       providerFilter: providerFilterParam,
       judgeQuality: judgeQualityParam,
-    } = body as { batchId: string; offset?: number; limit?: number; campaignId?: string; useFastModel?: boolean; useWebScraping?: boolean; useLandingPage?: boolean; useVideo?: boolean; useSampleOutput?: boolean; style?: string; workspaceId?: string; recycle?: boolean; neverRecycledOnly?: boolean; oldestFirst?: boolean; optimizeSubject?: boolean; personas?: string[]; cooldownDays?: number; providerFilter?: string; judgeQuality?: boolean };
+      deepResearch: deepResearchParam,
+    } = body as { batchId: string; offset?: number; limit?: number; campaignId?: string; useFastModel?: boolean; useWebScraping?: boolean; useLandingPage?: boolean; useVideo?: boolean; useSampleOutput?: boolean; style?: string; workspaceId?: string; recycle?: boolean; neverRecycledOnly?: boolean; oldestFirst?: boolean; optimizeSubject?: boolean; personas?: string[]; cooldownDays?: number; providerFilter?: string; judgeQuality?: boolean; deepResearch?: boolean };
+    // Deep per-lead WEB research (finds a real, recent hook to personally connect). Slow + costly per
+    // lead, so OPT-IN (default off); callers that want it (the send path, the "write 3 now" sample) pass true.
+    const useDeepResearch = deepResearchParam === true;
     // Judge quality at birth (LLM personalization + problem-first pass) unless the caller opts out. The
     // send-batch path sets this false because it runs the SAME judge at the send gate (avoid double-judging).
     const judgeQuality = judgeQualityParam !== false;
@@ -637,6 +643,19 @@ ${styleConfig.prompt}${researchPlaybookBlock()}${brandProofText}${learningsText}
         if (scraped) companyContextRaw = scraped;
       }
 
+      // Deep web research — the real "connect on a personal level" step. Live web search per lead for a
+      // recent, specific hook (a post, a launch, a funding round, a hire, the phase their brand is in).
+      // Slow + costly; opt-in. Best-effort — null (nothing real found / call failed) falls back to the scrape.
+      const deepResearch = useDeepResearch
+        ? await deepResearchLead(anthropicKey, { name: lead.name, jobTitle: lead.jobTitle, company: lead.company, website: lead.website, industry: lead.industry }, model, companyContextRaw)
+        : null;
+      const deepResearchText = deepResearchBlock(deepResearch);
+      // Avoid two competing "open sentence 1 on this" instructions: when deep research found a real hook,
+      // that hook is THE opener and the scraped site text becomes background context only.
+      const contextForPrompt = deepResearch
+        ? (companyContextRaw ? `\n\nBackground on their company (context only — your opener is the researched hook above, don't open on this):\n${companyContextRaw.slice(0, 1200)}` : "")
+        : companyContextBlock;
+
       let videoBlock = "";
       if (useVideo && lead.videoUrl?.trim()) {
         videoBlock = `\n\nInclude this personalized video link in at least one email: ${lead.videoUrl}. Write a compelling reason for them to watch (e.g. "I recorded a quick video for you" or "Here's a 5-second clip I made for [Company]").`;
@@ -757,7 +776,7 @@ LEAD:
 - Name: ${lead.name ?? "unknown"}
 - Title: ${lead.jobTitle ?? "unknown"}
 - Company: ${lead.company ?? "unknown"}
-- Industry: ${lead.industry ?? "unknown"}${lead.website ? `\n- Website: ${lead.website}` : ""}${lead.persona || lead.vertical ? `\n- Persona: ${lead.persona ?? ""} | Vertical: ${lead.vertical ?? ""}` : ""}${companyContextBlock}${videoBlock}${landingPageBlock}${sampleOutputBlock}
+- Industry: ${lead.industry ?? "unknown"}${lead.website ? `\n- Website: ${lead.website}` : ""}${lead.persona || lead.vertical ? `\n- Persona: ${lead.persona ?? ""} | Vertical: ${lead.vertical ?? ""}` : ""}${deepResearchText}${contextForPrompt}${videoBlock}${landingPageBlock}${sampleOutputBlock}
 
 Use their real name/company throughout. Do NOT use {{placeholders}}.
 Greet as: "Hi ${(lead.name ?? "there").split(/\s+/)[0] || "there"},"
