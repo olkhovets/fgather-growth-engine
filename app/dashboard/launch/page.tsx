@@ -27,6 +27,17 @@ function Sidebar({ email, active }: { email?: string | null; active: string }) {
   return <DashboardSidebar active={active} userEmail={email} />;
 }
 
+/** Numbered section header so the page reads as the real flow: rules → ready → send. */
+function Step({ n, title, hint }: { n: number; title: string; hint?: string }) {
+  return (
+    <div className="flex items-center gap-2 mb-3 mt-9 first:mt-0">
+      <span className="flex h-6 w-6 items-center justify-center rounded-full text-xs font-semibold text-white" style={{ background: "var(--accent)" }}>{n}</span>
+      <span className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>{title}</span>
+      {hint && <span className="text-xs" style={{ color: "var(--text-tertiary)" }}>· {hint}</span>}
+    </div>
+  );
+}
+
 function relativeTime(iso: string): string {
   const s = Math.round((Date.now() - new Date(iso).getTime()) / 1000);
   if (s < 60) return `${s}s ago`;
@@ -71,6 +82,7 @@ export default function LaunchPage() {
   const [pbMeta, setPbMeta] = useState<{ numSteps?: number; stepDelays?: number[] }>({});
   const [pbExists, setPbExists] = useState(false);
   const [pbSaving, setPbSaving] = useState(false);
+  const [rulesOpen, setRulesOpen] = useState(false); // the governing "rules" section is collapsible; status always shows
 
   // Flatten a playbook's guidelines into editable text (context, or tone + structure).
   const guidelinesToText = (g: { context?: string; tone?: string; structure?: string }) =>
@@ -197,13 +209,14 @@ export default function LaunchPage() {
       }
       setHasPlaybook(true);
       setPlaybookApproved(false);
+      setRulesOpen(true); // open the rules section so the new guidelines are right there to review
       // Surface the generated guidelines immediately so they can be reviewed/edited.
       if (gen.playbook?.guidelines) {
         setPbExists(true);
         setPbText(guidelinesToText(gen.playbook.guidelines));
         setPbMeta({ numSteps: gen.playbook.guidelines.numSteps, stepDelays: gen.playbook.guidelines.stepDelays });
       }
-      setMessage("Guidelines created. Review and edit them below, then approve to enable sending.");
+      setMessage("Guidelines created. Review and edit them in the Rules section, then approve to enable sending.");
     } catch {
       setMessage("Setup request failed.");
     } finally {
@@ -355,34 +368,193 @@ export default function LaunchPage() {
     </div>;
   }
 
+  // Governing-rules status, shown at a glance in the section header (so you know the state without expanding).
+  const rulesReady = pbExists || campaigns.length > 0;
+  const rulesStatus = !hasPlaybook
+    ? "no guidelines yet"
+    : !playbookApproved
+      ? "guidelines not approved"
+      : "guidelines approved";
+
   return (
     <div className="flex min-h-screen" style={{ background: "var(--bg)" }}>
       <Sidebar email={session.user?.email} active="launch" />
       <main className="flex-1 overflow-y-auto">
         <div className="max-w-3xl mx-auto px-8 py-8">
-          <div className="mb-6">
+          {/* Header + one-line flow map so the page reads as: rules → ready → send */}
+          <div className="mb-2">
             <h1 className="text-xl font-semibold" style={{ color: "var(--text-primary)" }}>Send</h1>
             <p className="text-sm mt-0.5" style={{ color: "var(--text-secondary)" }}>
-              Pick how many, hit send. Attention-grabbing subjects, deep-researched, brand-matched proof. Nothing goes out without your click.
+              Attention-grabbing subjects, deep-researched, brand-matched proof. Nothing goes out without your click.
             </p>
           </div>
+          <p className="text-xs mb-6" style={{ color: "var(--text-tertiary)" }}>
+            Flow: <span style={{ color: "var(--text-secondary)" }}>1. Rules the engine follows</span> → <span style={{ color: "var(--text-secondary)" }}>2. What&apos;s ready</span> → <span style={{ color: "var(--text-secondary)" }}>3. Send</span>. Each section below is that step.
+          </p>
 
-          {/* At-a-glance: which project you're in + the spread of what's ready + previews + leads by persona */}
+          {message && (
+            <div className="mb-6 card p-4 border-l-4" style={{ borderLeftColor: "var(--accent)" }}>
+              <p className="text-sm" style={{ color: "var(--text-secondary)" }}>{message}</p>
+            </div>
+          )}
+
+          {/* ========== 1 · RULES THE ENGINE FOLLOWS (these shape every email BEFORE anything sends) ========== */}
+          <Step n={1} title="Rules the engine follows" hint="shape every email before anything sends" />
+
+          {/* Governing status bar + expand to edit. Collapsed by default so it's visible but not in the way. */}
+          <div className="mb-4 card p-4">
+            <button onClick={() => setRulesOpen((o) => !o)} className="w-full flex items-center justify-between gap-3">
+              <span className="flex items-center gap-2 text-sm" style={{ color: "var(--text-primary)" }}>
+                <span className="h-1.5 w-1.5 rounded-full inline-block" style={{ background: playbookApproved ? "#1A7A4A" : "#b45309" }} />
+                Guidelines: <span className="font-medium">{rulesStatus}</span>
+                {pbMeta.numSteps ? <span style={{ color: "var(--text-tertiary)" }}>· {pbMeta.numSteps}-step</span> : null}
+                <span style={{ color: "var(--text-tertiary)" }}>· extra instructions {customInstructions.trim() ? "(active)" : "(none)"}</span>
+              </span>
+              <span className="text-xs flex-shrink-0" style={{ color: "var(--text-tertiary)" }}>{rulesOpen ? "Hide" : "Edit"}</span>
+            </button>
+
+            {!playbookApproved && rulesReady && (
+              <p className="text-xs mt-2" style={{ color: "#b45309" }}>Guidelines must be approved before a send (unless you send under a campaign). Expand to review + approve.</p>
+            )}
+
+            {rulesOpen && (
+              <div className="mt-4 pt-4 border-t space-y-5" style={{ borderColor: "var(--border)" }}>
+                {/* Guidelines editor — "this is what the AI follows when writing every email" */}
+                {pbExists ? (
+                  <div>
+                    <div className="flex items-center justify-between mb-2">
+                      <h2 className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>
+                        Your guidelines {playbookApproved ? "" : "(review before approving)"}
+                      </h2>
+                      {!playbookApproved && (
+                        <span className="text-xs px-2 py-0.5 rounded-full" style={{ background: "var(--warning-bg)", color: "var(--warning-text)" }}>Not approved yet</span>
+                      )}
+                    </div>
+                    <p className="text-xs mb-2" style={{ color: "var(--text-tertiary)" }}>
+                      This is what the AI follows when writing every email. Edit it freely, then save and approve.
+                    </p>
+                    <textarea
+                      value={pbText}
+                      onChange={(e) => setPbText(e.target.value)}
+                      rows={10}
+                      className="w-full rounded-lg border px-3 py-2.5 text-sm leading-relaxed font-mono resize-y"
+                      style={{ background: "var(--surface)", borderColor: "var(--border)", color: "var(--text-primary)" }}
+                    />
+                    {(pbMeta.numSteps || pbMeta.stepDelays?.length) && (
+                      <p className="mt-1.5 text-xs" style={{ color: "var(--text-tertiary)" }}>
+                        {pbMeta.numSteps ?? "?"}-step sequence{pbMeta.stepDelays?.length ? ` · days between: ${pbMeta.stepDelays.join(", ")}` : ""}
+                      </p>
+                    )}
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      <button onClick={savePlaybookText} disabled={pbSaving || !pbText.trim()} className="btn-secondary">
+                        {pbSaving ? "Saving…" : "Save guidelines"}
+                      </button>
+                      {!playbookApproved && (
+                        <button onClick={approvePlaybook} disabled={approvingPlaybook} className="btn-primary">
+                          {approvingPlaybook ? "Approving…" : "Approve guidelines"}
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                ) : !hasPlaybook ? (
+                  <div className="rounded-xl border px-4 py-3 flex items-center justify-between gap-4" style={{ background: "var(--warning-bg)", borderColor: "var(--warning-border)", color: "var(--warning-text)" }}>
+                    <span className="text-sm">
+                      No guidelines yet. {hasProductContext
+                        ? "Generate starter guidelines from your product & ICP."
+                        : "Add a product summary and ICP in Settings first — then generate guidelines here."}
+                    </span>
+                    <button onClick={setupPlaybook} disabled={settingUpPlaybook || !hasProductContext} className="btn-primary whitespace-nowrap">
+                      {settingUpPlaybook ? "Generating…" : "Generate guidelines"}
+                    </button>
+                  </div>
+                ) : null}
+
+                {/* Extra instructions — a free-text addendum applied to every email */}
+                <div>
+                  <label className="block text-sm font-medium mb-1" style={{ color: "var(--text-primary)" }}>Extra instructions</label>
+                  <p className="text-xs mb-2" style={{ color: "var(--text-tertiary)" }}>
+                    A line or two added to every email from now on. Example: &quot;Offer a $100 Uber Eats card for any booked demo.&quot;
+                  </p>
+                  <textarea
+                    value={customInstructions}
+                    onChange={(e) => setCustomInstructions(e.target.value)}
+                    rows={3}
+                    placeholder="e.g. Offer a $100 Uber Eats card for booked demos."
+                    className="w-full rounded-lg border px-3 py-2 text-sm"
+                    style={{ background: "var(--surface)", borderColor: "var(--border)", color: "var(--text-primary)" }}
+                  />
+                  <button onClick={saveInstructions} disabled={savingInstructions} className="btn-secondary mt-2">
+                    {savingInstructions ? "Saving…" : "Save instructions"}
+                  </button>
+                </div>
+
+                {/* Destination — where the sent leads land in Instantly */}
+                {instantlyCampaigns.length > 0 && (
+                  <div>
+                    <label className="block text-sm font-medium mb-1" style={{ color: "var(--text-primary)" }}>Add the sent leads to</label>
+                    <p className="text-xs mb-2" style={{ color: "var(--text-tertiary)" }}>
+                      Append into a campaign already live in Instantly — same inbox, same sequence. &quot;New&quot; creates a separate one.
+                    </p>
+                    <select
+                      value={selectedInstantlyId}
+                      onChange={(e) => setSelectedInstantlyId(e.target.value)}
+                      className="w-full rounded-lg border px-3 py-2 text-sm"
+                      style={{ background: "var(--surface)", borderColor: "var(--border)", color: "var(--text-primary)" }}
+                    >
+                      {instantlyCampaigns.map((ic) => (
+                        <option key={ic.instantlyCampaignId} value={ic.instantlyCampaignId}>{ic.name} (add to this)</option>
+                      ))}
+                      <option value="">Create a new Instantly campaign</option>
+                    </select>
+                  </div>
+                )}
+
+                {/* Run new leads under an existing campaign's guidelines */}
+                {campaigns.length > 0 && (
+                  <div>
+                    <label className="block text-sm font-medium mb-1" style={{ color: "var(--text-primary)" }}>Run new leads under campaign</label>
+                    <p className="text-xs mb-2" style={{ color: "var(--text-tertiary)" }}>
+                      New leads are generated using this campaign&apos;s guidelines — same messaging, into the learning loop.
+                    </p>
+                    <select
+                      value={selectedCampaignId}
+                      onChange={(e) => setSelectedCampaignId(e.target.value)}
+                      className="w-full rounded-lg border px-3 py-2 text-sm"
+                      style={{ background: "var(--surface)", borderColor: "var(--border)", color: "var(--text-primary)" }}
+                    >
+                      {campaigns.map((c) => (
+                        <option key={c.id} value={c.id}>{c.name}{c.status === "launched" ? " (active)" : ""}</option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* ========== 2 · WHAT'S READY (who's drafted, the spread, previews) ========== */}
+          <Step n={2} title="What's ready to send" hint="project space, spread, previews, deliverability" />
           <SendSpread />
+
+          {/* ========== 3 · SEND (one click; nothing goes out without confirming) ========== */}
+          <Step n={3} title="Send" hint="one click — you confirm every send" />
 
           {/* The one send action — pick how many, recycle-or-new toggle, gift baked into the good styles */}
           <QuickSendBatch />
 
-          {/* Mode banner */}
+          {/* Daily send counter — fresh + recycle, last 24h */}
+          <SendsTodayCard />
+
+          {/* Autopilot — the automated daily send option */}
           <div className="mb-6 card p-4">
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm font-medium" style={{ color: "var(--text-primary)" }}>
-                  {autopilot ? "Autopilot: ON" : "Manual approval (recommended)"}
+                  {autopilot ? "Autopilot: ON" : "Autopilot: off (manual approval)"}
                 </p>
                 <p className="text-xs mt-0.5" style={{ color: "var(--text-tertiary)" }}>
                   {autopilot
-                    ? "Runs once a day (~08:00 ET): generates fresh sequences and sends them into your latest campaign, up to the daily limit. You can still send manually below anytime."
+                    ? "Runs once a day (~08:00 ET): generates fresh sequences and sends them into your latest campaign, up to the daily limit. You can still send manually anytime."
                     : "Every batch waits for your review and approval before any email is sent."}
                 </p>
               </div>
@@ -461,140 +633,7 @@ export default function LaunchPage() {
             )}
           </div>
 
-          {/* Daily send counter — always visible (fresh + recycle, last 24h) */}
-          <SendsTodayCard />
-
-          {/* Custom instructions — quick free-text addendum applied to every email */}
-          <div className="mb-6 card p-4">
-            <button onClick={() => setInstructionsOpen((o) => !o)} className="w-full flex items-center justify-between">
-              <span className="text-sm font-medium" style={{ color: "var(--text-primary)" }}>
-                Extra instructions {customInstructions.trim() ? "(active)" : "(none)"}
-              </span>
-              <span className="text-xs" style={{ color: "var(--text-tertiary)" }}>{instructionsOpen ? "Hide" : "Edit"}</span>
-            </button>
-            {instructionsOpen && (
-              <div className="mt-3 space-y-2">
-                <p className="text-xs" style={{ color: "var(--text-tertiary)" }}>
-                  A line or two added to every email the engine writes from now on. Example: "Offer a $100 Uber Eats card for any booked demo."
-                </p>
-                <textarea
-                  value={customInstructions}
-                  onChange={(e) => setCustomInstructions(e.target.value)}
-                  rows={3}
-                  placeholder="e.g. Offer a $100 Uber Eats card for booked demos."
-                  className="w-full rounded-lg border px-3 py-2 text-sm"
-                  style={{ background: "var(--surface)", borderColor: "var(--border)", color: "var(--text-primary)" }}
-                />
-                <button onClick={saveInstructions} disabled={savingInstructions} className="btn-primary">
-                  {savingInstructions ? "Saving…" : "Save instructions"}
-                </button>
-              </div>
-            )}
-          </div>
-
-          {/* Destination: append new leads into an existing live Instantly campaign */}
-          {instantlyCampaigns.length > 0 && (
-            <div className="mb-6 card p-4">
-              <label className="block text-sm font-medium mb-1.5" style={{ color: "var(--text-primary)" }}>Add the sent leads to</label>
-              <p className="text-xs mb-2.5" style={{ color: "var(--text-tertiary)" }}>
-                Append this batch into a campaign that's already live in Instantly — same inbox, same sequence, no new campaign created. Choosing "new" creates a separate one.
-              </p>
-              <select
-                value={selectedInstantlyId}
-                onChange={(e) => setSelectedInstantlyId(e.target.value)}
-                className="w-full rounded-lg border px-3 py-2 text-sm"
-                style={{ background: "var(--surface)", borderColor: "var(--border)", color: "var(--text-primary)" }}
-              >
-                {instantlyCampaigns.map((ic) => (
-                  <option key={ic.instantlyCampaignId} value={ic.instantlyCampaignId}>{ic.name} (add to this)</option>
-                ))}
-                <option value="">Create a new Instantly campaign</option>
-              </select>
-            </div>
-          )}
-
-          {/* Run new leads under an existing campaign's guidelines — no new setup needed */}
-          {campaigns.length > 0 ? (
-            <div className="mb-6 card p-4">
-              <label className="block text-sm font-medium mb-1.5" style={{ color: "var(--text-primary)" }}>Run new leads under campaign</label>
-              <p className="text-xs mb-2.5" style={{ color: "var(--text-tertiary)" }}>
-                New leads are generated using this campaign's existing guidelines — same messaging, fed straight into the experiment loop.
-              </p>
-              <select
-                value={selectedCampaignId}
-                onChange={(e) => setSelectedCampaignId(e.target.value)}
-                className="w-full rounded-lg border px-3 py-2 text-sm"
-                style={{ background: "var(--surface)", borderColor: "var(--border)", color: "var(--text-primary)" }}
-              >
-                {campaigns.map((c) => (
-                  <option key={c.id} value={c.id}>{c.name}{c.status === "launched" ? " (active)" : ""}</option>
-                ))}
-              </select>
-            </div>
-          ) : !hasPlaybook ? (
-            <div className="mb-6 rounded-xl border px-4 py-3 flex items-center justify-between gap-4" style={{ background: "var(--warning-bg)", borderColor: "var(--warning-border)", color: "var(--warning-text)" }}>
-              <span className="text-sm">
-                No campaigns or guidelines yet. {hasProductContext
-                  ? "Generate starter guidelines from your product & ICP."
-                  : "Add a product summary and ICP in Settings first — then generate guidelines here."}
-              </span>
-              <button onClick={setupPlaybook} disabled={settingUpPlaybook || !hasProductContext} className="btn-primary whitespace-nowrap">
-                {settingUpPlaybook ? "Generating…" : "Generate guidelines"}
-              </button>
-            </div>
-          ) : !playbookApproved ? (
-            <div className="mb-6 rounded-xl border px-4 py-3 flex items-center justify-between gap-4" style={{ background: "var(--warning-bg)", borderColor: "var(--warning-border)", color: "var(--warning-text)" }}>
-              <span className="text-sm">Your guidelines aren't approved yet — required before any send. Review them, then approve here.</span>
-              <button onClick={approvePlaybook} disabled={approvingPlaybook} className="btn-primary whitespace-nowrap">
-                {approvingPlaybook ? "Approving…" : "Approve guidelines"}
-              </button>
-            </div>
-          ) : null}
-
-          {pbExists && (
-            <div className="mb-6 card p-5">
-              <div className="flex items-center justify-between mb-2">
-                <h2 className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>
-                  Your guidelines {playbookApproved ? "" : "(review before approving)"}
-                </h2>
-                {!playbookApproved && (
-                  <span className="text-xs px-2 py-0.5 rounded-full" style={{ background: "var(--warning-bg)", color: "var(--warning-text)" }}>Not approved yet</span>
-                )}
-              </div>
-              <p className="text-xs mb-2" style={{ color: "var(--text-tertiary)" }}>
-                This is what the AI follows when writing every email. Edit it freely, then save and approve.
-              </p>
-              <textarea
-                value={pbText}
-                onChange={(e) => setPbText(e.target.value)}
-                rows={10}
-                className="w-full rounded-lg border px-3 py-2.5 text-sm leading-relaxed font-mono resize-y"
-                style={{ background: "var(--surface)", borderColor: "var(--border)", color: "var(--text-primary)" }}
-              />
-              {(pbMeta.numSteps || pbMeta.stepDelays?.length) && (
-                <p className="mt-1.5 text-xs" style={{ color: "var(--text-tertiary)" }}>
-                  {pbMeta.numSteps ?? "?"}-step sequence{pbMeta.stepDelays?.length ? ` · days between: ${pbMeta.stepDelays.join(", ")}` : ""}
-                </p>
-              )}
-              <div className="mt-3 flex flex-wrap gap-2">
-                <button onClick={savePlaybookText} disabled={pbSaving || !pbText.trim()} className="btn-secondary">
-                  {pbSaving ? "Saving…" : "Save guidelines"}
-                </button>
-                {!playbookApproved && (
-                  <button onClick={approvePlaybook} disabled={approvingPlaybook} className="btn-primary">
-                    {approvingPlaybook ? "Approving…" : "Approve guidelines"}
-                  </button>
-                )}
-              </div>
-            </div>
-          )}
-
-          {message && (
-            <div className="mb-6 card p-4 border-l-4" style={{ borderLeftColor: "var(--accent)" }}>
-              <p className="text-sm" style={{ color: "var(--text-secondary)" }}>{message}</p>
-            </div>
-          )}
-
+          {/* Manual, per-batch: generate → review samples → approve & send */}
           {loading ? (
             <p className="text-sm" style={{ color: "var(--text-tertiary)" }}>Loading batches…</p>
           ) : batches.length === 0 ? (
