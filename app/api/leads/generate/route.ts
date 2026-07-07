@@ -650,6 +650,11 @@ ${styleConfig.prompt}${researchPlaybookBlock()}${brandProofText}${learningsText}
         ? await deepResearchLead(anthropicKey, { name: lead.name, jobTitle: lead.jobTitle, company: lead.company, website: lead.website, industry: lead.industry }, model, companyContextRaw)
         : null;
       const deepResearchText = deepResearchBlock(deepResearch);
+      // Avoid two competing "open sentence 1 on this" instructions: when deep research found a real hook,
+      // that hook is THE opener and the scraped site text becomes background context only.
+      const contextForPrompt = deepResearch
+        ? (companyContextRaw ? `\n\nBackground on their company (context only — your opener is the researched hook above, don't open on this):\n${companyContextRaw.slice(0, 1200)}` : "")
+        : companyContextBlock;
 
       let videoBlock = "";
       if (useVideo && lead.videoUrl?.trim()) {
@@ -771,7 +776,7 @@ LEAD:
 - Name: ${lead.name ?? "unknown"}
 - Title: ${lead.jobTitle ?? "unknown"}
 - Company: ${lead.company ?? "unknown"}
-- Industry: ${lead.industry ?? "unknown"}${lead.website ? `\n- Website: ${lead.website}` : ""}${lead.persona || lead.vertical ? `\n- Persona: ${lead.persona ?? ""} | Vertical: ${lead.vertical ?? ""}` : ""}${deepResearchText}${companyContextBlock}${videoBlock}${landingPageBlock}${sampleOutputBlock}
+- Industry: ${lead.industry ?? "unknown"}${lead.website ? `\n- Website: ${lead.website}` : ""}${lead.persona || lead.vertical ? `\n- Persona: ${lead.persona ?? ""} | Vertical: ${lead.vertical ?? ""}` : ""}${deepResearchText}${contextForPrompt}${videoBlock}${landingPageBlock}${sampleOutputBlock}
 
 Use their real name/company throughout. Do NOT use {{placeholders}}.
 Greet as: "Hi ${(lead.name ?? "there").split(/\s+/)[0] || "there"},"

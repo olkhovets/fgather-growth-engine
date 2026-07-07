@@ -31,14 +31,19 @@ export async function deepResearchLead(
   if (!company && !lead.name?.trim()) return null;
 
   const who = `${lead.name?.trim() || "the contact"}${lead.jobTitle ? `, ${lead.jobTitle}` : ""} at ${company || "their company"}`;
-  const system = `You are a sharp B2B researcher finding ONE genuine, personal way to open a cold email. Use web search to find something REAL and RECENT (ideally the last ~6 months) about the prospect or their company: a post or interview they gave, a campaign or product they just launched, a funding round, a leadership hire, a rebrand, an award, an expansion, a notable customer, or the clear PHASE their brand/marketing is in right now (scaling, repositioning, launching a new line, moving off an agency, etc.).
-Rules: report ONLY what you actually find in the search results — never guess, never invent a detail, never state something you can't source. Specific and true beats impressive. If you can't find anything specific and real, say so honestly.`;
+  const system = `You are a sharp B2B researcher finding ONE professionally-appropriate way to open a cold email so it feels researched, not blasted. Use web search to find something REAL and RECENT (ideally the last ~6 months) about their COMPANY or their PROFESSIONAL WORK — a marketing/brand move: a campaign or product they just launched, a rebrand or repositioning, a funding round, an expansion or new market, a marketing/brand leadership hire, an award, a notable new customer, or the clear PHASE their brand/marketing is in right now (scaling, repositioning, launching a line, moving off an agency).
 
-  const user = `Find the single best, most specific, RECENT hook to personally connect with ${who}${lead.website ? ` (${lead.website})` : ""}${lead.industry ? `, industry: ${lead.industry}` : ""}.${siteText ? `\n\nTheir site (for context, not a substitute for search): ${siteText.slice(0, 700)}` : ""}
+HARD RULES:
+- Report ONLY what you actually find in search results. Never guess, never invent, never state anything you can't source. Specific and true beats impressive.
+- BUSINESS/PUBLIC signals only. NEVER anything personal or private (family, health, hobbies, personal social posts, opinions, appearance, where they live). It must be something one professional could naturally mention to another in a first email without it feeling like they've been watched.
+- The "not weird" test: if referencing it would make the recipient think "how/why do you know that about me," it fails — use a company-level marketing signal instead.
+- If you can't find a specific, real, business-appropriate signal, say so honestly (empty hook) rather than reaching.`;
+
+  const user = `Find the single best, most specific, RECENT, business-appropriate hook to open a cold email to ${who}${lead.website ? ` (${lead.website})` : ""}${lead.industry ? `, industry: ${lead.industry}` : ""}. Prefer a marketing/brand/company signal over anything about them as an individual.${siteText ? `\n\nTheir site (context, not a substitute for search): ${siteText.slice(0, 700)}` : ""}
 
 Return STRICT JSON only, nothing else:
-{"hook":"<one specific, real, recent sentence about THEM a cold email could reference>","source":"<where you saw it>","confidence":<0-100, how sure you are it's real and specific>}
-If nothing specific and real was found: {"hook":"","source":"","confidence":0}`;
+{"hook":"<one specific, real, recent, business-appropriate thing about their company/work to reference>","source":"<where you saw it>","confidence":<0-100, how sure you are it's real, specific, and not weird to mention>}
+If nothing specific, real, and appropriate was found: {"hook":"","source":"","confidence":0}`;
 
   const messages: Array<{ role: string; content: unknown }> = [{ role: "user", content: user }];
 
@@ -74,7 +79,11 @@ If nothing specific and real was found: {"hook":"","source":"","confidence":0}`;
 /** Prompt block injecting the researched hook as the email's opener. Empty when no hook was found. */
 export function deepResearchBlock(r: DeepResearch | null): string {
   if (!r) return "";
-  return `\n\n*** REAL PERSONAL CONNECTION (verified via live web research — open on THIS, it is your single best hook) ***
-Open the email by referencing this real, recent thing about them: ${r.hook}${r.source ? ` (source: ${r.source})` : ""}.
-Make the connection genuine and human — like you actually noticed, not like you scraped it. Do NOT restate it word-for-word; weave it in naturally in sentence 1. Everything else (proof, ask) follows. Never contradict or embellish this fact.`;
+  return `\n\n*** REAL RESEARCHED HOOK (verified via live web research — THIS is your sentence-1 opener, override any other opener instruction) ***
+Open by referencing this real, recent thing about their company/work: ${r.hook}${r.source ? ` (source: ${r.source})` : ""}.
+HOW to reference it so it lands (not weird):
+- Sound like one marketing person casually noticing another's work — "saw [Company] just launched X" / "looks like you're mid-[phase]" — NOT like a dossier. One short clause, then move on.
+- Reference it because it's RELEVANT to why you're writing (it connects to the problem/proof), not just to prove you did homework. If it doesn't connect, mention it lightly and pivot fast.
+- Do NOT restate it word-for-word, do NOT gush, do NOT list multiple facts. One natural nod in sentence 1, then the bridge to why it matters, then proof + ask.
+- Never contradict, exaggerate, or invent beyond this fact. If it would feel intrusive to mention, drop it and open on their category instead.`;
 }
