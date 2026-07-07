@@ -852,9 +852,11 @@ Return ONLY valid JSON: { ${stepExample} }`;
         // Quality JUDGE at birth (LLM) — the deep-personalization + problem-first check a regex can't see,
         // so a fresh email is GOOD when written, not written-then-rejected at the send gate. One judge call;
         // one targeted regen if it's generic or solution-first. Best-effort — never blocks generation.
+        let judgeScores: { p: number; pf: number; sh: number } | null = null;
         if (judgeQuality) {
           try {
             const verdict = await judgeEmailContent(anthropicKey, stepsArray[0], { company: lead.company, persona: lead.persona, product: productSummary }, model);
+            if (verdict) judgeScores = { p: verdict.personalizationScore, pf: verdict.problemFirstScore, sh: verdict.subjectHookScore };
             if (verdict && (verdict.personalizationScore < 60 || verdict.problemFirstScore < 40 || verdict.subjectHookScore < 55)) {
               const jfixes = verdict.fixes.length ? verdict.fixes : ["Open with a SPECIFIC, real read on this company (their actual motion, not generic praise). Lead with the problem they already feel before any pitch. Then the matched proof, then one reply-first ask."];
               const jf = `${userMessage}\n\nA reply-rate judge scored your step1 — personalization ${verdict.personalizationScore}/100, problem-first ${verdict.problemFirstScore}/100, subject-hook ${verdict.subjectHookScore}/100. Too generic, solution-first, or a boring subject nobody opens. Fix EXACTLY this — and make the SUBJECT grab a busy marketing leader (a specific number, a curiosity gap about them, a provocative outcome, or a fitting emoji; never "quick question"/"checking in"). Keep the body to 3 short lines under ${MAX_BODY_WORDS} words:\n${jfixes.map((f) => `- ${f}`).join("\n")}\n\nReturn ONLY valid JSON for step1: { "step1": { "subject": "...", "body": "..." } }`;
@@ -929,17 +931,17 @@ Return ONLY valid JSON: { ${stepExample} }`;
           where: { id: lead.id },
           data: update,
         });
-        return { leadId: lead.id, usage, gradeScore: grade.score, step1Regenerated };
+        return { leadId: lead.id, usage, gradeScore: grade.score, step1Regenerated, judge: judgeScores };
       } catch (err) {
         console.error(`Lead ${lead.id} personalize error:`, err instanceof Error ? err.message : err);
-        return { leadId: lead.id, usage, gradeScore: null as number | null, step1Regenerated: false };
+        return { leadId: lead.id, usage, gradeScore: null as number | null, step1Regenerated: false, judge: null as { p: number; pf: number; sh: number } | null };
       }
     };
 
     // Process with limited concurrency to avoid exhausting DB connection pool
     // Claude API calls can be parallel but DB writes need to be controlled
     const CONCURRENCY = 5;
-    const results: Array<{ leadId: string; usage: { input_tokens: number; output_tokens: number }; gradeScore?: number | null; step1Regenerated?: boolean }> = [];
+    const results: Array<{ leadId: string; usage: { input_tokens: number; output_tokens: number }; gradeScore?: number | null; step1Regenerated?: boolean; judge?: { p: number; pf: number; sh: number } | null }> = [];
     for (let i = 0; i < chunk.length; i += CONCURRENCY) {
       const batch = chunk.slice(i, i + CONCURRENCY);
       // Global index (offset + position) keeps experiment round-robin balanced across chunks
@@ -960,6 +962,14 @@ Return ONLY valid JSON: { ${stepExample} }`;
     const graded = results.map((r) => r.gradeScore).filter((s): s is number => typeof s === "number");
     const avgGrade = graded.length > 0 ? Math.round(graded.reduce((a, b) => a + b, 0) / graded.length) : null;
     const regenerated = results.filter((r) => r.step1Regenerated).length;
+    // First-draft judge averages (personalization / problem-first / subject-hook) — visibility into whether
+    // the generated emails actually clear the send-gate floors, so quality isn't a black box.
+    const judged = results.map((r) => r.judge).filter((j): j is { p: number; pf: number; sh: number } => !!j);
+    const avgJudge = judged.length > 0 ? {
+      personalization: Math.round(judged.reduce((a, j) => a + j.p, 0) / judged.length),
+      problemFirst: Math.round(judged.reduce((a, j) => a + j.pf, 0) / judged.length),
+      subjectHook: Math.round(judged.reduce((a, j) => a + j.sh, 0) / judged.length),
+    } : null;
 
     await logActivity(workspace.id, "generate",
       `Generated ${chunk.length} email sequence${chunk.length === 1 ? "" : "s"} (${numSteps} steps each)${avgGrade !== null ? ` — avg quality ${avgGrade}/100${regenerated > 0 ? `, ${regenerated} auto-rewritten` : ""}` : ""} — ${total - chunk.length} remain`,
@@ -970,6 +980,7 @@ Return ONLY valid JSON: { ${stepExample} }`;
         batchId,
         avgGrade,
         regenerated,
+        ...(avgJudge ? { avgJudge } : {}),
         ...(usageTotal.input_tokens > 0 ? { input_tokens: usageTotal.input_tokens, output_tokens: usageTotal.output_tokens } : {}),
       }
     );
@@ -978,6 +989,8 @@ Return ONLY valid JSON: { ${stepExample} }`;
       done: chunk.length,
       total,
       leadIds,
+      avgGrade,
+      avgJudge,
       usage: usageTotal.input_tokens > 0 || usageTotal.output_tokens > 0 ? usageTotal : undefined,
       message: `Personalized ${chunk.length} lead(s), ${numSteps} steps each.`,
     });

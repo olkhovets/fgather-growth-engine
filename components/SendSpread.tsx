@@ -107,7 +107,9 @@ export default function SendSpread() {
       const d = await res.json().catch(() => ({}));
       if (!res.ok) { setSampleMsg(d.error || "Could not generate a sample."); return; }
       if ((d.done ?? 0) === 0) { setSampleMsg("No eligible leads to sample right now (all recent or none past cooldown)."); return; }
-      setSampleMsg(`Wrote ${d.done} fresh draft(s) with the current style — shown at the top.`);
+      const j = d.avgJudge;
+      const jStr = j ? ` Quality: personalization ${j.personalization}, subject ${j.subjectHook}, problem-first ${j.problemFirst} /100.` : "";
+      setSampleMsg(`Wrote ${d.done} fresh draft(s) with the current style — shown at the top.${jStr}`);
       setOpenPreview(0);
       refresh(Array.isArray(d.leadIds) ? d.leadIds : undefined);
     } catch {
