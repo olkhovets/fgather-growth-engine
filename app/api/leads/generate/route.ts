@@ -14,7 +14,7 @@ import { generateLandingPageContent, landingPageContentForEmailPrompt } from "@/
 import { logActivity } from "@/lib/activity";
 import { validateEmailSteps, autoFixEmailContent } from "@/lib/email-validator";
 import { researchPlaybookBlock } from "@/lib/cold-email-research";
-import { gradeEmail } from "@/lib/email-grader";
+import { gradeEmail, judgeEmailContent } from "@/lib/email-grader";
 import { loadApprovedStyles } from "@/lib/style-proposer";
 import { generateSubjectCandidates, scoreSubject } from "@/lib/subject-engine";
 import { mechanismForIndex, subjectMechanismBlock, MECHANISM_TAG_PREFIX } from "@/lib/subject-mechanisms";
@@ -289,7 +289,11 @@ export async function POST(request: Request) {
       personas: personasParam,
       cooldownDays: cooldownDaysParam,
       providerFilter: providerFilterParam,
-    } = body as { batchId: string; offset?: number; limit?: number; campaignId?: string; useFastModel?: boolean; useWebScraping?: boolean; useLandingPage?: boolean; useVideo?: boolean; useSampleOutput?: boolean; style?: string; workspaceId?: string; recycle?: boolean; neverRecycledOnly?: boolean; oldestFirst?: boolean; optimizeSubject?: boolean; personas?: string[]; cooldownDays?: number; providerFilter?: string };
+      judgeQuality: judgeQualityParam,
+    } = body as { batchId: string; offset?: number; limit?: number; campaignId?: string; useFastModel?: boolean; useWebScraping?: boolean; useLandingPage?: boolean; useVideo?: boolean; useSampleOutput?: boolean; style?: string; workspaceId?: string; recycle?: boolean; neverRecycledOnly?: boolean; oldestFirst?: boolean; optimizeSubject?: boolean; personas?: string[]; cooldownDays?: number; providerFilter?: string; judgeQuality?: boolean };
+    // Judge quality at birth (LLM personalization + problem-first pass) unless the caller opts out. The
+    // send-batch path sets this false because it runs the SAME judge at the send gate (avoid double-judging).
+    const judgeQuality = judgeQualityParam !== false;
 
     // Auth: session for users, or CRON_SECRET + workspaceId for the autopilot orchestrator
     const cronSecret = process.env.CRON_SECRET;
@@ -842,6 +846,35 @@ Return ONLY valid JSON: { ${stepExample} }`;
             }
           } catch {
             // keep the original if the revision call fails
+          }
+        }
+
+        // Quality JUDGE at birth (LLM) — the deep-personalization + problem-first check a regex can't see,
+        // so a fresh email is GOOD when written, not written-then-rejected at the send gate. One judge call;
+        // one targeted regen if it's generic or solution-first. Best-effort — never blocks generation.
+        if (judgeQuality) {
+          try {
+            const verdict = await judgeEmailContent(anthropicKey, stepsArray[0], { company: lead.company, persona: lead.persona, product: productSummary }, model);
+            if (verdict && (verdict.personalizationScore < 60 || verdict.problemFirstScore < 40)) {
+              const jfixes = verdict.fixes.length ? verdict.fixes : ["Open with a SPECIFIC, real read on this company (their actual motion, not generic praise). Lead with the problem they already feel before any pitch. Then the matched proof, then one reply-first ask."];
+              const jf = `${userMessage}\n\nA reply-rate judge scored your step1 — personalization ${verdict.personalizationScore}/100, problem-first ${verdict.problemFirstScore}/100. Too generic or solution-first to earn a reply. Fix EXACTLY this, keep it to 3 short lines under ${MAX_BODY_WORDS} words:\n${jfixes.map((f) => `- ${f}`).join("\n")}\n\nReturn ONLY valid JSON for step1: { "step1": { "subject": "...", "body": "..." } }`;
+              const { text: jr } = await callAnthropic(anthropicKey, jf, { maxTokens: 800, model, systemPrompt });
+              const jj = JSON.parse(jr.slice(jr.indexOf("{"), jr.lastIndexOf("}") + 1)) as Record<string, { subject?: string; body?: string }>;
+              const s1 = jj.step1;
+              if (s1?.subject && s1?.body) {
+                const revised = { subject: autoFixEmailContent(s1.subject.trim()), body: autoFixEmailContent(s1.body.trim()) };
+                // Accept only if it stays sendable-length and doesn't regress the deterministic craft score;
+                // the send-gate judge is the final arbiter, so a best-effort improvement here is enough.
+                const revisedGrade = gradeEmail(revised, { company: lead.company });
+                if (wordCount(revised.body) <= MAX_BODY_WORDS + 5 && revisedGrade.score >= grade.score - 3) {
+                  stepsArray[0] = revised;
+                  grade = revisedGrade;
+                  step1Regenerated = true;
+                }
+              }
+            }
+          } catch {
+            // judge is best-effort — never block generation on it
           }
         }
 

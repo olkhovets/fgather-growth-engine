@@ -107,7 +107,8 @@ export async function POST(request: Request) {
             // useWebScraping: fetch each lead's site (best-effort, 4s cap) so step 1 opens on a REAL read of
             // THEIR company, not just persona/industry. Signal-based personalization is the top reply-rate
             // lever in the 2026 data; it fails gracefully to the persona pain when a site can't be read.
-            body: JSON.stringify({ workspaceId: ws.id, recycle: true, oldestFirst: true, style: freshStyle, cooldownDays: COOLDOWN_DAYS, providerFilter: provider, useFastModel: true, useWebScraping: true, limit: Math.min(6, wantFounder - generated), ...(icpOnly ? { personas: ICP_PERSONAS } : {}) }),
+            // judgeQuality:false — the send gate below runs the SAME judge on the chosen set, so skip it here to avoid double-judging.
+            body: JSON.stringify({ workspaceId: ws.id, recycle: true, oldestFirst: true, style: freshStyle, cooldownDays: COOLDOWN_DAYS, providerFilter: provider, useFastModel: true, useWebScraping: true, judgeQuality: false, limit: Math.min(6, wantFounder - generated), ...(icpOnly ? { personas: ICP_PERSONAS } : {}) }),
           });
           const gd = await g.json().catch(() => ({}));
           const did = Number(gd.done) || 0;
