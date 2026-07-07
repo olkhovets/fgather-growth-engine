@@ -35,12 +35,12 @@ const PUNCHY_TARGET_WORDS = 28;  // the short target the shortener cuts down to 
 // of style. We optimize for one thing: a human hitting reply. Every email must hit all five. This frames
 // the whole prompt; the per-style guide below is just the flavor it's delivered in.
 const REPLY_FORMULA = `*** THE REPLY FORMULA — this is the whole job. Every email must hit all FIVE, whatever the style. ***
-We are optimizing for ONE outcome: a busy B2C marketing leader hits REPLY. Not opens, not awareness — a reply that leads to a booked demo. Hit all five or the email fails:
-1. SUBJECT that stops the scroll — make them curious enough to open, specific to THEM. Provocative, a sharp number, a curiosity gap, quirky, or one fitting emoji are all fair game. Never generic, never "checking in" / "quick question" with nothing behind it.
-2. BODY ultra-punchy — 3 short lines, HARD ceiling 40 words, never a block of text. One line = the specific personal read on them; one line = the proof-of-outcome; one line = the ask. If it doesn't fit, cut words, not the personalization. Indigestible paragraphs get deleted, so write tight from the start.
-3. DEEP RESEARCH, every single email — name ONE real, specific thing about THIS company and this person's role: their actual motion, a recent launch, their category, something from their site. If you can't be specific about them, you haven't earned the reply. NEVER "companies like yours" or generic flattery.
-4. COMMON GROUND + PROOF-OF-OUTCOME — connect on a real shared challenge in their world, then land the matched proof: "Gather helped [a brand like them] do exactly [specific outcome]." Make the ROI vivid and self-interested — they stop guessing what buyers want, ship creative that lands the first time, know before they spend, look brilliant to their boss.
-5. HUMAN, zero AI tells — read it back: if it sounds like a chatbot wrote it, rewrite it. Sharp, direct, a little cocky, like a real person typed it in five minutes. AI-sounding copy is the #1 reply killer. Banned words/em-dashes are hard rules.`;
+We are optimizing for ONE outcome: a busy B2C marketing leader feels a REAL person is reaching out to them specifically, to solve a problem they have and make them money, and hits REPLY. Not opens, not awareness. Hit all five or the email fails:
+1. SUBJECT that stops the scroll — inviting and specific, like a person, not a campaign. The strongest kind is a concrete value-exchange or curiosity, e.g. "$50 for 3 minutes", "worth $100 of your time?", "steal [competitor]'s buyers", "what [company]'s customers won't tell you". Provocative, a sharp number, a curiosity gap, quirky, or one fitting emoji are all fair game. Never generic ("checking in", "quick question") with nothing behind it.
+2. BODY ultra-punchy — 3 short lines, HARD ceiling 40 words, never a block. One line = the specific real read on them; one line = the problem + how we solve it / the ROI they get; one line = the ask. Cut words, never the personalization.
+3. DEEP RESEARCH — name ONE real, specific thing about THIS company/role (their actual motion, a launch, their category). If you can't be specific about them, you haven't earned the reply. NEVER "companies like yours" or generic flattery.
+4. SOLVE A PROBLEM + ROI — this is the biggest hitter. Connect on a real problem they already feel, then make the payoff vivid and self-interested: they stop guessing what buyers want, ship creative that lands first try, know before they spend, look brilliant to their boss, make/save real money. Land the matched proof ("Gather helped [a brand like them] do exactly X") as evidence you can deliver it. Sound like you actually want to help them win, not sell them.
+5. TRULY HUMAN — zero AI tells, non-negotiable. Read it back: if a single word sounds like a chatbot, it's disqualified. NEVER use: em/en dashes (—, –) or any dash punctuation; "leverage", "delve", "streamline", "seamless", "robust", "utilize", "unlock", "empower", "elevate", "supercharge", "transformative", "cutting-edge", "game-changer", "best-in-class", "drive growth", "tailored solutions"; the "not just X but Y" construction; corporate hedging. Write like a sharp human typed it in five minutes to someone they respect — contractions, plain words, a little cocky. AI-sounding copy is the #1 reply killer and gets the email thrown out.`;
 
 function wordCount(text: string): number {
   return text.trim().split(/\s+/).filter(Boolean).length;
@@ -646,8 +646,10 @@ ${styleConfig.prompt}${researchPlaybookBlock()}${brandProofText}${learningsText}
       // Deep web research — the real "connect on a personal level" step. Live web search per lead for a
       // recent, specific hook (a post, a launch, a funding round, a hire, the phase their brand is in).
       // Slow + costly; opt-in. Best-effort — null (nothing real found / call failed) falls back to the scrape.
+      // Give the researcher Gather's real capabilities + proof so it picks the signal WE can best speak to.
+      const gatherForResearch = [productSummary, proofPointsText, socialProofText].filter(Boolean).join("\n").slice(0, 1500) || null;
       const deepResearch = useDeepResearch
-        ? await deepResearchLead(anthropicKey, { name: lead.name, jobTitle: lead.jobTitle, company: lead.company, website: lead.website, industry: lead.industry }, model, companyContextRaw)
+        ? await deepResearchLead(anthropicKey, { name: lead.name, jobTitle: lead.jobTitle, company: lead.company, website: lead.website, industry: lead.industry }, model, companyContextRaw, gatherForResearch)
         : null;
       const deepResearchText = deepResearchBlock(deepResearch);
       // Avoid two competing "open sentence 1 on this" instructions: when deep research found a real hook,
@@ -871,14 +873,14 @@ Return ONLY valid JSON: { ${stepExample} }`;
         // Quality JUDGE at birth (LLM) — the deep-personalization + problem-first check a regex can't see,
         // so a fresh email is GOOD when written, not written-then-rejected at the send gate. One judge call;
         // one targeted regen if it's generic or solution-first. Best-effort — never blocks generation.
-        let judgeScores: { p: number; pf: number; sh: number } | null = null;
+        let judgeScores: { p: number; pf: number; sh: number; hu: number } | null = null;
         if (judgeQuality) {
           try {
             const verdict = await judgeEmailContent(anthropicKey, stepsArray[0], { company: lead.company, persona: lead.persona, product: productSummary }, model);
-            if (verdict) judgeScores = { p: verdict.personalizationScore, pf: verdict.problemFirstScore, sh: verdict.subjectHookScore };
-            if (verdict && (verdict.personalizationScore < 60 || verdict.problemFirstScore < 40 || verdict.subjectHookScore < 55)) {
-              const jfixes = verdict.fixes.length ? verdict.fixes : ["Open with a SPECIFIC, real read on this company (their actual motion, not generic praise). Lead with the problem they already feel before any pitch. Then the matched proof, then one reply-first ask."];
-              const jf = `${userMessage}\n\nA reply-rate judge scored your step1 — personalization ${verdict.personalizationScore}/100, problem-first ${verdict.problemFirstScore}/100, subject-hook ${verdict.subjectHookScore}/100. Too generic, solution-first, or a boring subject nobody opens. Fix EXACTLY this — and make the SUBJECT grab a busy marketing leader (a specific number, a curiosity gap about them, a provocative outcome, or a fitting emoji; never "quick question"/"checking in"). Keep the body to 3 short lines under ${MAX_BODY_WORDS} words:\n${jfixes.map((f) => `- ${f}`).join("\n")}\n\nReturn ONLY valid JSON for step1: { "step1": { "subject": "...", "body": "..." } }`;
+            if (verdict) judgeScores = { p: verdict.personalizationScore, pf: verdict.problemFirstScore, sh: verdict.subjectHookScore, hu: verdict.humanScore };
+            if (verdict && (verdict.humanScore < 60 || verdict.personalizationScore < 55 || (verdict.problemFirstScore + verdict.subjectHookScore) < 90)) {
+              const jfixes = verdict.fixes.length ? verdict.fixes : ["Rewrite so it reads like a real person genuinely reaching out. Open with a SPECIFIC, real read on this company, lead with the problem they feel + the ROI, then the matched proof, then one reply-first ask."];
+              const jf = `${userMessage}\n\nA reply-rate judge scored your step1 — human/real-person ${verdict.humanScore}/100, personalization ${verdict.personalizationScore}/100, problem+ROI ${verdict.problemFirstScore}/100, subject-hook ${verdict.subjectHookScore}/100. The #1 fix: make it feel like a REAL person genuinely reaching out to help THIS person (natural voice, contractions, personality) — strip anything that reads template/AI. Make the SUBJECT inviting like a person (a concrete value-exchange like "$50 for 3 minutes", a sharp number, or a curiosity gap about them; never "quick question"/"checking in"). Lead with their problem + the ROI. Keep the body to 3 short lines under ${MAX_BODY_WORDS} words:\n${jfixes.map((f) => `- ${f}`).join("\n")}\n\nReturn ONLY valid JSON for step1: { "step1": { "subject": "...", "body": "..." } }`;
               const { text: jr } = await callAnthropic(anthropicKey, jf, { maxTokens: 800, model, systemPrompt });
               const jj = JSON.parse(jr.slice(jr.indexOf("{"), jr.lastIndexOf("}") + 1)) as Record<string, { subject?: string; body?: string }>;
               const s1 = jj.step1;
@@ -953,14 +955,14 @@ Return ONLY valid JSON: { ${stepExample} }`;
         return { leadId: lead.id, usage, gradeScore: grade.score, step1Regenerated, judge: judgeScores };
       } catch (err) {
         console.error(`Lead ${lead.id} personalize error:`, err instanceof Error ? err.message : err);
-        return { leadId: lead.id, usage, gradeScore: null as number | null, step1Regenerated: false, judge: null as { p: number; pf: number; sh: number } | null };
+        return { leadId: lead.id, usage, gradeScore: null as number | null, step1Regenerated: false, judge: null as { p: number; pf: number; sh: number; hu: number } | null };
       }
     };
 
     // Process with limited concurrency to avoid exhausting DB connection pool
     // Claude API calls can be parallel but DB writes need to be controlled
     const CONCURRENCY = 5;
-    const results: Array<{ leadId: string; usage: { input_tokens: number; output_tokens: number }; gradeScore?: number | null; step1Regenerated?: boolean; judge?: { p: number; pf: number; sh: number } | null }> = [];
+    const results: Array<{ leadId: string; usage: { input_tokens: number; output_tokens: number }; gradeScore?: number | null; step1Regenerated?: boolean; judge?: { p: number; pf: number; sh: number; hu: number } | null }> = [];
     for (let i = 0; i < chunk.length; i += CONCURRENCY) {
       const batch = chunk.slice(i, i + CONCURRENCY);
       // Global index (offset + position) keeps experiment round-robin balanced across chunks
@@ -983,8 +985,9 @@ Return ONLY valid JSON: { ${stepExample} }`;
     const regenerated = results.filter((r) => r.step1Regenerated).length;
     // First-draft judge averages (personalization / problem-first / subject-hook) — visibility into whether
     // the generated emails actually clear the send-gate floors, so quality isn't a black box.
-    const judged = results.map((r) => r.judge).filter((j): j is { p: number; pf: number; sh: number } => !!j);
+    const judged = results.map((r) => r.judge).filter((j): j is { p: number; pf: number; sh: number; hu: number } => !!j);
     const avgJudge = judged.length > 0 ? {
+      human: Math.round(judged.reduce((a, j) => a + j.hu, 0) / judged.length),
       personalization: Math.round(judged.reduce((a, j) => a + j.p, 0) / judged.length),
       problemFirst: Math.round(judged.reduce((a, j) => a + j.pf, 0) / judged.length),
       subjectHook: Math.round(judged.reduce((a, j) => a + j.sh, 0) / judged.length),

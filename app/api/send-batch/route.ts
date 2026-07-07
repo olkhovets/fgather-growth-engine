@@ -7,6 +7,7 @@ import { perPersonaStyleStats, styleScore, isIncentiveStyle } from "@/lib/person
 import { GOOD_STYLES, FRESH_STYLES, isSendableLength } from "@/lib/send-styles";
 import { decrypt } from "@/lib/encryption";
 import { scoreLeadFit } from "@/lib/lead-fit";
+import { hasBannedDash } from "@/lib/email-validator";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 120;
@@ -36,9 +37,12 @@ const COOLDOWN_DAYS = 10;
 // Quality JUDGE floors (LLM pass, the "is it actually good / not boring" gate the deterministic grader
 // can't see). An email must clear BOTH before it ships: real personalization (a specific trigger, not
 // just naming the company) and problem-first framing. Judged only on the final chosen set (cheap).
-const JUDGE_PERSONALIZATION_FLOOR = 60; // below this = generic/shallow → do not send
-const JUDGE_PROBLEM_FLOOR = 40;         // below this = solution-dump / no hook → do not send
-const JUDGE_SUBJECT_FLOOR = 55;         // below this = boring/templated subject nobody opens → do not send
+// Gate design (avoid over-gating to zero): HUMAN is the firm floor (personability is the #1 metric),
+// PERSONALIZATION is a firm-but-lower floor, and the two secondary dims (problem + subject) only need
+// to clear a COMBINED bar — so one slightly-weak secondary doesn't kill an otherwise great, human email.
+const JUDGE_HUMAN_FLOOR = 60;            // reads AI/template, not a real person → do not send (top metric)
+const JUDGE_PERSONALIZATION_FLOOR = 55;  // generic/shallow → do not send
+const JUDGE_SECONDARY_COMBINED = 90;     // problemFirst + subjectHook must sum to this (avg ~45 each)
 const JUDGE_CONCURRENCY = 6;
 
 export async function POST(request: Request) {
@@ -152,6 +156,8 @@ export async function POST(request: Request) {
     //    regardless of grade — old long drafts in the pool are filtered until they're shortened.
     const graded = candidates
       .filter((l) => isSendableLength(l.step1Body))
+      // HARD DISQUALIFIER: any em/en/other dash (AI-authorship tell) never sends — independent of grade.
+      .filter((l) => !hasBannedDash(l.step1Subject) && !hasBannedDash(l.step1Body))
       .map((l) => ({ l, score: gradeEmail({ subject: l.step1Subject ?? "", body: l.step1Body ?? "" }, { company: l.company }).score, fit: scoreLeadFit(l) }))
       .filter((x) => x.score >= minGrade);
 
@@ -203,8 +209,8 @@ export async function POST(request: Request) {
         ));
         slice.forEach((x, j) => {
           const v = verdicts[j];
-          // fail-open on null (judge unreachable); fail-closed on a real low personalization/problem/subject score.
-          const ok = !v || (v.personalizationScore >= JUDGE_PERSONALIZATION_FLOOR && v.problemFirstScore >= JUDGE_PROBLEM_FLOOR && v.subjectHookScore >= JUDGE_SUBJECT_FLOOR);
+          // fail-open on null (judge unreachable). Firm floors: human + personalization; secondary dims combined.
+          const ok = !v || (v.humanScore >= JUDGE_HUMAN_FLOOR && v.personalizationScore >= JUDGE_PERSONALIZATION_FLOOR && (v.problemFirstScore + v.subjectHookScore) >= JUDGE_SECONDARY_COMBINED);
           if (ok) passed.push(x); else { qualityRejected += 1; rejectedIds.push(x.l.id); }
         });
       }
