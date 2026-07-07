@@ -48,3 +48,19 @@ export const styleLabel = (key: string | null | undefined): string =>
 /** The set actively being written this round, human-labeled — for the "you are sending X" display. */
 export const activeFreshStyleLabels = (): string[] =>
   Array.from(new Set(FRESH_STYLES)).map(styleLabel);
+
+/**
+ * Hard body-length cap for SENDING (and previewing). Fresh generation targets ~28–40 words; this is
+ * the ceiling above which a drafted body is an indigestible block and must not go out. Old long drafts
+ * in the pool are filtered by this until they're shortened (recycle or the shorten-pool tool).
+ */
+export const MAX_SENDABLE_BODY_WORDS = 55;
+
+export const bodyWordCount = (s?: string | null): number =>
+  (s ?? "").trim().split(/\s+/).filter(Boolean).length;
+
+/** True when a drafted body is short enough to actually send (non-empty and within the cap). */
+export const isSendableLength = (body?: string | null): boolean => {
+  const n = bodyWordCount(body);
+  return n > 0 && n <= MAX_SENDABLE_BODY_WORDS;
+};

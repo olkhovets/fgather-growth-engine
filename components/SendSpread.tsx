@@ -18,6 +18,7 @@ type Preview = {
   gift: string | null;
   matchedBrand: string;
   matchedFamily: string;
+  words: number;
   subject: string | null;
   body: string | null;
 };
@@ -27,6 +28,7 @@ type Data = {
   ready: { total: number; byPersona: Bucket[]; byStyle: Bucket[]; byGift: Bucket[] };
   activeStyles: string[];
   deliverability: { verdict: string; avgHealth: number | null; hasHealthData: boolean } | null;
+  length: { maxSendableWords: number; longInSample: number; sampled: number };
   previews: Preview[];
 };
 
@@ -96,7 +98,7 @@ export default function SendSpread() {
     );
   }
 
-  const { workspace, leads, ready, previews, activeStyles, deliverability } = data;
+  const { workspace, leads, ready, previews, activeStyles, deliverability, length } = data;
   const delivColor = deliverability ? (DELIV_COLOR[deliverability.verdict] ?? "var(--text-tertiary)") : "var(--text-tertiary)";
 
   return (
@@ -171,9 +173,14 @@ export default function SendSpread() {
                 </div>
               </div>
 
-              {/* Previews — real drafted step-1 emails, each showing the matched similar-brand proof */}
+              {/* Previews — real drafted step-1 emails, short-enough-to-send only, each with matched proof */}
               <div>
-                <p className="text-xs font-semibold tracking-wide mb-2" style={{ color: "var(--text-tertiary)" }}>PREVIEWS ({previews.length})</p>
+                <p className="text-xs font-semibold tracking-wide mb-2" style={{ color: "var(--text-tertiary)" }}>PREVIEWS ({previews.length}) · short only, ≤{length.maxSendableWords}w</p>
+                {length.longInSample > 0 && (
+                  <p className="text-xs mb-2" style={{ color: "#b45309" }}>
+                    {length.longInSample} of the last {length.sampled} drafts are too long to send (indigestible blocks). They&apos;re filtered out — recycle to rewrite them tight, or run the shorten tool.
+                  </p>
+                )}
                 <div className="rounded-lg border divide-y" style={{ borderColor: "var(--border)" }}>
                   {previews.map((p, i) => (
                     <div key={i} className="p-3">
@@ -182,7 +189,10 @@ export default function SendSpread() {
                           <p className="text-sm font-medium truncate" style={{ color: "var(--text-primary)" }}>
                             {p.subject || "(no subject)"}
                           </p>
-                          <span className="text-xs flex-shrink-0" style={{ color: "var(--text-tertiary)" }}>{openPreview === i ? "–" : "+"}</span>
+                          <span className="flex items-center gap-2 flex-shrink-0">
+                            <span className="text-[10px] tabular-nums" style={{ color: p.words <= 40 ? "#1A7A4A" : "var(--text-tertiary)" }}>{p.words}w</span>
+                            <span className="text-xs" style={{ color: "var(--text-tertiary)" }}>{openPreview === i ? "–" : "+"}</span>
+                          </span>
                         </div>
                         <div className="flex flex-wrap items-center gap-1.5 mt-1">
                           <span className="text-xs" style={{ color: "var(--text-tertiary)" }}>{p.name ?? "—"}{p.company ? ` · ${p.company}` : ""}</span>

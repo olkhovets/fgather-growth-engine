@@ -4,7 +4,7 @@ import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { gradeEmail } from "@/lib/email-grader";
 import { perPersonaStyleStats, styleScore, isIncentiveStyle } from "@/lib/persona-style";
-import { GOOD_STYLES, FRESH_STYLES } from "@/lib/send-styles";
+import { GOOD_STYLES, FRESH_STYLES, isSendableLength } from "@/lib/send-styles";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 120;
@@ -133,8 +133,11 @@ export async function POST(request: Request) {
       take: roundTarget * 12, // enough across all style buckets to fill the blend after grading
     });
 
-    // 2) grade-filter: keep only the best-crafted (default >=85).
+    // 2) length + grade filter: drop indigestible-length drafts outright (a few tight lines only), then
+    //    keep the best-crafted (default >=85). The length cap guarantees only short bodies ever send,
+    //    regardless of grade — old long drafts in the pool are filtered until they're shortened.
     const graded = candidates
+      .filter((l) => isSendableLength(l.step1Body))
       .map((l) => ({ l, score: gradeEmail({ subject: l.step1Subject ?? "", body: l.step1Body ?? "" }, { company: l.company }).score }))
       .filter((x) => x.score >= minGrade);
 

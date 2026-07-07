@@ -26,8 +26,8 @@ export const dynamic = "force-dynamic";
 // Allow up to 60s so a few Anthropic calls can finish (Vercel Pro; Hobby may still cap at 10s)
 export const maxDuration = 60;
 
-const MAX_BODY_WORDS = 45;       // anything longer gets cut — feedback: emails too long, make them punctual
-const PUNCHY_TARGET_WORDS = 30;  // the short, punchy target the shortener cuts down to (money does the talking)
+const MAX_BODY_WORDS = 40;       // hard ceiling — anything longer gets cut. Feedback: bodies are indigestible blocks; a few tight lines only.
+const PUNCHY_TARGET_WORDS = 28;  // the short target the shortener cuts down to — 3 lines: the personal read, the proof, the ask.
 
 // THE REPLY FORMULA — the standing OKR (memory: okr-reply-formula), injected into EVERY email regardless
 // of style. We optimize for one thing: a human hitting reply. Every email must hit all five. This frames
@@ -35,7 +35,7 @@ const PUNCHY_TARGET_WORDS = 30;  // the short, punchy target the shortener cuts 
 const REPLY_FORMULA = `*** THE REPLY FORMULA — this is the whole job. Every email must hit all FIVE, whatever the style. ***
 We are optimizing for ONE outcome: a busy B2C marketing leader hits REPLY. Not opens, not awareness — a reply that leads to a booked demo. Hit all five or the email fails:
 1. SUBJECT that stops the scroll — make them curious enough to open, specific to THEM. Provocative, a sharp number, a curiosity gap, quirky, or one fitting emoji are all fair game. Never generic, never "checking in" / "quick question" with nothing behind it.
-2. BODY ultra-punchy — a few short lines, ~40 words. If they remember one thing, make it the OUTCOME they get, not our name.
+2. BODY ultra-punchy — 3 short lines, HARD ceiling 40 words, never a block of text. One line = the specific personal read on them; one line = the proof-of-outcome; one line = the ask. If it doesn't fit, cut words, not the personalization. Indigestible paragraphs get deleted, so write tight from the start.
 3. DEEP RESEARCH, every single email — name ONE real, specific thing about THIS company and this person's role: their actual motion, a recent launch, their category, something from their site. If you can't be specific about them, you haven't earned the reply. NEVER "companies like yours" or generic flattery.
 4. COMMON GROUND + PROOF-OF-OUTCOME — connect on a real shared challenge in their world, then land the matched proof: "Gather helped [a brand like them] do exactly [specific outcome]." Make the ROI vivid and self-interested — they stop guessing what buyers want, ship creative that lands the first time, know before they spend, look brilliant to their boss.
 5. HUMAN, zero AI tells — read it back: if it sounds like a chatbot wrote it, rewrite it. Sharp, direct, a little cocky, like a real person typed it in five minutes. AI-sounding copy is the #1 reply killer. Banned words/em-dashes are hard rules.`;
@@ -602,7 +602,7 @@ STEP JOBS — each step has one specific job, do not blur them:
 
 EMAIL RULES:
 - Subject line: SHORT — aim for 1–4 lowercase words (proper nouns aside), anchored to their world. No clickbait, no ALL CAPS, no sell. (Data: under-4-word subjects reply 4.2x higher than long ones.)
-- Step 1 body: 3–4 short sentences, ideally under 75 words and never over ${MAX_BODY_WORDS}
+- Step 1 body: 3 short lines, a hard maximum of ${MAX_BODY_WORDS} words — a few tight lines, NEVER an indigestible block. Cut words before you exceed this.
 ${linkPolicy}
 ${usePS ? `- Include a P.S. line in step 1 — reference something real and specific about them (recent launch, campaign, hire, news)` : `- Do NOT include a P.S. line — the style requires a clean ending`}
 - Steps 2+ must NOT open with a greeting — they thread as inbox replies (Re: subject)
@@ -809,7 +809,7 @@ Return ONLY valid JSON: { ${stepExample} }`;
             try {
               const { text: shortened } = await callAnthropic(
                 anthropicKey,
-                `Cut this cold email to UNDER ${PUNCHY_TARGET_WORDS} words. Short and punchy. Keep ONLY: the one-line hook about them, the single proof/offer, and the one ask. Delete every extra clause, hedge, and explanation. Keep the greeting and any gift amount exactly. Return only the rewritten body, no commentary:\n\n${step.body}`,
+                `Rewrite this cold email to 3 short lines, UNDER ${PUNCHY_TARGET_WORDS} words. KEEP the deep personalization — the specific, real detail about THIS company/person must stay. Structure: line 1 = that specific personal read on them; line 2 = the one proof-of-outcome (a brand like them + what they got); line 3 = the one reply-first ask (keep any gift amount exactly). Delete every hedge, extra clause, and explanation — but never delete the personal detail or turn it generic. Keep the greeting. Return only the rewritten body, no commentary:\n\n${step.body}`,
                 { maxTokens: 220, model }
               );
               if (shortened.trim()) step.body = shortened.trim();

@@ -3,7 +3,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { matchBrandProof } from "@/lib/brand-proof";
-import { GOOD_STYLES, FRESH_STYLES, styleLabel, activeFreshStyleLabels } from "@/lib/send-styles";
+import { GOOD_STYLES, FRESH_STYLES, styleLabel, activeFreshStyleLabels, isSendableLength, bodyWordCount, MAX_SENDABLE_BODY_WORDS } from "@/lib/send-styles";
 import { getDeliverabilityForWorkspace } from "@/lib/deliverability";
 
 export const dynamic = "force-dynamic";
@@ -77,13 +77,18 @@ export async function GET() {
           step1Subject: true, step1Body: true,
         },
         orderBy: { recycledAt: "asc" }, // the ones that would go out soonest
-        take: 8,
+        take: 120, // sample: we filter to short (sendable-length) below, then show the first few
       }),
       getDeliverabilityForWorkspace(wsId).catch(() => null),
     ]);
 
+    // Only preview drafts that are actually SHORT enough to send (a few tight lines), matching what the
+    // send path now enforces — so the preview reflects reality, not the old long blocks in the pool.
+    const shortRows = previewRows.filter((l) => isSendableLength(l.step1Body));
+    const longInSample = previewRows.length - shortRows.length;
+
     // Each preview shows WHICH similar-brand proof it will lead with — makes the personalization visible.
-    const previews = previewRows.map((l) => {
+    const previews = shortRows.slice(0, 8).map((l) => {
       const m = matchBrandProof({ company: l.company, industry: l.industry, vertical: l.vertical, persona: l.persona });
       return {
         name: l.name,
@@ -93,6 +98,7 @@ export async function GET() {
         gift: l.incentiveAmount ? `$${l.incentiveAmount} ${l.incentiveGiftType ?? "gift"}` : null,
         matchedBrand: m.primary.name,
         matchedFamily: m.family,
+        words: bodyWordCount(l.step1Body),
         subject: l.step1Subject,
         body: l.step1Body,
       };
@@ -121,6 +127,9 @@ export async function GET() {
       },
       // What kind of emails the engine writes fresh right now — so the operator is always aware.
       activeStyles: activeFreshStyleLabels(),
+      // Length health: how many recent drafts are too long to send (indigestible blocks). Long drafts are
+      // filtered out of the send until they're shortened (recycle re-writes them tight, or the shorten tool).
+      length: { maxSendableWords: MAX_SENDABLE_BODY_WORDS, longInSample, sampled: previewRows.length },
       // Inbox-placement chip: fold deliverability into the send view instead of a separate menu.
       deliverability: deliverability
         ? { verdict: deliverability.verdict, avgHealth: deliverability.avgHealth, hasHealthData: deliverability.hasHealthData }

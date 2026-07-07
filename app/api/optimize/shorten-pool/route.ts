@@ -18,8 +18,8 @@ export const maxDuration = 120;
  *
  * Capped per call (each rewrite is a Claude call); the caller loops until done. Session or CRON auth.
  */
-const OVER_WORDS = 70;       // a step longer than this gets shortened
-const TARGET_WORDS = 55;     // cut down to roughly this
+const OVER_WORDS = 48;       // a step longer than this gets shortened (matches the send cap: a few tight lines only)
+const TARGET_WORDS = 35;     // cut down to roughly this — 3 lines: personal read, proof-of-outcome, ask
 const PER_CALL = 25;         // leads rewritten per call (fits the function window)
 
 function wc(s: string): number { return (s || "").trim().split(/\s+/).filter(Boolean).length; }
@@ -51,7 +51,7 @@ async function run(workspaceId: string, anthropicKey: string, model: string) {
       try {
         const { text } = await callAnthropic(
           anthropicKey,
-          `Cut this cold email to UNDER ${TARGET_WORDS} words. Short and punchy. Keep ONLY: the one-line hook about ${lead.company ?? "the company"}, the single proof/offer, and the one ask. Keep the greeting and any gift amount ($X) exactly. Delete every extra clause and explanation. Return only the rewritten body, no commentary:\n\n${step.body}`,
+          `Rewrite this cold email to 3 short lines, UNDER ${TARGET_WORDS} words. KEEP the deep personalization — the specific, real detail about ${lead.company ?? "the company"} must stay, never make it generic. Structure: line 1 = that specific personal read on them; line 2 = the one proof-of-outcome (a brand like them + what they got); line 3 = the one reply-first ask (keep the greeting and any gift amount $X exactly). Delete every hedge, extra clause, and explanation. Return only the rewritten body, no commentary:\n\n${step.body}`,
           { maxTokens: 200, model }
         );
         const cut = autoFixEmailContent((text || "").trim());
