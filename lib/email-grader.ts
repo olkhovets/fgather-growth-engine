@@ -1,5 +1,6 @@
 import { callAnthropic } from "@/lib/anthropic";
 import { RUBRIC, SPAM_WORDS, FILLER_OPENERS, AI_TELL_WORDS, GENERIC_SUBJECTS } from "@/lib/cold-email-research";
+import { hasBannedDash } from "@/lib/email-validator";
 
 /**
  * Email-quality grader — "are the emails good?" answered against the data-backed rubric in
@@ -96,6 +97,10 @@ export function gradeEmail(
   const dims: DimensionScore[] = [];
   let hardFail = false;
 
+  // HARD DISQUALIFIER: any em/en/other dash variant is an instant AI-authorship tell — never send it.
+  const bannedDash = hasBannedDash(body) || hasBannedDash(subject);
+  if (bannedDash) hardFail = true;
+
   // 1. Length (weight 3) — the single biggest measurable lever.
   const bw = wordCount(body);
   const lenScore = bw === 0 ? 0 : rampDown(bw, RUBRIC.body.idealMaxWords, RUBRIC.body.flagWords);
@@ -186,7 +191,7 @@ export function gradeEmail(
 
   // 8. AI-tells (weight 2) — cluster-scored.
   const tellHits = countOccurrences(body + " " + subject, AI_TELL_WORDS);
-  const emDashes = (body.match(/—|–/g) || []).length;
+  const emDashes = (body.match(/[‒–—―−⸺⸻]/g) || []).length;
   const notJustBut = /\bnot just\b[^.?!]*\bbut\b/i.test(body) || /\bit'?s not (just )?about\b/i.test(body);
   const hasContractions = /\b\w+'(s|re|ve|ll|t|d|m)\b/i.test(body);
   let aiScore = 100 - tellHits.length * 20 - emDashes * 15 - (notJustBut ? 20 : 0) - (!hasContractions && wordCount(body) > 25 ? 15 : 0);

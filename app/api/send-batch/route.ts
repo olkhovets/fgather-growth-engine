@@ -7,6 +7,7 @@ import { perPersonaStyleStats, styleScore, isIncentiveStyle } from "@/lib/person
 import { GOOD_STYLES, FRESH_STYLES, isSendableLength } from "@/lib/send-styles";
 import { decrypt } from "@/lib/encryption";
 import { scoreLeadFit } from "@/lib/lead-fit";
+import { hasBannedDash } from "@/lib/email-validator";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 120;
@@ -152,6 +153,8 @@ export async function POST(request: Request) {
     //    regardless of grade — old long drafts in the pool are filtered until they're shortened.
     const graded = candidates
       .filter((l) => isSendableLength(l.step1Body))
+      // HARD DISQUALIFIER: any em/en/other dash (AI-authorship tell) never sends — independent of grade.
+      .filter((l) => !hasBannedDash(l.step1Subject) && !hasBannedDash(l.step1Body))
       .map((l) => ({ l, score: gradeEmail({ subject: l.step1Subject ?? "", body: l.step1Body ?? "" }, { company: l.company }).score, fit: scoreLeadFit(l) }))
       .filter((x) => x.score >= minGrade);
 

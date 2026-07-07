@@ -52,10 +52,24 @@ export function validateEmailContent(text: string): EmailViolation[] {
   return violations;
 }
 
+// Every en/em/horizontal-bar/figure/minus dash variant an LLM emits — the #1 AI-authorship tell.
+// The hyphen-minus "-" (compound words like "brand-social", "15-min") is intentionally NOT included.
+const BANNED_DASHES = /[‒–—―−⸺⸻]/;
+
+/** True if the text contains any banned dash char. System-level disqualifier — such an email must not send. */
+export function hasBannedDash(text: string | null | undefined): boolean {
+  return BANNED_DASHES.test(text || "");
+}
+
 export function autoFixEmailContent(text: string): string {
-  return text
-    .replace(/—/g, "-")
-    .replace(/–/g, "-");
+  return (text || "")
+    // Convert ALL dash variants to a comma (not a hyphen — a spaced hyphen still reads as a dash).
+    .replace(/\s*[‒–—―−⸺⸻]\s*/g, ", ")
+    .replace(/ ,/g, ",")
+    .replace(/,\s*,/g, ",")
+    .replace(/,\s*\./g, ".")
+    .replace(/[ \t]{2,}/g, " ")
+    .trim();
 }
 
 export function validateEmailSteps(steps: Array<{ subject: string; body: string }>): {
