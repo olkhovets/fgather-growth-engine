@@ -229,7 +229,7 @@ export default function SendSpread() {
                 {sampleMsg && <p className="text-xs mb-2" style={{ color: "var(--text-tertiary)" }}>{sampleMsg}</p>}
                 {length.longInSample > 0 && (
                   <p className="text-xs mb-2" style={{ color: "#b45309" }}>
-                    {length.longInSample} of the last {length.sampled} drafts are too long to send (indigestible blocks). They&apos;re filtered out — recycle to rewrite them tight, or run the shorten tool.
+                    {length.longInSample} of the last {length.sampled} are OLD pre-tightening drafts still too long — filtered out, never sent. New generation is now hard-capped short. Rewrite the old pool with the shorten tool (or recycle).
                   </p>
                 )}
                 <div className="rounded-lg border divide-y" style={{ borderColor: "var(--border)" }}>

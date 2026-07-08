@@ -125,6 +125,17 @@ export const GENERIC_SUBJECTS = [
   "circling back", "just checking in", "wanted to connect", "collaboration", "picking your brain",
 ];
 
+// Cringe cold-email clichés — try-hard, salesy, or the exact tired CTAs every blast uses. Any of these
+// is an instant disqualifier: they scream "mass cold email" and kill the human, reached-out-to feeling.
+export const CRINGE_PHRASES = [
+  "worth a reply", "worth it?", "worth a chat", "worth a quick chat", "worth a look", "worth a minute",
+  "worth a moment", "worth your time", "worth 15", "worth 20", "worth a 15", "worth a 20",
+  "reply 'yes'", "reply \"yes\"", "just reply", "hop on a call", "jump on a call", "quick call?",
+  "pick your brain", "pick your brains", "circle back", "touch base", "let's connect", "lets connect",
+  "quick sync", "does this resonate", "is this a priority", "sound interesting", "if this resonates",
+  "open to a chat", "open to it?", "grab 15", "grab 20", "quick 15", "quick 20", "hop on a quick",
+];
+
 // AI-tell vocabulary (cluster-scored, never a single-word fail).
 export const AI_TELL_WORDS = [
   "leverage", "delve", "streamline", "synergy", "unlock", "empower", "revolutionize",
