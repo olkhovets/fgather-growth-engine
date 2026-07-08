@@ -6,6 +6,7 @@ import { matchBrandProof } from "@/lib/brand-proof";
 import { GOOD_STYLES, FRESH_STYLES, styleLabel, activeFreshStyleLabels, isSendableLength, bodyWordCount, MAX_SENDABLE_BODY_WORDS } from "@/lib/send-styles";
 import { getDeliverabilityForWorkspace } from "@/lib/deliverability";
 import { scoreLeadFit } from "@/lib/lead-fit";
+import { auditOperatorInputs } from "@/lib/operator-audit";
 
 export const dynamic = "force-dynamic";
 
@@ -37,12 +38,18 @@ export async function GET(request: Request) {
     const focusIds = (new URL(request.url).searchParams.get("ids") || "").split(",").map((s) => s.trim()).filter(Boolean);
     const workspace = await prisma.workspace.findUnique({
       where: { userId: session.user.id },
-      select: { id: true, senderName: true, productSummary: true, user: { select: { email: true } } },
+      select: { id: true, senderName: true, productSummary: true, customInstructions: true, playbookJson: true, user: { select: { email: true } } },
     });
     if (!workspace) {
       return NextResponse.json({ error: "Workspace not found" }, { status: 404 });
     }
     const wsId = workspace.id;
+
+    // Checks & balances: audit the operator inputs (Extra instructions + guidelines) for anything pulling
+    // against the quirky/human goal, so the operator is TOLD when a config input is flattening the emails.
+    let guidelinesText: string | null = null;
+    try { const pb = JSON.parse(workspace.playbookJson || "{}"); guidelinesText = pb?.guidelines?.context || pb?.guidelines?.structure || null; } catch { guidelinesText = null; }
+    const operatorWarnings = auditOperatorInputs({ customInstructions: workspace.customInstructions, guidelines: guidelinesText });
 
     // "Ready" = a contactable lead that already has a drafted sequence in a known-good style.
     // This is the pool that a send would actually draw from — the honest spread of what's about to go out.
@@ -150,6 +157,8 @@ export async function GET(request: Request) {
       },
       // What kind of emails the engine writes fresh right now — so the operator is always aware.
       activeStyles: activeFreshStyleLabels(),
+      // Config conflicts pulling against the goal (the "tell me when an input flattens the emails" signal).
+      operatorWarnings,
       // Length health: how many recent drafts are too long to send (indigestible blocks). Long drafts are
       // filtered out of the send until they're shortened (recycle re-writes them tight, or the shorten tool).
       length: { maxSendableWords: MAX_SENDABLE_BODY_WORDS, longInSample, sampled: previewRows.length },

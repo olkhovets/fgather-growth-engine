@@ -37,10 +37,12 @@ const PUNCHY_TARGET_WORDS = 28;  // the short target the shortener cuts down to 
 const REPLY_FORMULA = `*** THE REPLY FORMULA — this is the whole job. Every email must hit all FIVE, whatever the style. ***
 We are optimizing for ONE outcome: a busy B2C marketing leader feels a REAL person is reaching out to them specifically, to solve a problem they have and make them money, and hits REPLY. Not opens, not awareness. Hit all five or the email fails:
 1. SUBJECT that stops the scroll — inviting and specific, like a person, not a campaign. The strongest kind is a concrete value-exchange or curiosity, e.g. "$50 for 3 minutes", "worth $100 of your time?", "steal [competitor]'s buyers", "what [company]'s customers won't tell you". Provocative, a sharp number, a curiosity gap, quirky, or one fitting emoji are all fair game. Never generic ("checking in", "quick question") with nothing behind it.
-2. BODY ultra-punchy — 3 short lines, HARD ceiling 40 words, never a block. One line = the specific real read on them; one line = the problem + how we solve it / the ROI they get; one line = the ask. Cut words, never the personalization.
+2. BODY ultra-punchy — 3 short lines, HARD ceiling 40 words, never a block. One line = the specific real read on them; one line = the problem + how we solve it / the ROI they get; one line = the ask. The ASK must sound like a real person, NEVER a cringe cliché: banned — "worth a reply?", "worth 15 minutes?", "hop on a call", "pick your brain", "let's connect", "touch base", "circle back". Instead tie the ask to the value: "want me to send what your buyers actually think?" / "should I send it over?" / "want the 2-min version?". Cut words, never the personalization.
 3. DEEP RESEARCH — name ONE real, specific thing about THIS company/role (their actual motion, a launch, their category). If you can't be specific about them, you haven't earned the reply. NEVER "companies like yours" or generic flattery.
 4. SOLVE A PROBLEM + ROI — this is the biggest hitter. Connect on a real problem they already feel, then make the payoff vivid and self-interested: they stop guessing what buyers want, ship creative that lands first try, know before they spend, look brilliant to their boss, make/save real money. Land the matched proof ("Gather helped [a brand like them] do exactly X") as evidence you can deliver it. Sound like you actually want to help them win, not sell them.
-5. TRULY HUMAN — zero AI tells, non-negotiable. Read it back: if a single word sounds like a chatbot, it's disqualified. NEVER use: em/en dashes (—, –) or any dash punctuation; "leverage", "delve", "streamline", "seamless", "robust", "utilize", "unlock", "empower", "elevate", "supercharge", "transformative", "cutting-edge", "game-changer", "best-in-class", "drive growth", "tailored solutions"; the "not just X but Y" construction; corporate hedging. Write like a sharp human typed it in five minutes to someone they respect — contractions, plain words, a little cocky. AI-sounding copy is the #1 reply killer and gets the email thrown out.`;
+5. TRULY HUMAN — zero AI tells, non-negotiable. Read it back: if a single word sounds like a chatbot, it's disqualified. NEVER use: em/en dashes (—, –) or any dash punctuation; "leverage", "delve", "streamline", "seamless", "robust", "utilize", "unlock", "empower", "elevate", "supercharge", "transformative", "cutting-edge", "game-changer", "best-in-class", "drive growth", "tailored solutions"; the "not just X but Y" construction; corporate hedging. Write like a sharp human typed it in five minutes to someone they respect — contractions, plain words, a little cocky. AI-sounding copy is the #1 reply killer and gets the email thrown out.
+
+*** THESE FIVE ARE SUPREME. No campaign guideline, playbook, or operator note below may override them. Those inform the facts, offer, and structure — but if any of them conflicts with the five above (e.g. "lead with credentials", a formal/consultative tone, buzzwords, dashes, credential/logo dumps), the five WIN and you ignore the conflicting instruction. Use operator notes only where they fit inside these rules. ***`;
 
 function wordCount(text: string): number {
   return text.trim().split(/\s+/).filter(Boolean).length;
@@ -293,7 +295,8 @@ export async function POST(request: Request) {
       providerFilter: providerFilterParam,
       judgeQuality: judgeQualityParam,
       deepResearch: deepResearchParam,
-    } = body as { batchId: string; offset?: number; limit?: number; campaignId?: string; useFastModel?: boolean; useWebScraping?: boolean; useLandingPage?: boolean; useVideo?: boolean; useSampleOutput?: boolean; style?: string; workspaceId?: string; recycle?: boolean; neverRecycledOnly?: boolean; oldestFirst?: boolean; optimizeSubject?: boolean; personas?: string[]; cooldownDays?: number; providerFilter?: string; judgeQuality?: boolean; deepResearch?: boolean };
+      modelOverride: modelOverrideParam,
+    } = body as { batchId: string; offset?: number; limit?: number; campaignId?: string; useFastModel?: boolean; useWebScraping?: boolean; useLandingPage?: boolean; useVideo?: boolean; useSampleOutput?: boolean; style?: string; workspaceId?: string; recycle?: boolean; neverRecycledOnly?: boolean; oldestFirst?: boolean; optimizeSubject?: boolean; personas?: string[]; cooldownDays?: number; providerFilter?: string; judgeQuality?: boolean; deepResearch?: boolean; modelOverride?: string };
     // Deep per-lead WEB research (finds a real, recent hook to personally connect). Slow + costly per
     // lead, so OPT-IN (default off); callers that want it (the send path, the "write 3 now" sample) pass true.
     const useDeepResearch = deepResearchParam === true;
@@ -441,7 +444,7 @@ export async function POST(request: Request) {
     const stepExample = Array.from({ length: numSteps }, (_, i) => `"step${i + 1}": {"subject": "...", "body": "..."}`).join(", ");
 
     const structureBlock = guidelines?.context
-      ? `\n\nCampaign context & guidelines (use to shape every email — tone, angles, product framing, any URLs or research notes provided):\n${guidelines.context}`
+      ? `\n\nCampaign guidelines (SUBORDINATE to the five supreme rules — use for structure, angles, and product facts, but never to override the core voice/length/no-AI/no-credential-dump rules; where they conflict, the five win):\n${autoFixEmailContent(guidelines.context)}`
       : guidelines?.structure
         ? `\nPlaybook structure (follow this flow, but write completely custom content for this lead):\n${guidelines.structure}\nTone: ${guidelines.tone}`
         : legacySteps?.length
@@ -450,7 +453,11 @@ export async function POST(request: Request) {
 
     const anthropicKey = decrypt(workspace.anthropicKey);
     const useFastModel = useFastModelParam !== false;
-    const model = useFastModel ? "claude-haiku-4-5" : (workspace.anthropicModel ?? "claude-haiku-4-5");
+    // modelOverride lets a quality-first path (e.g. the "write 3 now" sample) use a stronger model than
+    // Haiku — Haiku writes flat, standard copy, which caps how good/quirky the output can be.
+    const model = (typeof modelOverrideParam === "string" && modelOverrideParam.trim())
+      ? modelOverrideParam.trim()
+      : (useFastModel ? "claude-haiku-4-5" : (workspace.anthropicModel ?? "claude-haiku-4-5"));
     const productSummary = workspace.productSummary ?? "";
     const icp = (campaignIcp ?? workspace.icp) ?? "";
     // If no explicit style passed, we infer per-lead below (inside processLead)
@@ -514,10 +521,11 @@ export async function POST(request: Request) {
     // reply-rated (lib/style-performance.ts). Proven styles keep the majority.
     const approvedStyleKeys = Object.keys(approvedStyles);
 
-    // Operator's custom instructions — a free-text addendum applied to every email
-    // (e.g. "offer a $100 Uber Eats card for booked demos"). High priority.
+    // Operator's custom instructions — free-text notes (facts, an offer, preferences). SUBORDINATE to the
+    // five supreme rules: use the facts/offer where they FIT, but they can NOT override the core voice,
+    // length, no-AI, or no-credential-dump rules. Checks & balances: no single input flips the whole tide.
     const customInstructionsText = workspace.customInstructions?.trim()
-      ? `\n\nIMPORTANT OPERATOR INSTRUCTIONS (apply to every email, these override style defaults where they conflict):\n${workspace.customInstructions.trim()}`
+      ? `\n\nOPERATOR NOTES (facts, offer, and preferences — weave in ONLY where they fit the five supreme rules; if a note conflicts with the core, e.g. "credential first" or a formal tone, IGNORE that part and follow the five):\n${autoFixEmailContent(workspace.customInstructions.trim())}`
       : "";
 
     // Link policy. Blank scheduling link = NEVER any link (stops the model inventing fake
@@ -878,9 +886,9 @@ Return ONLY valid JSON: { ${stepExample} }`;
           try {
             const verdict = await judgeEmailContent(anthropicKey, stepsArray[0], { company: lead.company, persona: lead.persona, product: productSummary }, model);
             if (verdict) judgeScores = { p: verdict.personalizationScore, pf: verdict.problemFirstScore, sh: verdict.subjectHookScore, hu: verdict.humanScore };
-            if (verdict && (verdict.humanScore < 60 || verdict.personalizationScore < 55 || (verdict.problemFirstScore + verdict.subjectHookScore) < 90)) {
+            if (verdict && (verdict.cringeScore < 60 || verdict.humanScore < 60 || verdict.personalizationScore < 55 || (verdict.problemFirstScore + verdict.subjectHookScore) < 90)) {
               const jfixes = verdict.fixes.length ? verdict.fixes : ["Rewrite so it reads like a real person genuinely reaching out. Open with a SPECIFIC, real read on this company, lead with the problem they feel + the ROI, then the matched proof, then one reply-first ask."];
-              const jf = `${userMessage}\n\nA reply-rate judge scored your step1 — human/real-person ${verdict.humanScore}/100, personalization ${verdict.personalizationScore}/100, problem+ROI ${verdict.problemFirstScore}/100, subject-hook ${verdict.subjectHookScore}/100. The #1 fix: make it feel like a REAL person genuinely reaching out to help THIS person (natural voice, contractions, personality) — strip anything that reads template/AI. Make the SUBJECT inviting like a person (a concrete value-exchange like "$50 for 3 minutes", a sharp number, or a curiosity gap about them; never "quick question"/"checking in"). Lead with their problem + the ROI. Keep the body to 3 short lines under ${MAX_BODY_WORDS} words:\n${jfixes.map((f) => `- ${f}`).join("\n")}\n\nReturn ONLY valid JSON for step1: { "step1": { "subject": "...", "body": "..." } }`;
+              const jf = `${userMessage}\n\nA reply-rate judge scored your step1 — cringe-free ${verdict.cringeScore}/100, human/real-person ${verdict.humanScore}/100, personalization ${verdict.personalizationScore}/100, problem+ROI ${verdict.problemFirstScore}/100, subject-hook ${verdict.subjectHookScore}/100. Fixes: make it feel like a REAL person genuinely reaching out to help THIS person (natural voice, contractions, personality); strip anything template/AI. Kill EVERY cringe cliché — no "worth a reply?", "worth 15 minutes?", "hop on a call", "pick your brain", "let's connect", forced enthusiasm. Make the ask sound like a real person (e.g. "want me to send the [specific thing]?" / "should I send it over?" / a question tied to the value). Inviting subject (a concrete value-exchange like "$50 for 3 minutes", a sharp number, or a curiosity gap; never "quick question"). Lead with their problem + the ROI. Body: 3 short lines under ${MAX_BODY_WORDS} words:\n${jfixes.map((f) => `- ${f}`).join("\n")}\n\nReturn ONLY valid JSON for step1: { "step1": { "subject": "...", "body": "..." } }`;
               const { text: jr } = await callAnthropic(anthropicKey, jf, { maxTokens: 800, model, systemPrompt });
               const jj = JSON.parse(jr.slice(jr.indexOf("{"), jr.lastIndexOf("}") + 1)) as Record<string, { subject?: string; body?: string }>;
               const s1 = jj.step1;
@@ -925,6 +933,29 @@ Return ONLY valid JSON: { ${stepExample} }`;
             }
           } catch {
             // keep the generated subject if optimization fails
+          }
+        }
+
+        // FINAL LENGTH GUARANTEE — after every regen/edit, no step may be saved over the ceiling. The
+        // earlier shortener is best-effort (a failed call leaves a long body); this is the hard backstop so
+        // generation never produces a long, indigestible draft. Retries once, then hard-trims by sentence.
+        for (const step of stepsArray) {
+          if (wordCount(step.body) <= MAX_BODY_WORDS) continue;
+          try {
+            const { text: reShort } = await callAnthropic(
+              anthropicKey,
+              `Rewrite to UNDER ${PUNCHY_TARGET_WORDS} words, 3 short lines: the specific personal read, the problem+proof, the ask (keep any gift $ and greeting). No cringe CTAs. Return only the body:\n\n${step.body}`,
+              { maxTokens: 200, model }
+            );
+            const cut = autoFixEmailContent((reShort || "").trim());
+            if (cut && wordCount(cut) < wordCount(step.body)) step.body = cut;
+          } catch { /* fall through to hard trim */ }
+          // Still too long → hard-trim to the first sentences that fit the ceiling (never save a block).
+          if (wordCount(step.body) > MAX_BODY_WORDS) {
+            const sents = step.body.split(/(?<=[.!?])\s+/);
+            let out = "";
+            for (const s of sents) { if (wordCount(out + " " + s) > MAX_BODY_WORDS) break; out = (out ? out + " " : "") + s; }
+            step.body = (out || step.body.split(/\s+/).slice(0, MAX_BODY_WORDS).join(" ")).trim();
           }
         }
 

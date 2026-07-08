@@ -40,6 +40,7 @@ const COOLDOWN_DAYS = 10;
 // Gate design (avoid over-gating to zero): HUMAN is the firm floor (personability is the #1 metric),
 // PERSONALIZATION is a firm-but-lower floor, and the two secondary dims (problem + subject) only need
 // to clear a COMBINED bar — so one slightly-weak secondary doesn't kill an otherwise great, human email.
+const JUDGE_CRINGE_FLOOR = 60;           // cringe/try-hard/cliché ("worth a reply") → do not send
 const JUDGE_HUMAN_FLOOR = 60;            // reads AI/template, not a real person → do not send (top metric)
 const JUDGE_PERSONALIZATION_FLOOR = 55;  // generic/shallow → do not send
 const JUDGE_SECONDARY_COMBINED = 90;     // problemFirst + subjectHook must sum to this (avg ~45 each)
@@ -210,7 +211,7 @@ export async function POST(request: Request) {
         slice.forEach((x, j) => {
           const v = verdicts[j];
           // fail-open on null (judge unreachable). Firm floors: human + personalization; secondary dims combined.
-          const ok = !v || (v.humanScore >= JUDGE_HUMAN_FLOOR && v.personalizationScore >= JUDGE_PERSONALIZATION_FLOOR && (v.problemFirstScore + v.subjectHookScore) >= JUDGE_SECONDARY_COMBINED);
+          const ok = !v || (v.cringeScore >= JUDGE_CRINGE_FLOOR && v.humanScore >= JUDGE_HUMAN_FLOOR && v.personalizationScore >= JUDGE_PERSONALIZATION_FLOOR && (v.problemFirstScore + v.subjectHookScore) >= JUDGE_SECONDARY_COMBINED);
           if (ok) passed.push(x); else { qualityRejected += 1; rejectedIds.push(x.l.id); }
         });
       }

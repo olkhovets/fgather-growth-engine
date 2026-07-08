@@ -1,5 +1,5 @@
 import { callAnthropic } from "@/lib/anthropic";
-import { RUBRIC, SPAM_WORDS, FILLER_OPENERS, AI_TELL_WORDS, GENERIC_SUBJECTS } from "@/lib/cold-email-research";
+import { RUBRIC, SPAM_WORDS, FILLER_OPENERS, AI_TELL_WORDS, GENERIC_SUBJECTS, CRINGE_PHRASES } from "@/lib/cold-email-research";
 import { hasBannedDash } from "@/lib/email-validator";
 
 /**
@@ -195,13 +195,14 @@ export function gradeEmail(
   const emDashes = (body.match(/[‒–—―−⸺⸻]/g) || []).length;
   const notJustBut = /\bnot just\b[^.?!]*\bbut\b/i.test(body) || /\bit'?s not (just )?about\b/i.test(body);
   const hasContractions = /\b\w+'(s|re|ve|ll|t|d|m)\b/i.test(body);
-  if (tellHits.length > 0 || emDashes > 0 || notJustBut) hardFail = true; // near-zero tolerance for AI language
-  let aiScore = 100 - tellHits.length * 40 - emDashes * 40 - (notJustBut ? 40 : 0) - (!hasContractions && wordCount(body) > 25 ? 15 : 0);
+  const cringeHits = countOccurrences(body + " " + subject, CRINGE_PHRASES);
+  if (tellHits.length > 0 || emDashes > 0 || notJustBut || cringeHits.length > 0) hardFail = true; // near-zero tolerance for AI + cringe
+  let aiScore = 100 - tellHits.length * 40 - emDashes * 40 - (notJustBut ? 40 : 0) - cringeHits.length * 40 - (!hasContractions && wordCount(body) > 25 ? 15 : 0);
   aiScore = Math.max(0, aiScore);
   dims.push({
-    key: "aiTells", label: "Human (not AI)", weight: 2, score: aiScore,
-    note: [tellHits.length ? `AI words: ${tellHits.join(", ")}` : "", emDashes ? `${emDashes} dash` : "", notJustBut ? "'not just X but Y'" : "", !hasContractions ? "no contractions" : ""].filter(Boolean).join("; ") || "reads human",
-    fix: (tellHits.length || emDashes || notJustBut) ? `DISQUALIFIED for AI language — remove entirely: ${[tellHits.join(", "), emDashes ? "dashes" : "", notJustBut ? "'not just X but Y'" : ""].filter(Boolean).join(", ")}. Rewrite it the way a real person would text a colleague.` : (aiScore < 60 ? "Add contractions and concrete, plain, slightly imperfect language." : undefined),
+    key: "aiTells", label: "Human (not AI/cringe)", weight: 2, score: aiScore,
+    note: [tellHits.length ? `AI words: ${tellHits.join(", ")}` : "", cringeHits.length ? `cringe: ${cringeHits.join(", ")}` : "", emDashes ? `${emDashes} dash` : "", notJustBut ? "'not just X but Y'" : "", !hasContractions ? "no contractions" : ""].filter(Boolean).join("; ") || "reads human",
+    fix: (tellHits.length || emDashes || notJustBut || cringeHits.length) ? `DISQUALIFIED — remove entirely: ${[tellHits.join(", "), cringeHits.join(", "), emDashes ? "dashes" : "", notJustBut ? "'not just X but Y'" : ""].filter(Boolean).join(", ")}. No "worth a reply"-type clichés. Write the ask like a real person would to a colleague.` : (aiScore < 60 ? "Add contractions and concrete, plain, slightly imperfect language." : undefined),
   });
 
   // 9. Hyper-personalization (weight 3, only when we know the company) — the opener must reference
@@ -241,6 +242,7 @@ export type JudgeResult = {
   problemFirstScore: number;    // 0-100
   subjectHookScore: number;     // 0-100 — would a busy marketing leader actually open it?
   humanScore: number;           // 0-100 — does it feel like a real person genuinely reaching out (relatable), not AI/template?
+  cringeScore: number;          // 0-100 — HIGH = not cringe; LOW = try-hard/salesy/cliché that makes you wince
   notes: string;
   fixes: string[];
 };
@@ -256,12 +258,13 @@ export async function judgeEmailContent(
   context: { company?: string | null; persona?: string | null; product?: string | null },
   model: string
 ): Promise<JudgeResult | null> {
-  const system = `You are a cold-email reply-rate judge for cold outreach to busy B2C marketing leaders. Score four things 0-100 and give concrete fixes. Be strict — you are the bar between a real reply and the trash folder.
+  const system = `You are a cold-email reply-rate judge for cold outreach to busy B2C marketing leaders. Score five things 0-100 and give concrete fixes. Be strict — you are the bar between a real reply and the trash folder.
+- cringeScore (a dedicated CRINGE CHECK — HIGH means NOT cringe): would a sharp marketing exec wince reading this? Punish to near-zero any try-hard, salesy, or cliché move: tired CTAs like "worth a reply?" / "worth 15 minutes?" / "hop on a call" / "pick your brain" / "let's connect", forced enthusiasm, fake familiarity, obvious flattery, hype, or anything that screams mass cold email. Natural, low-key, self-aware = high; try-hard or salesy = low. If any single line makes you cringe, score below 40.
 - humanScore (THE most important): does this feel like a REAL person genuinely reaching out to THIS individual to help them, someone the recipient would actually relate to and want to reply to? Reward: natural human voice, contractions, a little personality/wit, sounds texted-to-a-colleague, warm but not fake. Punish HARD to near-zero: any whiff of AI/template/corporate voice, buzzwords, dashes, hedging, "I hope this finds you", or copy that could be sent to anyone. If it reads even slightly like a chatbot or a mail-merge, score it below 40.
 - personalizationScore: is the opener a REAL, specific read on THIS company/role (their actual motion, a trigger like a launch/hire/funding) — vs generic ("love what you're doing"), person-trivia, or mail-merge filler? Generic = low.
 - problemFirstScore: does it lead with a real problem they already feel and make the ROI/payoff clear (what they win/save/make), with proof as evidence — vs opening with a product/feature dump? Solution-first or no clear payoff = low.
 - subjectHookScore: would a BUSY marketing leader with a full inbox actually open this? Reward genuine curiosity, a concrete value-exchange invitation (e.g. "$50 for 3 minutes"), a specific number, a provocative outcome, or a sharp emoji specific to THEM. Punish hard: generic/templated ("quick question", "checking in", "intro", "your company") or anything that reads like every other cold email. Inviting AND honest = high.
-Return STRICT JSON only: {"humanScore":N,"personalizationScore":N,"problemFirstScore":N,"subjectHookScore":N,"notes":"...","fixes":["...","..."]}`;
+Return STRICT JSON only: {"cringeScore":N,"humanScore":N,"personalizationScore":N,"problemFirstScore":N,"subjectHookScore":N,"notes":"...","fixes":["...","..."]}`;
   const user = `Company: ${context.company ?? "unknown"} | Role/persona: ${context.persona ?? "unknown"}${context.product ? ` | Our product: ${context.product}` : ""}
 
 SUBJECT: ${email.subject}
@@ -277,6 +280,7 @@ Score it. STRICT JSON only.`;
       problemFirstScore: Math.max(0, Math.min(100, Number(json.problemFirstScore) || 0)),
       subjectHookScore: Math.max(0, Math.min(100, Number(json.subjectHookScore) || 0)),
       humanScore: Math.max(0, Math.min(100, Number(json.humanScore) || 0)),
+      cringeScore: Math.max(0, Math.min(100, Number(json.cringeScore) || 0)),
       notes: typeof json.notes === "string" ? json.notes : "",
       fixes: Array.isArray(json.fixes) ? json.fixes.filter((x: unknown): x is string => typeof x === "string") : [],
     };
