@@ -293,7 +293,8 @@ export async function POST(request: Request) {
       providerFilter: providerFilterParam,
       judgeQuality: judgeQualityParam,
       deepResearch: deepResearchParam,
-    } = body as { batchId: string; offset?: number; limit?: number; campaignId?: string; useFastModel?: boolean; useWebScraping?: boolean; useLandingPage?: boolean; useVideo?: boolean; useSampleOutput?: boolean; style?: string; workspaceId?: string; recycle?: boolean; neverRecycledOnly?: boolean; oldestFirst?: boolean; optimizeSubject?: boolean; personas?: string[]; cooldownDays?: number; providerFilter?: string; judgeQuality?: boolean; deepResearch?: boolean };
+      modelOverride: modelOverrideParam,
+    } = body as { batchId: string; offset?: number; limit?: number; campaignId?: string; useFastModel?: boolean; useWebScraping?: boolean; useLandingPage?: boolean; useVideo?: boolean; useSampleOutput?: boolean; style?: string; workspaceId?: string; recycle?: boolean; neverRecycledOnly?: boolean; oldestFirst?: boolean; optimizeSubject?: boolean; personas?: string[]; cooldownDays?: number; providerFilter?: string; judgeQuality?: boolean; deepResearch?: boolean; modelOverride?: string };
     // Deep per-lead WEB research (finds a real, recent hook to personally connect). Slow + costly per
     // lead, so OPT-IN (default off); callers that want it (the send path, the "write 3 now" sample) pass true.
     const useDeepResearch = deepResearchParam === true;
@@ -450,7 +451,11 @@ export async function POST(request: Request) {
 
     const anthropicKey = decrypt(workspace.anthropicKey);
     const useFastModel = useFastModelParam !== false;
-    const model = useFastModel ? "claude-haiku-4-5" : (workspace.anthropicModel ?? "claude-haiku-4-5");
+    // modelOverride lets a quality-first path (e.g. the "write 3 now" sample) use a stronger model than
+    // Haiku — Haiku writes flat, standard copy, which caps how good/quirky the output can be.
+    const model = (typeof modelOverrideParam === "string" && modelOverrideParam.trim())
+      ? modelOverrideParam.trim()
+      : (useFastModel ? "claude-haiku-4-5" : (workspace.anthropicModel ?? "claude-haiku-4-5"));
     const productSummary = workspace.productSummary ?? "";
     const icp = (campaignIcp ?? workspace.icp) ?? "";
     // If no explicit style passed, we infer per-lead below (inside processLead)

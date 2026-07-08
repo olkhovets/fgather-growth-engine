@@ -99,24 +99,27 @@ export default function SendSpread() {
 
   useEffect(() => { refresh(); }, [refresh]);
 
-  // Generate a few drafts RIGHT NOW with the current style/formula, so the preview shows what the engine
-  // actually writes today (not the stale stored pool). Re-drafts a few eligible leads; nothing is sent.
+  // Generate a real SPREAD right now: one quirky, one outcome-hook, one direct — the actual bold styles,
+  // written by a strong model (not Haiku), so the preview shows the range the engine can produce, not the
+  // one standard style the old sample fell back to. Re-drafts a few eligible leads; nothing is sent.
   const sampleNow = async () => {
     setSampling(true);
     setSampleMsg(null);
     try {
-      const res = await fetch("/api/leads/generate", {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ recycle: true, limit: 3, useFastModel: true, useWebScraping: true, deepResearch: true }),
-      });
-      const d = await res.json().catch(() => ({}));
-      if (!res.ok) { setSampleMsg(d.error || "Could not generate a sample."); return; }
-      if ((d.done ?? 0) === 0) { setSampleMsg("No eligible leads to sample right now (all recent or none past cooldown)."); return; }
-      const j = d.avgJudge;
-      const jStr = j ? ` Quality: human ${j.human}, personalization ${j.personalization}, subject ${j.subjectHook}, problem-first ${j.problemFirst} /100.` : "";
-      setSampleMsg(`Wrote ${d.done} fresh draft(s) with the current style — shown at the top.${jStr}`);
+      const styles = ["quirky-incentive", "outcome-hook", "direct-incentive"];
+      const results = await Promise.all(styles.map((style, i) =>
+        fetch("/api/leads/generate", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          // offset i so the 3 parallel calls pick 3 distinct leads instead of all grabbing the first one.
+          body: JSON.stringify({ recycle: true, limit: 1, offset: i, style, useFastModel: false, modelOverride: "claude-sonnet-4-5", useWebScraping: true, deepResearch: true }),
+        }).then((r) => r.json()).catch(() => ({}))
+      ));
+      const ids = results.flatMap((d) => (Array.isArray(d?.leadIds) ? d.leadIds : []));
+      const done = results.reduce((a, d) => a + (Number(d?.done) || 0), 0);
+      if (done === 0) { setSampleMsg("No eligible leads to sample right now (all recent or none past cooldown)."); return; }
+      setSampleMsg(`Wrote ${done} fresh draft(s) across quirky / outcome-hook / direct styles (Sonnet) — shown at the top, newest first.`);
       setOpenPreview(0);
-      refresh(Array.isArray(d.leadIds) ? d.leadIds : undefined);
+      refresh(ids.length ? ids : undefined);
     } catch {
       setSampleMsg("Sample request failed.");
     } finally {
@@ -223,7 +226,7 @@ export default function SendSpread() {
                 <div className="flex items-center justify-between gap-2 mb-2">
                   <p className="text-xs font-semibold tracking-wide" style={{ color: "var(--text-tertiary)" }}>PREVIEWS ({previews.length}) · short only, ≤{length.maxSendableWords}w · newest first</p>
                   <button onClick={sampleNow} disabled={sampling} className="text-xs underline" style={{ color: "var(--accent)" }}>
-                    {sampling ? "Writing…" : "See current style (write 3 now)"}
+                    {sampling ? "Writing (Sonnet, ~45s)…" : "See the range (quirky/outcome/direct, Sonnet)"}
                   </button>
                 </div>
                 {sampleMsg && <p className="text-xs mb-2" style={{ color: "var(--text-tertiary)" }}>{sampleMsg}</p>}
