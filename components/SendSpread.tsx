@@ -34,6 +34,7 @@ type Data = {
   deliverability: { verdict: string; avgHealth: number | null; hasHealthData: boolean } | null;
   length: { maxSendableWords: number; longInSample: number; sampled: number };
   fit: { core: number; maybe: number; off: number; sampled: number };
+  operatorWarnings: Array<{ source: string; issue: string }>;
   previews: Preview[];
 };
 
@@ -136,7 +137,7 @@ export default function SendSpread() {
     );
   }
 
-  const { workspace, leads, ready, previews, activeStyles, deliverability, length, fit } = data;
+  const { workspace, leads, ready, previews, activeStyles, deliverability, length, fit, operatorWarnings } = data;
   const delivColor = deliverability ? (DELIV_COLOR[deliverability.verdict] ?? "var(--text-tertiary)") : "var(--text-tertiary)";
 
   return (
@@ -195,6 +196,20 @@ export default function SendSpread() {
               <span style={{ color: FIT_COLOR.maybe }}>{fit.maybe} maybe</span> ·{" "}
               <span style={{ color: FIT_COLOR.off }}>{fit.off} off-ICP (dropped at send)</span>
             </p>
+          )}
+
+          {/* Checks & balances: config inputs fighting the goal. The core overrides them, but flag so you can fix the source. */}
+          {operatorWarnings.length > 0 && (
+            <div className="rounded-lg border p-3" style={{ borderColor: "#b45309", background: "rgba(180,83,9,0.06)" }}>
+              <p className="text-xs font-semibold mb-1" style={{ color: "#b45309" }}>⚖ Your config is pulling against the goal (core rules override it, but fix at the source):</p>
+              <ul className="space-y-0.5">
+                {operatorWarnings.slice(0, 6).map((w, i) => (
+                  <li key={i} className="text-xs" style={{ color: "var(--text-secondary)" }}>
+                    <span className="font-medium" style={{ color: "var(--text-primary)" }}>{w.source}</span> {w.issue}
+                  </li>
+                ))}
+              </ul>
+            </div>
           )}
 
           {ready.total === 0 ? (

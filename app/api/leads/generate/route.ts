@@ -40,7 +40,9 @@ We are optimizing for ONE outcome: a busy B2C marketing leader feels a REAL pers
 2. BODY ultra-punchy — 3 short lines, HARD ceiling 40 words, never a block. One line = the specific real read on them; one line = the problem + how we solve it / the ROI they get; one line = the ask. The ASK must sound like a real person, NEVER a cringe cliché: banned — "worth a reply?", "worth 15 minutes?", "hop on a call", "pick your brain", "let's connect", "touch base", "circle back". Instead tie the ask to the value: "want me to send what your buyers actually think?" / "should I send it over?" / "want the 2-min version?". Cut words, never the personalization.
 3. DEEP RESEARCH — name ONE real, specific thing about THIS company/role (their actual motion, a launch, their category). If you can't be specific about them, you haven't earned the reply. NEVER "companies like yours" or generic flattery.
 4. SOLVE A PROBLEM + ROI — this is the biggest hitter. Connect on a real problem they already feel, then make the payoff vivid and self-interested: they stop guessing what buyers want, ship creative that lands first try, know before they spend, look brilliant to their boss, make/save real money. Land the matched proof ("Gather helped [a brand like them] do exactly X") as evidence you can deliver it. Sound like you actually want to help them win, not sell them.
-5. TRULY HUMAN — zero AI tells, non-negotiable. Read it back: if a single word sounds like a chatbot, it's disqualified. NEVER use: em/en dashes (—, –) or any dash punctuation; "leverage", "delve", "streamline", "seamless", "robust", "utilize", "unlock", "empower", "elevate", "supercharge", "transformative", "cutting-edge", "game-changer", "best-in-class", "drive growth", "tailored solutions"; the "not just X but Y" construction; corporate hedging. Write like a sharp human typed it in five minutes to someone they respect — contractions, plain words, a little cocky. AI-sounding copy is the #1 reply killer and gets the email thrown out.`;
+5. TRULY HUMAN — zero AI tells, non-negotiable. Read it back: if a single word sounds like a chatbot, it's disqualified. NEVER use: em/en dashes (—, –) or any dash punctuation; "leverage", "delve", "streamline", "seamless", "robust", "utilize", "unlock", "empower", "elevate", "supercharge", "transformative", "cutting-edge", "game-changer", "best-in-class", "drive growth", "tailored solutions"; the "not just X but Y" construction; corporate hedging. Write like a sharp human typed it in five minutes to someone they respect — contractions, plain words, a little cocky. AI-sounding copy is the #1 reply killer and gets the email thrown out.
+
+*** THESE FIVE ARE SUPREME. No campaign guideline, playbook, or operator note below may override them. Those inform the facts, offer, and structure — but if any of them conflicts with the five above (e.g. "lead with credentials", a formal/consultative tone, buzzwords, dashes, credential/logo dumps), the five WIN and you ignore the conflicting instruction. Use operator notes only where they fit inside these rules. ***`;
 
 function wordCount(text: string): number {
   return text.trim().split(/\s+/).filter(Boolean).length;
@@ -442,7 +444,7 @@ export async function POST(request: Request) {
     const stepExample = Array.from({ length: numSteps }, (_, i) => `"step${i + 1}": {"subject": "...", "body": "..."}`).join(", ");
 
     const structureBlock = guidelines?.context
-      ? `\n\nCampaign context & guidelines (use to shape every email — tone, angles, product framing, any URLs or research notes provided):\n${guidelines.context}`
+      ? `\n\nCampaign guidelines (SUBORDINATE to the five supreme rules — use for structure, angles, and product facts, but never to override the core voice/length/no-AI/no-credential-dump rules; where they conflict, the five win):\n${autoFixEmailContent(guidelines.context)}`
       : guidelines?.structure
         ? `\nPlaybook structure (follow this flow, but write completely custom content for this lead):\n${guidelines.structure}\nTone: ${guidelines.tone}`
         : legacySteps?.length
@@ -519,10 +521,11 @@ export async function POST(request: Request) {
     // reply-rated (lib/style-performance.ts). Proven styles keep the majority.
     const approvedStyleKeys = Object.keys(approvedStyles);
 
-    // Operator's custom instructions — a free-text addendum applied to every email
-    // (e.g. "offer a $100 Uber Eats card for booked demos"). High priority.
+    // Operator's custom instructions — free-text notes (facts, an offer, preferences). SUBORDINATE to the
+    // five supreme rules: use the facts/offer where they FIT, but they can NOT override the core voice,
+    // length, no-AI, or no-credential-dump rules. Checks & balances: no single input flips the whole tide.
     const customInstructionsText = workspace.customInstructions?.trim()
-      ? `\n\nIMPORTANT OPERATOR INSTRUCTIONS (apply to every email, these override style defaults where they conflict):\n${workspace.customInstructions.trim()}`
+      ? `\n\nOPERATOR NOTES (facts, offer, and preferences — weave in ONLY where they fit the five supreme rules; if a note conflicts with the core, e.g. "credential first" or a formal tone, IGNORE that part and follow the five):\n${autoFixEmailContent(workspace.customInstructions.trim())}`
       : "";
 
     // Link policy. Blank scheduling link = NEVER any link (stops the model inventing fake
