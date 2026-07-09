@@ -9,22 +9,30 @@ import { verifyEmail } from "@/lib/verify-email";
 import { personaForTitle } from "@/lib/apollo-personas";
 import { createBatchWithLeads, type NormalizedLead } from "@/lib/leads";
 import { packSignal } from "@/lib/signal-store";
+import { parseResearchUpload, type RejectedRow } from "@/lib/research-csv";
 
 export const dynamic = "force-dynamic";
-export const maxDuration = 120;
+export const maxDuration = 300;
+
+const MAX_PER_CALL = 500;
 
 /**
  * SIGNAL INGEST — the closed loop from your deep-research agents into the email engine.
  *
- * You send a list of people you found (name + company + the pain SIGNAL you found + its SOURCE).
+ * You send a BULK list of people you found (name + company + the SIGNAL/insight + its source).
  * This: (1) resolves each email from name+company via Apollo enrichment (bulk_match — the cheap,
  * targeted use, one credit per person you actually want), (2) verifies it, (3) dedupes against
- * existing leads, (4) creates a lead with the signal stored so generation opens the email on it.
+ * existing leads AND within the upload, (4) creates a lead with the signal stored so generation
+ * opens the email on it.
  *
  * It NEVER sends and NEVER auto-generates — it stages reply-ready, signal-carrying leads for the
  * normal gated pipeline. Spends Apollo enrichment credits (operator's key), so it's an operator action.
  *
- * Body: { leads: [{ name, company, domain?, title?, website?, signal, source? }], workspaceId? (cron), batchName? }
+ * Accepts EITHER:
+ *   - a pasted/uploaded CSV or TSV (spreadsheet copy works): { csv: "<text>" }  (or { text }, or raw text body)
+ *     Columns (header row, any order, human names ok): name, company, signal, source?, title?, domain?
+ *   - structured JSON: { leads: [{ name, company, signal, source?, title?, domain?, website? }] }
+ * Plus optional { workspaceId } (cron auth) and { batchName }.
  */
 
 type InputLead = { name?: string; company?: string; domain?: string; title?: string; website?: string; signal?: string; source?: string };
@@ -44,13 +52,24 @@ function domainOf(l: InputLead): string | undefined {
 
 export async function POST(request: Request) {
   try {
-    const body = await request.json().catch(() => ({}));
+    // Accept JSON ({leads}|{csv}|{text}) OR a raw CSV/TSV text body.
+    const contentType = request.headers.get("content-type") || "";
+    let body: Record<string, unknown> = {};
+    let rawText = "";
+    if (contentType.includes("application/json")) {
+      body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
+    } else {
+      rawText = await request.text().catch(() => "");
+      // A raw body might still be JSON sent without the header — try to parse, else treat as CSV text.
+      try { body = JSON.parse(rawText) as Record<string, unknown>; rawText = ""; } catch { /* it's CSV text */ }
+    }
     const cron = process.env.CRON_SECRET;
-    const viaCron = cron && request.headers.get("x-cron-secret") === cron && typeof body.workspaceId === "string";
+    const workspaceIdParam = typeof body.workspaceId === "string" ? body.workspaceId : "";
+    const viaCron = Boolean(cron && request.headers.get("x-cron-secret") === cron && workspaceIdParam);
 
     let ws: { id: string; apolloApiKey: string | null } | null = null;
     if (viaCron) {
-      ws = await prisma.workspace.findUnique({ where: { id: body.workspaceId }, select: { id: true, apolloApiKey: true } });
+      ws = await prisma.workspace.findUnique({ where: { id: workspaceIdParam }, select: { id: true, apolloApiKey: true } });
     } else {
       const session = await getServerSession(authOptions);
       if (!session?.user?.id) return NextResponse.json({ error: "Please log in." }, { status: 401 });
@@ -59,18 +78,53 @@ export async function POST(request: Request) {
     if (!ws) return NextResponse.json({ error: "No workspace." }, { status: 400 });
     if (!ws.apolloApiKey) return NextResponse.json({ error: "Apollo API key not configured (needed to resolve emails)." }, { status: 400 });
 
-    const input: InputLead[] = Array.isArray(body.leads) ? body.leads : [];
-    const clean = input.filter((l) => (l?.name || "").trim() && (l?.company || "").trim());
-    if (clean.length === 0) return NextResponse.json({ error: "Provide leads: [{ name, company, signal }]." }, { status: 400 });
-    if (clean.length > 200) return NextResponse.json({ error: "Max 200 per call — split into batches." }, { status: 400 });
+    // Gather input from whichever shape was sent, and track rows we reject up front so nothing vanishes.
+    let input: InputLead[] = [];
+    let rejected: RejectedRow[] = [];
+    if (Array.isArray(body.leads)) {
+      input = body.leads as InputLead[];
+    } else {
+      const csvText = rawText || (typeof body.csv === "string" ? body.csv : "") || (typeof body.text === "string" ? body.text : "");
+      if (csvText.trim()) {
+        const parsed = parseResearchUpload(csvText);
+        input = parsed.rows.map((r) => ({ name: r.name, company: r.company, signal: r.signal, source: r.source, title: r.title, domain: r.domain }));
+        rejected = parsed.rejected;
+      }
+    }
+
+    // A JSON lead still needs name + company + signal to be worth a credit; reject (don't drop) the rest.
+    const clean: InputLead[] = [];
+    input.forEach((l, i) => {
+      const name = (l?.name || "").trim(), company = (l?.company || "").trim(), signal = (l?.signal || "").trim();
+      const missing = [!name && "name", !company && "company", !signal && "signal"].filter(Boolean);
+      if (missing.length) { rejected.push({ row: i + 1, reason: `missing ${missing.join(" + ")}`, raw: `${name || "?"} / ${company || "?"}` }); return; }
+      clean.push({ ...l, name, company, signal });
+    });
+
+    // Dedupe WITHIN the upload itself (same person listed twice) before anything hits Apollo.
+    const seenInFile = new Set<string>();
+    let dupesInFile = 0;
+    const deduped = clean.filter((l) => {
+      const k = leadDedupKey(l.name, l.company);
+      if (seenInFile.has(k)) { dupesInFile += 1; return false; }
+      seenInFile.add(k);
+      return true;
+    });
+
+    if (deduped.length === 0) {
+      return NextResponse.json({ error: "No usable rows. Each needs name + company + signal.", rejected: rejected.slice(0, 50), dupesInFile }, { status: 400 });
+    }
+    if (deduped.length > MAX_PER_CALL) {
+      return NextResponse.json({ error: `Max ${MAX_PER_CALL} per call — split into batches (got ${deduped.length}).` }, { status: 400 });
+    }
 
     const apolloKey = decrypt(ws.apolloApiKey);
 
     // 1) Dedupe against existing leads by name+company BEFORE spending an enrichment credit.
     const existing = await prisma.lead.findMany({ where: { leadBatch: { workspaceId: ws.id } }, select: { name: true, company: true } });
     const existingKeys = new Set(existing.map((e) => leadDedupKey(e.name, e.company)));
-    const fresh = clean.filter((l) => !existingKeys.has(leadDedupKey(l.name, l.company)));
-    const skippedDupes = clean.length - fresh.length;
+    const fresh = deduped.filter((l) => !existingKeys.has(leadDedupKey(l.name, l.company)));
+    const skippedDupes = deduped.length - fresh.length;
 
     // 2) Enrich emails via Apollo bulk_match (name + company [+ domain]) in batches of 10.
     const resolved: Array<{ input: InputLead; email: string; title?: string; industry?: string; website?: string }> = [];
@@ -105,7 +159,7 @@ export async function POST(request: Request) {
     }
 
     if (resolved.length === 0) {
-      return NextResponse.json({ ok: true, created: 0, skippedDupes, unresolved: unresolved.length, message: `No emails resolved (${unresolved.length} not found in Apollo, ${skippedDupes} dupes).` });
+      return NextResponse.json({ ok: true, created: 0, skippedDupes, dupesInFile, rejected: rejected.length, rejectedRows: rejected.slice(0, 50), unresolved: unresolved.length, message: `No emails resolved (${unresolved.length} not found in Apollo, ${skippedDupes} already-in-DB dupes, ${dupesInFile} in-file dupes, ${rejected.length} bad rows).` });
     }
 
     // 3) Verify + provider-classify, then create leads via the shared batch path.
@@ -123,7 +177,7 @@ export async function POST(request: Request) {
       if (r.input.signal?.trim()) signalByEmail.set(r.email.toLowerCase(), { hook: r.input.signal.trim(), source: (r.input.source || "").trim() });
     }
     if (normalized.length === 0) {
-      return NextResponse.json({ ok: true, created: 0, skippedDupes, unresolved: unresolved.length, message: "No emails passed verification." });
+      return NextResponse.json({ ok: true, created: 0, skippedDupes, dupesInFile, rejected: rejected.length, unresolved: unresolved.length, message: "No emails passed verification." });
     }
 
     const batchName = typeof body.batchName === "string" && body.batchName.trim() ? body.batchName.trim() : `Signal ingest ${new Date().toISOString().slice(0, 10)}`;
@@ -142,12 +196,17 @@ export async function POST(request: Request) {
     return NextResponse.json({
       ok: true,
       batchId,
+      batchName,
+      received: input.length,
       created: count,
       withSignal: stamped,
-      skippedDupes,
-      unresolved: unresolved.length,
+      skippedDupes,        // already in your DB
+      dupesInFile,         // listed twice in the upload
+      rejected: rejected.length,   // rows missing name/company/signal
+      rejectedRows: rejected.slice(0, 50),
+      unresolved: unresolved.length,   // Apollo couldn't find / verify an email
       unresolvedList: unresolved.slice(0, 25),
-      message: `Ingested ${count} lead(s) (${stamped} with a research signal). ${skippedDupes} dupes skipped, ${unresolved.length} emails not resolved. Ready to generate + send.`,
+      message: `Ingested ${count} lead(s), ${stamped} carrying a research signal. Skipped ${skippedDupes} already-in-DB + ${dupesInFile} in-file dupes; ${rejected.length} rows rejected (bad format); ${unresolved.length} emails not resolved. Staged in "${batchName}" — ready to generate + send.`,
     });
   } catch (err) {
     return NextResponse.json({ error: err instanceof Error ? err.message : "Signal ingest failed" }, { status: 500 });
