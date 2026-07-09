@@ -27,7 +27,7 @@ export type ApolloSearch = {
   providerFilter?: ProviderFilter;   // "all" (default) | "google" | "no-gateways" — filter by recipient inbox provider (MX)
 };
 
-type ApolloPerson = {
+export type ApolloPerson = {
   id?: string;
   first_name?: string | null;
   last_name?: string | null;

@@ -20,6 +20,7 @@ import { generateSubjectCandidates, scoreSubject } from "@/lib/subject-engine";
 import { mechanismForIndex, subjectMechanismBlock, MECHANISM_TAG_PREFIX } from "@/lib/subject-mechanisms";
 import { brandProofBlock } from "@/lib/brand-proof";
 import { deepResearchLead, deepResearchBlock } from "@/lib/deep-research";
+import { readSignal, signalToResearch } from "@/lib/signal-store";
 import { randomUUID } from "crypto";
 
 export const dynamic = "force-dynamic";
@@ -421,7 +422,7 @@ export async function POST(request: Request) {
       prisma.lead.count({ where: needsWorkWhere }),
       prisma.lead.findMany({
         where: needsWorkWhere,
-        select: { id: true, email: true, name: true, jobTitle: true, company: true, website: true, industry: true, persona: true, vertical: true, videoUrl: true, landingPageToken: true },
+        select: { id: true, email: true, name: true, jobTitle: true, company: true, website: true, industry: true, persona: true, vertical: true, videoUrl: true, landingPageToken: true, landingPageContentJson: true },
         // oldestFirst drains the oldest leads first (by creation) — the stalest in the pool — so a new
         // campaign starts with the people who've waited longest, instead of an arbitrary id order.
         orderBy: oldestFirstParam === true ? { createdAt: "asc" } : { id: "asc" },
@@ -656,9 +657,15 @@ ${styleConfig.prompt}${researchPlaybookBlock()}${brandProofText}${learningsText}
       // Slow + costly; opt-in. Best-effort — null (nothing real found / call failed) falls back to the scrape.
       // Give the researcher Gather's real capabilities + proof so it picks the signal WE can best speak to.
       const gatherForResearch = [productSummary, proofPointsText, socialProofText].filter(Boolean).join("\n").slice(0, 1500) || null;
-      const deepResearch = useDeepResearch
-        ? await deepResearchLead(anthropicKey, { name: lead.name, jobTitle: lead.jobTitle, company: lead.company, website: lead.website, industry: lead.industry }, model, companyContextRaw, gatherForResearch)
-        : null;
+      // Closed loop: if this lead was ingested from a deep-research agent with a real, provided signal
+      // (packed into landingPageContentJson), THAT is the opener — use it directly and skip the model's
+      // own web search (we already know the hook + its source, and it's higher-signal than a live guess).
+      const storedSignal = readSignal(lead.landingPageContentJson);
+      const deepResearch = storedSignal
+        ? signalToResearch(storedSignal)
+        : useDeepResearch
+          ? await deepResearchLead(anthropicKey, { name: lead.name, jobTitle: lead.jobTitle, company: lead.company, website: lead.website, industry: lead.industry }, model, companyContextRaw, gatherForResearch)
+          : null;
       const deepResearchText = deepResearchBlock(deepResearch);
       // Avoid two competing "open sentence 1 on this" instructions: when deep research found a real hook,
       // that hook is THE opener and the scraped site text becomes background context only.
